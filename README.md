@@ -30,6 +30,46 @@ After adding the marketplace:
 |--------|-------------|
 | gmcc | GM-CDE plugin for contextual development |
 
+### Installing GMCC and its CKFS
+
+After installing the `gmcc` plugin, you need to initialize the GM-CDE environment and its contextual knowledge file system (ckfs).
+
+#### 1. Initialize GMCC (First Time Setup)
+
+Run this once to set up GMCC globally:
+
+```
+/gm_init
+```
+
+This creates the global GMCC configuration and ckfs structure in your home directory.
+
+#### 2. Initialize a Repository
+
+Navigate to your project directory and run:
+
+```
+/gm_repo_init
+```
+
+This sets up the repository-specific ckfs structure for contextual development.
+
+#### 3. Load Branch Context
+
+When starting work on a branch, load the branch context:
+
+```
+gm load branch <branch-name>
+```
+
+Or to load the current branch:
+
+```
+gm load branch
+```
+
+This loads any existing contextual knowledge for the branch and prepares the GM-CDE environment for development.
+
 ## Uninstalling
 
 To remove the marketplace:
