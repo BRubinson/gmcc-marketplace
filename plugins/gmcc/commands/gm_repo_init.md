@@ -10,7 +10,7 @@ allowed-tools: Bash, Read, Write, Glob, AskUserQuestion
 
 You are initializing GM-CDE for this specific repository.
 
-**IMPORTANT**: This command creates the repository-specific CKFS structure. The system-level `/gm_init` must be run first to create `~/gmcc_ckfs/`.
+**IMPORTANT**: This command creates the repository-specific CKFS structure. The system-level `/gm_init` must be run first to create `~/gmcc_ckfs/` and the shared plugin template.
 
 ## Environment Variables
 
@@ -19,36 +19,40 @@ The following should be set by the SessionStart hook:
 - `$GMCC_REPO_ID` - Repository directory name
 - `$GMCC_REPO_PATH` - Path to this repo's CKFS (~/gmcc_ckfs/{repo})
 - `$GMCC_FAM_PATH` - Path to current branch FAM
-- `$GMCC_PLUGIN_ROOT` - Plugin installation path
+- `$GMCC_PLUGIN_ROOT` - Live plugin installation path (set by Claude for marketplace plugins)
 
 ## Pre-Flight Checks
 
 First, verify:
 1. This is a git repository (`git rev-parse --git-dir`)
-2. Environment variables are set (check `$GMCC_REPO_ID`)
-3. System is initialized (`~/gmcc_ckfs/` exists)
+2. System is initialized (`~/gmcc_ckfs/` exists)
+3. Shared template exists (`~/gmcc_ckfs/gmcc_plugin_template/` exists)
 4. Repo is not already initialized (unless `--force` in $ARGUMENTS)
 
 ### If Env Vars Not Set
+The env vars may not be set if the SessionStart hook hasn't run. Proceed by computing them:
+```bash
+GMCC_CKFS_ROOT=~/gmcc_ckfs
+GMCC_REPO_ID=$(basename $(git rev-parse --show-toplevel))
+GMCC_REPO_PATH=$GMCC_CKFS_ROOT/$GMCC_REPO_ID
 ```
-[GMB] GMCC environment not detected!
-
-The SessionStart hook may not be configured. Ensure:
-1. Plugin is installed at ~/.claude/plugins/gmcc/
-2. hooks/hooks.json has SessionStart configured
-3. Restart Claude Code to trigger SessionStart
-
-To manually set (temporary):
-export GMCC_CKFS_ROOT=~/gmcc_ckfs
-export GMCC_REPO_ID=$(basename $(git rev-parse --show-toplevel))
-```
-Exit without changes.
 
 ### If System Not Initialized
 ```
 [GMB] GMCC system not initialized!
 
 Run /gm_init first to create the system-level CKFS structure.
+```
+Exit without changes.
+
+### If Shared Template Missing
+```
+[GMB] Shared plugin template not found!
+
+Expected at: ~/gmcc_ckfs/gmcc_plugin_template/
+
+Run /gm_init --force to reinitialize with the plugin template,
+or manually copy: cp -r <plugin_path>/* ~/gmcc_ckfs/gmcc_plugin_template/
 ```
 Exit without changes.
 
@@ -75,10 +79,9 @@ Create the repository CKFS structure at `$GMCC_REPO_PATH`:
 ├── SRC_INDEX.md
 ├── FAM_INDEX.md
 ├── CHANGELOG.md
+├── EVOLUTION_LOG.md
 ├── resource/
 │   └── .gitkeep
-├── gmcc_plugin_template/    # Copy of plugin for evolution
-│   └── ... (full plugin structure)
 └── fam/
     └── main/
         ├── Purpose.md
@@ -89,6 +92,8 @@ Create the repository CKFS structure at `$GMCC_REPO_PATH`:
             └── .gitkeep
 ```
 
+**NOTE**: The plugin template is NOT stored per-repo. It lives at `~/gmcc_ckfs/gmcc_plugin_template/` and is shared across all repositories.
+
 Also create in the project's `.claude/` directory:
 ```
 .claude/
@@ -97,7 +102,7 @@ Also create in the project's `.claude/` directory:
 
 ## File Templates
 
-Use templates from `$GMCC_PLUGIN_ROOT/ckfs_templates/` if they exist.
+Use templates from `~/gmcc_ckfs/gmcc_plugin_template/ckfs_templates/` if they exist, otherwise use the inline templates below.
 
 ### GMB_STATE.json (in project .claude/)
 ```json
@@ -194,6 +199,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 *Updated by: GMB on merge operations*
 ```
 
+### EVOLUTION_LOG.md
+```markdown
+# GM-CDE Evolution Log
+
+All evolutions to the GM-CDE template are logged here.
+Evolution changes apply to the shared template at ~/gmcc_ckfs/gmcc_plugin_template/
+
+---
+```
+
 ### main/Purpose.md
 ```markdown
 # Branch Purpose: main
@@ -265,16 +280,6 @@ GM-CDE has been initialized. The main branch serves as the stable integration po
 *Last compiled: {TODAY}*
 ```
 
-## Copy Plugin Template for Evolution
-
-Copy the entire plugin structure to `$GMCC_REPO_PATH/gmcc_plugin_template/`:
-
-```bash
-cp -r "$GMCC_PLUGIN_ROOT"/* "$GMCC_REPO_PATH/gmcc_plugin_template/"
-```
-
-This allows `/gm_evolve` to modify the template without affecting the live plugin.
-
 ## Post-Initialization
 
 After creating all files:
@@ -286,7 +291,7 @@ After creating all files:
    {
      "statusLine": {
        "type": "command",
-       "command": "$GMCC_PLUGIN_ROOT/scripts/gm_statusline.sh"
+       "command": "${CLAUDE_PLUGIN_ROOT}/scripts/gm_statusline.sh"
      }
    }
    ```
@@ -318,11 +323,13 @@ Created at $GMCC_REPO_PATH:
 - SRC_INDEX.md
 - FAM_INDEX.md
 - CHANGELOG.md
+- EVOLUTION_LOG.md
 - fam/main/ (complete FAM structure)
-- gmcc_plugin_template/ (evolution target)
 
 Created at .claude/:
 - GMB_STATE.json (status line state)
+
+Shared plugin template: ~/gmcc_ckfs/gmcc_plugin_template/
 
 Next steps:
 1. {Edit GREATER_PURPOSE.md if skipped}

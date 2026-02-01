@@ -1,6 +1,6 @@
 ---
 name: gm_evolve
-description: Evolve GM-CDE by updating template and instance using the ECLAIR macro workflow. High-accuracy evolution with exploration, clarification, learning, architecture, implementation, and review.
+description: Evolve GM-CDE by updating the shared template and syncing to the live plugin using the ECLAIR macro workflow. High-accuracy evolution with exploration, clarification, learning, architecture, implementation, and review.
 argument-hint: <evolution description>
 disable-model-invocation: true
 allowed-tools: Read, Write, Edit, Bash, Grep, Glob, Task, AskUserQuestion
@@ -15,31 +15,57 @@ You are evolving the GM-CDE system itself using the ECLAIR macro workflow for hi
 [GMB] MODE: GM-CDE | BRANCH: {ACTIVE_BRANCH} | TASK: gm-evolve | STATE: initializing
 ```
 
-**Write state:** `{"task": "gm-evolve", "state": "initializing"}` to `$GMCC_PLUGIN_ROOT/GMB_STATE.json`
+**Write state:** `{"task": "gm-evolve", "state": "initializing"}` to `.claude/GMB_STATE.json` (in the project directory)
+
+---
+
+## Key Paths
+
+- **Template (edit here first):** `~/gmcc_ckfs/gmcc_plugin_template/`
+- **Live Plugin (sync to here):** `${CLAUDE_PLUGIN_ROOT}` (set by Claude for marketplace plugins)
+- **Fallback live plugin search:**
+  - `~/.claude/plugins/cache/gmcc-marketplace/gmcc/*/` (marketplace install)
+  - `~/.claude/plugins/gmcc/` (manual install)
+
+The template is SHARED across all repositories at the system level.
 
 ---
 
 ## Pre-Flight Checks
 
-1. Verify template exists at `$GMCC_REPO_PATH/gmcc_plugin_template/`
-2. Verify instance is initialized (`$GMCC_PLUGIN_ROOT/ckfs/` exists)
+1. Verify template exists at `~/gmcc_ckfs/gmcc_plugin_template/`
+2. Determine live plugin path (for syncing after changes)
 3. Get current git branch
+
+### Determine Live Plugin Path
+
+```bash
+# Find live plugin location
+if [ -n "${CLAUDE_PLUGIN_ROOT}" ]; then
+    LIVE_PLUGIN="${CLAUDE_PLUGIN_ROOT}"
+elif [ -d "$HOME/.claude/plugins/cache/gmcc-marketplace/gmcc" ]; then
+    LIVE_PLUGIN=$(ls -d "$HOME/.claude/plugins/cache/gmcc-marketplace/gmcc"/*/ 2>/dev/null | sort -V | tail -1)
+elif [ -d "$HOME/.claude/plugins/gmcc" ]; then
+    LIVE_PLUGIN="$HOME/.claude/plugins/gmcc"
+fi
+```
 
 ### If Template Missing
 ```
-[GMB] Template not found at $GMCC_PLUGIN_ROOT/green_mountain_template/
+[GMB] Template not found at ~/gmcc_ckfs/gmcc_plugin_template/
 
-The GM-CDE template directory is required for evolution.
-Create it by copying current instance files, or check your installation.
+The shared GM-CDE template directory is required for evolution.
+Run /gm_init to create it, or manually copy:
+cp -r <plugin_path>/* ~/gmcc_ckfs/gmcc_plugin_template/
 ```
 Exit without changes.
 
-### If Instance Not Initialized
+### If Live Plugin Not Found
 ```
-[GMB] Warning: GM-CDE instance not fully initialized
+[GMB] Warning: Live plugin not found
 
-$GMCC_PLUGIN_ROOT/ckfs/ not found. You can still evolve the template,
-but instance sync will be skipped.
+Cannot determine live plugin location for syncing.
+Template evolution will proceed, but you'll need to manually sync changes.
 
 Continue with template-only evolution?
 ```
@@ -68,27 +94,28 @@ gmcc:macro:workflow:eclair(
 ## Evolution Context
 
 This is a GM-CDE system evolution, not a feature development task. The scope is:
-- Skills: `$GMCC_PLUGIN_ROOT/green_mountain_template/skills/`
-- Commands: `$GMCC_PLUGIN_ROOT/green_mountain_template/commands/`
-- Agents: `$GMCC_PLUGIN_ROOT/green_mountain_template/agents/`
-- Props: `$GMCC_PLUGIN_ROOT/green_mountain_template/props/`
-- Macros: `$GMCC_PLUGIN_ROOT/green_mountain_template/skills/gmcc_macro*/`
-- FAM Templates: `$GMCC_PLUGIN_ROOT/green_mountain_template/ckfs_templates/`
+- Skills: `~/gmcc_ckfs/gmcc_plugin_template/skills/`
+- Commands: `~/gmcc_ckfs/gmcc_plugin_template/commands/`
+- Agents: `~/gmcc_ckfs/gmcc_plugin_template/agents/`
+- Macros: `~/gmcc_ckfs/gmcc_plugin_template/skills/gmcc_macro*/`
+- FAM Templates: `~/gmcc_ckfs/gmcc_plugin_template/ckfs_templates/`
+- Scripts: `~/gmcc_ckfs/gmcc_plugin_template/scripts/`
+- Hooks: `~/gmcc_ckfs/gmcc_plugin_template/hooks/`
 
 ## Critical Rules for GM-CDE Evolution
 
-1. **Template First**: Always update `$GMCC_REPO_PATH/gmcc_plugin_template/` FIRST - this is the source of truth
-2. **Instance Sync**: After template changes, sync to `$GMCC_PLUGIN_ROOT/` instance files
+1. **Template First**: Always update `~/gmcc_ckfs/gmcc_plugin_template/` FIRST - this is the source of truth
+2. **Instance Sync**: After template changes, sync to live plugin at `${CLAUDE_PLUGIN_ROOT}` (or detected path)
 3. **Never Sync These**:
-   - `~/gmcc_ckfs/` (runtime FAM files)
-   - `$GMCC_PLUGIN_ROOT/settings.local.json` (instance-specific)
+   - `~/gmcc_ckfs/{repo}/` directories (runtime FAM files)
+   - Instance-specific settings
 4. **Skill Changes**: If `skills/gmcc/SKILL.md` is modified, user must restart Claude session
 
 ## Expected Outputs
 
 The ECLAIR Review phase must include:
-- Diff between template and instance for each changed file
-- User approval before syncing changes to instance
+- Diff between template and live plugin for each changed file
+- User approval before syncing changes to live plugin
 - Documentation in EVOLUTION_LOG.md
 "
 )
@@ -130,7 +157,7 @@ Architecture agents should consider:
 ### Phase 5 (Implement) - Evolution-Specific Requirements
 
 Implementation must:
-1. Update template files in `$GMCC_REPO_PATH/gmcc_plugin_template/`
+1. Update template files in `~/gmcc_ckfs/gmcc_plugin_template/`
 2. Track all modified files for instance sync
 3. Preserve existing functionality unless explicitly changing it
 
@@ -153,14 +180,17 @@ After ECLAIR completes, perform GM-CDE-specific sync:
 For each modified template file:
 
 ```bash
-diff -u $GMCC_PLUGIN_ROOT/{file} $GMCC_PLUGIN_ROOT/green_mountain_template/{file}
+diff -u "${LIVE_PLUGIN}/{file}" ~/gmcc_ckfs/gmcc_plugin_template/{file}
 ```
 
 ### Present Diffs
 
 Use AskUserQuestion:
 ```
-Template changes complete via ECLAIR. Here are the diffs to apply to your instance:
+Template changes complete via ECLAIR. Here are the diffs to apply to your live plugin:
+
+**Template:** ~/gmcc_ckfs/gmcc_plugin_template/
+**Live Plugin:** {LIVE_PLUGIN path}
 
 **Files changed:** {count}
 
@@ -175,21 +205,21 @@ Would you like to see the full diffs?
 
 If "Show full diffs" selected, display each diff and then ask:
 ```
-Apply these changes to your instance?
-- Yes, apply all - Update instance files
+Apply these changes to your live plugin?
+- Yes, apply all - Update live plugin files
 - Apply selectively - Choose which files to sync
 - Cancel - Keep template changes, skip instance sync
 ```
 
-### Apply to Instance
+### Apply to Live Plugin
 
 For each approved file:
-1. Read from `$GMCC_PLUGIN_ROOT/green_mountain_template/{file}`
-2. Write to `$GMCC_PLUGIN_ROOT/{file}`
+1. Read from `~/gmcc_ckfs/gmcc_plugin_template/{file}`
+2. Write to `${LIVE_PLUGIN}/{file}`
 
-**Files to NEVER sync to instance:**
-- `$GMCC_PLUGIN_ROOT/ckfs/` (runtime files, not template)
-- `$GMCC_PLUGIN_ROOT/settings.local.json` (instance-specific)
+**Files to NEVER sync:**
+- `~/gmcc_ckfs/{repo}/` directories (runtime FAM files)
+- Any `.claude/` project-specific files
 
 ---
 
@@ -197,11 +227,14 @@ For each approved file:
 
 ### Create Evolution Log Entry
 
-If `$GMCC_REPO_PATH/EVOLUTION_LOG.md` doesn't exist, create it:
+Log the evolution in `~/gmcc_ckfs/{current_repo}/EVOLUTION_LOG.md`:
+
+If it doesn't exist, create it:
 ```markdown
 # GM-CDE Evolution Log
 
-All evolutions to the GM-CDE template and instance are logged here.
+All evolutions to the GM-CDE template are logged here.
+Evolution changes apply to the shared template at ~/gmcc_ckfs/gmcc_plugin_template/
 
 ---
 ```
@@ -215,14 +248,14 @@ Append new entry:
 
 ### ECLAIR Session
 - Session Name: {session_name}
-- State File: `$GMCC_FAM_PATH/ECLAIR_STATE_{session_name}.md`
+- Initiated from repo: {GMCC_REPO_ID}
 
 ### Changes
-**Template:**
+**Template (~/gmcc_ckfs/gmcc_plugin_template/):**
 - {list of template files modified}
 
-**Instance:**
-- {list of instance files synced}
+**Live Plugin ({LIVE_PLUGIN}):**
+- {list of live plugin files synced}
 
 ### Impact
 - {what this evolution enables/changes}
@@ -250,9 +283,6 @@ Analyze what changed and report:
 **If `skills/gmcc_macro*/` changed:**
 - Report: "Macro skills updated. Changes take effect immediately."
 
-**If `props/env.md` changed:**
-- Report: "Properties updated. Changes take effect immediately."
-
 **If `ckfs_templates/` changed:**
 - Report: "FAM templates updated. Changes will apply to future /gm_init and /gm_load_branch calls."
 
@@ -261,7 +291,7 @@ Analyze what changed and report:
 
 ### Final Report
 
-**Write state:** `{"task": "none", "state": "idle"}` to `$GMCC_PLUGIN_ROOT/GMB_STATE.json`
+**Write state:** `{"task": "none", "state": "idle"}` to `.claude/GMB_STATE.json`
 
 ```
 [GMB] MODE: GM-CDE | BRANCH: {ACTIVE_BRANCH} | TASK: none | STATE: idle
@@ -271,10 +301,10 @@ Evolution Complete: {description}
 **ECLAIR Session:** {session_name}
 
 **Template Updated:**
-- {count} files in $GMCC_PLUGIN_ROOT/green_mountain_template/
+- {count} files in ~/gmcc_ckfs/gmcc_plugin_template/
 
-**Instance Synced:**
-- {count} files in $GMCC_PLUGIN_ROOT/
+**Live Plugin Synced:**
+- {count} files in {LIVE_PLUGIN}
 
 **Logged:**
 - EVOLUTION_LOG.md updated
@@ -296,9 +326,9 @@ Evolution Complete: {description}
 ```
 [GMB] Error: Template file not found
 
-Expected: $GMCC_PLUGIN_ROOT/green_mountain_template/{file}
+Expected: ~/gmcc_ckfs/gmcc_plugin_template/{file}
 
-The template may be incomplete. Check your GM-CDE installation.
+The template may be incomplete. Run /gm_init --force to repopulate.
 ```
 
 **Write permission denied:**
@@ -312,7 +342,7 @@ Check file permissions and try again.
 ```
 [GMB] ECLAIR session failed at phase {N}
 
-State preserved at: $GMCC_FAM_PATH/ECLAIR_STATE_{session_name}.md
+State preserved at: {FAM_PATH}/ECLAIR_STATE_{session_name}.md
 
 To resume: /gm_evolve --resume {session_name}
 ```
@@ -321,19 +351,19 @@ To resume: /gm_evolve --resume {session_name}
 ```
 [GMB] Evolution cancelled
 
-Template changes have been made but instance was not synced.
+Template changes have been made but live plugin was not synced.
 To complete the sync later, run:
 /gm_evolve --instance-only
 
 Or to revert template changes:
-git checkout $GMCC_PLUGIN_ROOT/green_mountain_template/
+git checkout ~/gmcc_ckfs/gmcc_plugin_template/
 ```
 
 ---
 
 ## Flags
 
-**--template-only**: Only update template, skip instance sync
-**--instance-only**: Only sync instance from existing template changes
+**--template-only**: Only update template, skip live plugin sync
+**--instance-only**: Only sync live plugin from existing template changes
 **--resume {session_name}**: Resume a paused ECLAIR evolution session
-**--skip-approval**: Apply instance sync without showing diffs (use with caution)
+**--skip-approval**: Apply live plugin sync without showing diffs (use with caution)
