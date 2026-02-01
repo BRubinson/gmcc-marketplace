@@ -56,19 +56,19 @@ This sets up the repository-specific ckfs structure for contextual development.
 
 #### 3. Load Branch Context
 
-When starting work on a branch, load the branch context:
+When starting work on a branch, load or create the branch's FAM (Feature Access Memory):
 
 ```
-gm load branch <branch-name>
+/gm_load_branch
 ```
 
-Or to load the current branch:
+Or specify a branch name:
 
 ```
-gm load branch
+/gm_load_branch <branch-name>
 ```
 
-This loads any existing contextual knowledge for the branch and prepares the GM-CDE environment for development.
+This loads existing contextual knowledge for the branch or creates a new FAM if one doesn't exist. Once loaded, you're ready to start development with `/gm_feature_dev` or `/gm_task`.
 
 ## Uninstalling
 
