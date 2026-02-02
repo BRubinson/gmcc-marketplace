@@ -70,6 +70,41 @@ Or specify a branch name:
 
 This loads existing contextual knowledge for the branch or creates a new FAM if one doesn't exist. Once loaded, you're ready to start development with `/gm_feature_dev` or `/gm_task`.
 
+### KBite System (v2.2.0+)
+
+KBites are persistent knowledge directories that store pre-analyzed reference materials (documentation, examples, APIs) for efficient lookup during development.
+
+#### Creating a KBite
+
+1. **Open a maw** (temporary processing directory):
+   ```
+   /gm_crunch_open_maw claude_code_sdk
+   ```
+
+2. **Add resources** manually to the maw directories:
+   - `primary/documentation/{name}/` - Official docs
+   - `primary/example_project/{name}/` - Official examples
+   - `secondary/blogs/{name}/` - Community content
+
+3. **Chew the resources** (analyze and summarize):
+   ```
+   /gm_crunch_chew claude_code_sdk
+   ```
+
+4. **Digest into persistent kbite**:
+   ```
+   /gm_crunch_digest claude_code_sdk
+   ```
+
+#### Relating KBites
+
+Connect related knowledge domains:
+```
+/gm_kbite_relate claude_mcp claude_code_sdk "MCP requires understanding of Claude Code plugin architecture"
+```
+
+KBites are stored at `~/gmcc_ckfs/kbites/` and are automatically referenced when trigger words appear in your prompts.
+
 ## Uninstalling
 
 To remove the marketplace:

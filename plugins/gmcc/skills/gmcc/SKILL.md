@@ -33,6 +33,7 @@ These files define GMB behavior and are installed as a Claude Code plugin:
 ├── skills/gmcc/SKILL.md        # This file - core rules
 ├── skills/gmcc_agent/          # Agent system definition
 ├── skills/gmcc_macro/          # Macro system definition
+├── skills/gmcc_kbite/          # KBite knowledge system definition
 ├── commands/gm_*.md            # All GM commands
 ├── agents/gmcc_agent_*.md      # GMCC agent definitions
 ├── scripts/gm_statusline.sh    # Status line script
@@ -59,7 +60,27 @@ Per-repository CKFS data at `~/gmcc_ckfs/{repo}/`:
         ├── ChangedFiles.md  # Modified files
         ├── Famalouge.md     # Compiled thoughts
         ├── ECLAIR_BRAIN.md  # Cross-session learnings
-        └── thoughts/        # Individual thoughts
+        ├── thoughts/        # Individual thoughts
+        └── maw/             # Temporary kbite processing (crunchables)
+```
+
+### System-Level KBites (Shared across all repos)
+```
+~/gmcc_ckfs/kbites/
+└── {kbite_name}/
+    ├── KBITE_PURPOSE.md     # Why this kbite exists
+    ├── KBITE_INDEX.md       # Master resource index
+    ├── KBITE_TRIGGERS.md    # Activation trigger words
+    ├── KBITE_TRIGGER_MAP.md # Trigger to resource mapping
+    ├── KBITE_RELATIONSHIPS.md # Cross-kbite relationships
+    ├── primary/             # Official sources
+    │   ├── documentation/
+    │   ├── example_project/
+    │   ├── api_reference/
+    │   ├── blogs/
+    │   └── all_others/
+    └── secondary/           # Community sources
+        └── (same structure)
 ```
 
 ### Per-Project Files
@@ -263,6 +284,7 @@ Agents are specialized personas with defined capabilities, behaviors, and output
 | `gmcc_agent_code_explorer` | Deep codebase analysis, pattern discovery |
 | `gmcc_agent_code_architect` | Architecture design, implementation planning |
 | `gmcc_agent_code_quality_reviewer` | Code review for bugs, security, quality |
+| `gmcc_agent_kbite_crunch_chew` | Analyze crunchables into structured kbite knowledge |
 
 ### Agent Invocation
 
@@ -360,6 +382,10 @@ Thoughts are **immutable** once written. Never edit, only append new thoughts.
 | `/gm_execute_remaining` | Execute pending tasks |
 | `/gm_famalogue` | Compile thoughts to famalouge |
 | `/gm_new_macro` | Create new macros |
+| `/gm_crunch_open_maw` | Create maw for collecting kbite crunchables |
+| `/gm_crunch_chew` | Process crunchables into analyzed knowledge |
+| `/gm_crunch_digest` | Finalize kbite from chewed resources |
+| `/gm_kbite_relate` | Define relationship between kbites |
 
 ---
 
@@ -372,6 +398,7 @@ Thoughts are **immutable** once written. Never edit, only append new thoughts.
 4. Write thoughts for significant decisions
 5. Maintain ChangedFiles.md during development
 6. Reference GREATER_PURPOSE for direction alignment
+7. **Check KBite triggers** on every prompt (see KBite Trigger Awareness below)
 
 ### Never Do
 1. Edit GREATER_PURPOSE.md (human only)
@@ -379,6 +406,7 @@ Thoughts are **immutable** once written. Never edit, only append new thoughts.
 3. Skip FAM initialization for new branches
 4. Ignore ckfs maintenance
 5. Respond without status bar when GM-CDE active
+6. Ignore kbite triggers when relevant knowledge exists
 
 ### On Context Compaction
 When context is compacted, immediately:
@@ -386,6 +414,43 @@ When context is compacted, immediately:
 2. Re-read current FAM files
 3. Re-read Famalouge for context
 4. Restore awareness of current task state
+5. Check for relevant kbite triggers in the current task
+
+---
+
+## KBite Trigger Awareness (CRITICAL)
+
+The KBite system provides persistent, indexed knowledge at `$GMCC_CKFS_ROOT/kbites/`. GMB MUST leverage this knowledge when relevant.
+
+### Trigger Check Protocol
+
+**On EVERY prompt**, before beginning work:
+
+1. **Scan for triggers**: Parse the user prompt for keywords that might match kbite triggers
+2. **Check available kbites**: For each kbite in `$GMCC_CKFS_ROOT/kbites/`:
+   - Read `KBITE_TRIGGERS.md`
+   - Check for keyword matches with confidence > 70
+3. **Load relevant knowledge**: If triggers match:
+   - Read `KBITE_TRIGGER_MAP.md` to find relevant resources
+   - Load the mapped `*_chewed.md` files
+   - Include this knowledge in your working context
+4. **Cite sources**: When using kbite knowledge, cite the source:
+   - "Per the claude_code_sdk kbite..."
+   - "According to kbite knowledge..."
+
+### When to Suggest New KBites
+
+GMB should suggest creating a kbite when:
+- User repeatedly references the same external documentation
+- A new SDK/library/tool is being integrated
+- Complex domain knowledge needs persistent reference
+- Current context would benefit from pre-analyzed material
+
+Suggest: "This looks like a good candidate for a kbite. Run `/gm_crunch_open_maw {suggested_name}` to start collecting resources."
+
+### KBite System Reference
+
+Full kbite system documentation is in `$GMCC_PLUGIN_ROOT/skills/gmcc_kbite/SKILL.md`
 
 ---
 
