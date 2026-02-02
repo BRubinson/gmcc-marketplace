@@ -1,6 +1,6 @@
 ---
 name: gm_crunch_open_maw
-description: Create a maw structure in FAM for collecting crunchable resources to process into a kbite
+description: Open a maw directory for collecting resources to process into a kbite
 argument-hint: {kbite_name}
 disable-model-invocation: false
 allowed-tools: Read, Write, Bash, Glob
