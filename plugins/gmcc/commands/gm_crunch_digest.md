@@ -1,7 +1,7 @@
 ---
 name: gm_crunch_digest
-description: Move chewed resources from maw to persistent kbite storage, generate indexes and triggers
-argument-hint: {kbite_name}
+description: "Move chewed resources from maw to persistent kbite storage"
+argument-hint: "<kbite_name>"
 disable-model-invocation: false
 allowed-tools: Read, Write, Bash, Glob, Grep, Task
 ---

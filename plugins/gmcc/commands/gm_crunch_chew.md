@@ -1,7 +1,7 @@
 ---
 name: gm_crunch_chew
-description: Process crunchable resources in a maw by spawning analysis agents to generate chewed files
-argument-hint: {kbite_name}
+description: "Process crunchable resources in a maw to generate chewed analysis files"
+argument-hint: "<kbite_name>"
 disable-model-invocation: false
 allowed-tools: Read, Write, Bash, Glob, Grep, Task
 ---

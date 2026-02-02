@@ -1,7 +1,7 @@
 ---
 name: gm_kbite_relate
-description: Define a relationship between two kbites for cross-referencing
-argument-hint: {kbite_from} {kbite_to} {relationship_description}
+description: "Define a relationship between two kbites for cross-referencing"
+argument-hint: "<kbite_from> <kbite_to> <relationship>"
 disable-model-invocation: false
 allowed-tools: Read, Write, Bash, Glob
 ---
