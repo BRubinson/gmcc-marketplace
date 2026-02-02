@@ -1,7 +1,7 @@
 ---
 name: gm_crunch_open_maw
-description: Open a maw directory for collecting resources to process into a kbite
-argument-hint: {kbite_name}
+description: "Open a maw for collecting kbite resources"
+argument-hint: "<kbite_name>"
 disable-model-invocation: false
 allowed-tools: Read, Write, Bash, Glob
 ---
