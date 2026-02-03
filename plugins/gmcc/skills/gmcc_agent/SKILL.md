@@ -46,7 +46,7 @@ gmcc:agent:{agent_name}(input)
 gmcc:agent:code_explorer(target: "src/auth/")
 ```
 
-**With methodology seed (for Crack macro):**
+**With methodology seed (for ECLAIR macro):**
 ```
 gmcc:agent:code_architect(
   goal: "design caching layer",
@@ -163,7 +163,7 @@ The agent MUST return output in this exact format:
 
 ### 6. Methodology Support (Optional)
 
-For agents that support Crack macro methodology seeding:
+For agents that support ECLAIR macro methodology seeding:
 
 ```markdown
 ## Methodology Modes
@@ -185,16 +185,16 @@ When invoked with a methodology parameter, adapt behavior:
 
 ---
 
-## Integration with Crack Macro
+## Integration with ECLAIR Macro
 
-The Crack macro spawns multiple instances of GMCC agents with different methodology seeds. The workflow:
+The ECLAIR macro (in FULL mode) spawns multiple instances of GMCC agents with different methodology seeds. The workflow:
 
-1. Crack macro receives goal and context
+1. ECLAIR macro receives goal and context
 2. Spawns N agents (typically code_architect) with different methodologies
 3. Each agent produces output in their defined format
-4. Crack synthesizes outputs into unified recommendation
+4. ECLAIR synthesizes outputs into unified recommendation
 
-### Agent Selection for Crack
+### Agent Selection for ECLAIR
 
 | Phase | Agent Used |
 |-------|------------|
@@ -226,7 +226,7 @@ To create a new GMCC agent:
 1. **Single Focus**: Each agent should excel at one type of task
 2. **Clear Output**: Output format must be parseable by parent workflows
 3. **GM-CDE Aware**: Always reference GMCC skill and respect GM-CDE properties
-4. **Methodology Flexible**: Support methodology seeding for Crack compatibility
+4. **Methodology Flexible**: Support methodology seeding for ECLAIR compatibility
 5. **Tool Appropriate**: Only list tools the agent actually needs
 6. **Fail Gracefully**: Include guidance for handling edge cases
 
@@ -241,6 +241,6 @@ All GMCC constructs use the `gmcc:` prefix:
 | Type | Syntax | Example |
 |------|--------|---------|
 | Agent | `gmcc:agent:{name}(params)` | `gmcc:agent:code_explorer(target: "src/")` |
-| Macro | `gmcc:macro:{type}:{name}(params)` | `gmcc:macro:workflow:crack(n: 3)` |
+| Macro | `gmcc:macro:{type}:{name}(params)` | `gmcc:macro:workflow:eclair(mode: "full")` |
 
 This unified syntax makes GMCC constructs easily identifiable and parseable.

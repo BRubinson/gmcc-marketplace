@@ -312,7 +312,7 @@ Types:
 
 | Macro | Type | Purpose |
 |-------|------|---------|
-| `gmcc_macro_workflow_crack` | Workflow | Spawn divergent GMCC agents, synthesize best solution |
+| `gmcc_macro_workflow_eclair` | Workflow | 6-phase workflow with cross-session learning (FULL or LITE mode) |
 
 ### Macro Invocation
 
@@ -320,15 +320,15 @@ Types:
 gmcc:macro:{type}:{name}(params)
 ```
 
-Example: `gmcc:macro:workflow:crack(goal: "add OAuth support", n: 3)`
+Example: `gmcc:macro:workflow:eclair(session_name: "feat_oauth", initial_prompt: "add OAuth support")`
 
 ### Core Macros
 
-**Crack Macro** (`gmcc_macro_workflow_crack`)
-- Spawns `n` parallel GMCC agents (code_explorer, code_architect, or code_quality_reviewer)
-- Each commits fully to their methodology (Conservative, Aggressive, Pragmatic, Alternative)
-- Synthesis phase combines best insights from all approaches
-- Produces unified recommendation after gap analysis
+**ECLAIR Macro** (`gmcc_macro_workflow_eclair`)
+- 6-phase workflow: Explore, Clarify, Learn, Architect, Implement, Review
+- FULL mode: Spawns 4 divergent agents per phase (Conservative, Aggressive, Pragmatic, Alternative)
+- LITE mode: Single hybrid agent (Pragmatic+Alternative) for quick tasks
+- Cross-session learning via ECLAIR_BRAIN.md
 
 ### Creating Macros
 
@@ -462,7 +462,7 @@ When `/gm_feature_dev` is invoked:
 3. Clarifying questions phase creates a thought
 4. Architecture decisions create a thought
 5. Tasks are tracked in FAM Tasks.md
-6. `gmcc:macro:workflow:crack()` may be used for divergent exploration
+6. `gmcc:macro:workflow:eclair()` is used for workflow orchestration
 
 ### GMCC Syntax Reference
 
@@ -471,7 +471,7 @@ All GMCC constructs use the `gmcc:` prefix:
 | Type | Syntax | Example |
 |------|--------|---------|
 | Agent | `gmcc:agent:{name}(params)` | `gmcc:agent:code_explorer(target: "src/")` |
-| Macro | `gmcc:macro:{type}:{name}(params)` | `gmcc:macro:workflow:crack(n: 3)` |
+| Macro | `gmcc:macro:{type}:{name}(params)` | `gmcc:macro:workflow:eclair(mode: "full")` |
 
 ---
 

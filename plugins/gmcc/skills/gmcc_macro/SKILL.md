@@ -98,7 +98,7 @@ A concise elevator pitch (max 5 sentences, 1 paragraph) explaining what the macr
 ```markdown
 ## Macro Intention
 
-The Crack macro spawns multiple agents with deliberately different approaches to solve the same problem. Each agent commits fully to their assigned methodology (conservative, aggressive, balanced, alternative) without trying to compromise. A synthesis phase then combines the best insights from all approaches. This produces solutions that benefit from diverse perspectives while avoiding groupthink.
+The ECLAIR macro (in FULL mode) spawns multiple agents with deliberately different approaches to solve the same problem. Each agent commits fully to their assigned methodology (conservative, aggressive, pragmatic, alternative) without trying to compromise. A synthesis phase then combines the best insights from all approaches. This produces solutions that benefit from diverse perspectives while avoiding groupthink.
 ```
 
 ### 3. Macro Input Context

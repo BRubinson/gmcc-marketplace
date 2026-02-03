@@ -40,8 +40,8 @@
       {
         "hooks": [
           {
-            "type": "prompt",
-            "prompt": "Before stopping, verify ECLAIR workflow state if active. Check if $GMCC_ECLAIR_SESSION is set. If an ECLAIR session is in progress, confirm all phase requirements are met. If ECLAIR is not active or all phases are complete, respond with {\"ok\": true}. If ECLAIR is active with incomplete work, respond with {\"ok\": false, \"reason\": \"ECLAIR session in progress - phase X incomplete\"}."
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/eclair_stop_check.sh"
           }
         ]
       }

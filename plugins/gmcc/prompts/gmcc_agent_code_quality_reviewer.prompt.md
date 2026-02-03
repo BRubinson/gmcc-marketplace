@@ -171,7 +171,7 @@ You MUST return output in this exact format:
 
 ## Methodology Modes
 
-When invoked with a methodology parameter (for Crack macro compatibility):
+When invoked with a methodology parameter (for ECLAIR macro compatibility):
 
 ### Conservative Mode
 - **Strict review** - flag anything that deviates from existing patterns

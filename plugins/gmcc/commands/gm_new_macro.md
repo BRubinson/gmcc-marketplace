@@ -283,7 +283,7 @@ Save to `$GMCC_FAM_PATH/thoughts/{timestamp}_macro_exploration_{macro_name}.md`
 
 ### Launch Architect Agents
 
-Using the Crack macro pattern, spawn 3 agents with divergent approaches:
+Using the ECLAIR FULL mode pattern, spawn 3 agents with divergent approaches:
 
 **Agent 1 - Minimal Design**:
 ```markdown
