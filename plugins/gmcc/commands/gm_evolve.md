@@ -1,14 +1,16 @@
 ---
 name: gm_evolve
-description: Evolve GM-CDE by updating the shared template and syncing to the live plugin using the ECLAIR macro workflow. High-accuracy evolution with exploration, clarification, learning, architecture, implementation, and review.
+description: Evolve GM-CDE by updating the plugin source in the gmcc-marketplace repo using the ECLAIR macro workflow. Must be called from within the gmcc-marketplace repository.
 argument-hint: <evolution description>
 disable-model-invocation: true
 allowed-tools: Read, Write, Edit, Bash, Grep, Glob, Task, AskUserQuestion
 ---
 
-# GM-CDE Evolution Command (ECLAIR-Powered)
+# GM-CDE Evolution Command (ECLAIR-Powered) - v3
 
 You are evolving the GM-CDE system itself using the ECLAIR macro workflow for high-accuracy implementation.
+
+**v3 Change**: This command now ONLY updates files in the gmcc-marketplace repository. It does NOT sync to installed/live plugins. The marketplace distribution system handles deployment.
 
 ## Status Bar
 ```
@@ -19,57 +21,70 @@ You are evolving the GM-CDE system itself using the ECLAIR macro workflow for hi
 
 ---
 
-## Key Paths
-
-- **Template (edit here first):** `~/gmcc_ckfs/gmcc_plugin_template/`
-- **Live Plugin (sync to here):** `${CLAUDE_PLUGIN_ROOT}` (set by Claude for marketplace plugins)
-- **Fallback live plugin search:**
-  - `~/.claude/plugins/cache/gmcc-marketplace/gmcc/*/` (marketplace install)
-  - `~/.claude/plugins/gmcc/` (manual install)
-
-The template is SHARED across all repositories at the system level.
-
----
-
 ## Pre-Flight Checks
 
-1. Verify template exists at `~/gmcc_ckfs/gmcc_plugin_template/`
-2. Determine live plugin path (for syncing after changes)
-3. Get current git branch
+### 1. Verify in gmcc-marketplace Repository
 
-### Determine Live Plugin Path
+**CRITICAL**: This command only works in the gmcc-marketplace repository.
 
+Run this check:
 ```bash
-# Find live plugin location
-if [ -n "${CLAUDE_PLUGIN_ROOT}" ]; then
-    LIVE_PLUGIN="${CLAUDE_PLUGIN_ROOT}"
-elif [ -d "$HOME/.claude/plugins/cache/gmcc-marketplace/gmcc" ]; then
-    LIVE_PLUGIN=$(ls -d "$HOME/.claude/plugins/cache/gmcc-marketplace/gmcc"/*/ 2>/dev/null | sort -V | tail -1)
-elif [ -d "$HOME/.claude/plugins/gmcc" ]; then
-    LIVE_PLUGIN="$HOME/.claude/plugins/gmcc"
+# Check if in a git repo
+if ! git rev-parse --git-dir > /dev/null 2>&1; then
+    echo "NOT_GIT_REPO"
+    exit 1
+fi
+
+# Check if remote contains gmcc-marketplace
+REMOTE_URL=$(git remote get-url origin 2>/dev/null || echo "")
+if echo "$REMOTE_URL" | grep -q "gmcc-marketplace"; then
+    echo "VALID_REPO"
+else
+    echo "WRONG_REPO"
 fi
 ```
 
-### If Template Missing
-```
-[GMB] Template not found at ~/gmcc_ckfs/gmcc_plugin_template/
+### If NOT in gmcc-marketplace Repository
 
-The shared GM-CDE template directory is required for evolution.
-Run /gm_init to create it, or manually copy:
-cp -r <plugin_path>/* ~/gmcc_ckfs/gmcc_plugin_template/
 ```
+[GMB] Error: Not in gmcc-marketplace repository
+
+The /gm_evolve command can only be run from within the gmcc-marketplace repository.
+
+Current remote: {remote_url or "no remote configured"}
+
+To use this command:
+1. Clone or navigate to the gmcc-marketplace repository
+2. Run /gm_evolve from there
+
+This restriction ensures evolution changes are tracked in the proper repository.
+```
+
+Exit without making any changes.
+
+### 2. Get Repository Info
+
+```bash
+REPO_ROOT=$(git rev-parse --show-toplevel)
+ACTIVE_BRANCH=$(git branch --show-current)
+PLUGIN_PATH="${REPO_ROOT}/plugins/gmcc"
+```
+
+### 3. Verify Plugin Directory Exists
+
+Check that `${REPO_ROOT}/plugins/gmcc/` exists.
+
+If missing:
+```
+[GMB] Error: Plugin directory not found
+
+Expected: {REPO_ROOT}/plugins/gmcc/
+
+The gmcc plugin directory is missing from this repository.
+Verify you're in the correct repository and branch.
+```
+
 Exit without changes.
-
-### If Live Plugin Not Found
-```
-[GMB] Warning: Live plugin not found
-
-Cannot determine live plugin location for syncing.
-Template evolution will proceed, but you'll need to manually sync changes.
-
-Continue with template-only evolution?
-```
-Use AskUserQuestion to confirm.
 
 ---
 
@@ -93,30 +108,33 @@ gmcc:macro:workflow:eclair(
 
 ## Evolution Context
 
-This is a GM-CDE system evolution, not a feature development task. The scope is:
-- Skills: `~/gmcc_ckfs/gmcc_plugin_template/skills/`
-- Commands: `~/gmcc_ckfs/gmcc_plugin_template/commands/`
-- Agents: `~/gmcc_ckfs/gmcc_plugin_template/agents/`
-- Macros: `~/gmcc_ckfs/gmcc_plugin_template/skills/gmcc_macro*/`
-- FAM Templates: `~/gmcc_ckfs/gmcc_plugin_template/ckfs_templates/`
-- Scripts: `~/gmcc_ckfs/gmcc_plugin_template/scripts/`
-- Hooks: `~/gmcc_ckfs/gmcc_plugin_template/hooks/`
+This is a GM-CDE system evolution. All changes target the repository source:
+- **Repository**: {REPO_ROOT}
+- **Branch**: {ACTIVE_BRANCH}
+- **Plugin Path**: {REPO_ROOT}/plugins/gmcc/
+
+### Directories to Evolve
+- Skills: `{REPO_ROOT}/plugins/gmcc/skills/`
+- Commands: `{REPO_ROOT}/plugins/gmcc/commands/`
+- Agents: `{REPO_ROOT}/plugins/gmcc/agents/`
+- Macros: `{REPO_ROOT}/plugins/gmcc/skills/gmcc_macro*/`
+- FAM Templates: `{REPO_ROOT}/plugins/gmcc/ckfs_templates/`
+- Scripts: `{REPO_ROOT}/plugins/gmcc/scripts/`
+- Hooks: `{REPO_ROOT}/plugins/gmcc/hooks/`
 
 ## Critical Rules for GM-CDE Evolution
 
-1. **Template First**: Always update `~/gmcc_ckfs/gmcc_plugin_template/` FIRST - this is the source of truth
-2. **Instance Sync**: After template changes, sync to live plugin at `${CLAUDE_PLUGIN_ROOT}` (or detected path)
-3. **Never Sync These**:
-   - `~/gmcc_ckfs/{repo}/` directories (runtime FAM files)
-   - Instance-specific settings
-4. **Skill Changes**: If `skills/gmcc/SKILL.md` is modified, user must restart Claude session
+1. **Repo Source Only**: All changes go to `{REPO_ROOT}/plugins/gmcc/` - this IS the source of truth
+2. **No Live Sync**: Do NOT attempt to sync to installed plugins - the marketplace handles distribution
+3. **Version Updates**: If making significant changes, update version in `.claude-plugin/plugin.json`
+4. **Skill Changes**: If `skills/gmcc/SKILL.md` is modified, note that users must restart Claude session after re-installing
 
 ## Expected Outputs
 
-The ECLAIR Review phase must include:
-- Diff between template and live plugin for each changed file
-- User approval before syncing changes to live plugin
-- Documentation in EVOLUTION_LOG.md
+The ECLAIR Review phase should verify:
+- All changes are within `{REPO_ROOT}/plugins/gmcc/`
+- No external paths are modified
+- Changes follow existing patterns and conventions
 "
 )
 ```
@@ -128,7 +146,7 @@ The ECLAIR Review phase must include:
 ### Phase 1 (Explore) - Evolution-Specific Focus
 
 Explorer agents should focus on:
-- Existing GM-CDE structure and conventions
+- Existing GM-CDE structure within `plugins/gmcc/`
 - Similar commands/skills/agents for pattern reference
 - Integration points between components
 
@@ -137,7 +155,7 @@ Explorer agents should focus on:
 Common clarification areas for evolutions:
 - Scope: Which GM-CDE components affected?
 - Breaking changes: Will this affect existing behavior?
-- Instance sync: Automatic or require approval?
+- Version bump: Is this a patch, minor, or major change?
 
 ### Phase 3 (Learn) - Evolution-Specific Learnings
 
@@ -149,7 +167,7 @@ Brain bites should capture:
 ### Phase 4 (Architect) - Evolution-Specific Considerations
 
 Architecture agents should consider:
-- Template file organization
+- File organization within `plugins/gmcc/`
 - Command flag conventions
 - Agent invocation patterns
 - State file formats
@@ -157,84 +175,30 @@ Architecture agents should consider:
 ### Phase 5 (Implement) - Evolution-Specific Requirements
 
 Implementation must:
-1. Update template files in `~/gmcc_ckfs/gmcc_plugin_template/`
-2. Track all modified files for instance sync
+1. Update files in `{REPO_ROOT}/plugins/gmcc/` only
+2. Track all modified files for the report
 3. Preserve existing functionality unless explicitly changing it
 
 ### Phase 6 (Review) - Evolution-Specific Gates
 
-Review must include:
-1. Template changes review
-2. Instance sync diff review
-3. User approval gate
-4. EVOLUTION_LOG entry
-
----
-
-## Post-ECLAIR: Instance Sync
-
-After ECLAIR completes, perform GM-CDE-specific sync:
-
-### Generate Diffs
-
-For each modified template file:
-
-```bash
-diff -u "${LIVE_PLUGIN}/{file}" ~/gmcc_ckfs/gmcc_plugin_template/{file}
-```
-
-### Present Diffs
-
-Use AskUserQuestion:
-```
-Template changes complete via ECLAIR. Here are the diffs to apply to your live plugin:
-
-**Template:** ~/gmcc_ckfs/gmcc_plugin_template/
-**Live Plugin:** {LIVE_PLUGIN path}
-
-**Files changed:** {count}
-
-{For each file, show summary}
-- {file}: +{additions} -{deletions}
-
-Would you like to see the full diffs?
-- Show full diffs - Display detailed changes
-- Apply without review - Trust the changes (not recommended)
-- Cancel - Keep template changes, skip instance sync
-```
-
-If "Show full diffs" selected, display each diff and then ask:
-```
-Apply these changes to your live plugin?
-- Yes, apply all - Update live plugin files
-- Apply selectively - Choose which files to sync
-- Cancel - Keep template changes, skip instance sync
-```
-
-### Apply to Live Plugin
-
-For each approved file:
-1. Read from `~/gmcc_ckfs/gmcc_plugin_template/{file}`
-2. Write to `${LIVE_PLUGIN}/{file}`
-
-**Files to NEVER sync:**
-- `~/gmcc_ckfs/{repo}/` directories (runtime FAM files)
-- Any `.claude/` project-specific files
+Review must verify:
+1. All changes within repository bounds
+2. No hardcoded paths to external locations
+3. Patterns consistent with existing code
 
 ---
 
 ## Post-ECLAIR: Document Evolution
 
-### Create Evolution Log Entry
+### Update Evolution Log
 
-Log the evolution in `~/gmcc_ckfs/{current_repo}/EVOLUTION_LOG.md`:
+If `EVOLUTION_LOG.md` exists in `{REPO_ROOT}/plugins/gmcc/`, append to it.
+If not, create it:
 
-If it doesn't exist, create it:
 ```markdown
 # GM-CDE Evolution Log
 
-All evolutions to the GM-CDE template are logged here.
-Evolution changes apply to the shared template at ~/gmcc_ckfs/gmcc_plugin_template/
+All evolutions to the GM-CDE plugin are logged here.
 
 ---
 ```
@@ -248,17 +212,13 @@ Append new entry:
 
 ### ECLAIR Session
 - Session Name: {session_name}
-- Initiated from repo: {GMCC_REPO_ID}
+- Branch: {ACTIVE_BRANCH}
 
-### Changes
-**Template (~/gmcc_ckfs/gmcc_plugin_template/):**
-- {list of template files modified}
-
-**Live Plugin ({LIVE_PLUGIN}):**
-- {list of live plugin files synced}
+### Files Modified
+{list of files modified in plugins/gmcc/}
 
 ### Impact
-- {what this evolution enables/changes}
+{what this evolution enables/changes}
 
 ### Breaking Changes
 {list any breaking changes or "None"}
@@ -266,28 +226,28 @@ Append new entry:
 ---
 ```
 
-### Sync Status Report
+### Change Impact Report
 
 Analyze what changed and report:
 
 **If `commands/` changed:**
-- Report: "Commands updated. Changes take effect immediately."
+- Report: "Commands updated. Changes will take effect after plugin re-installation."
 
 **If `agents/` changed:**
-- Report: "Agents updated. Changes take effect immediately."
+- Report: "Agents updated. Changes will take effect after plugin re-installation."
 
 **If `skills/gmcc/SKILL.md` changed:**
-- **CRITICAL**: Warn user to restart Claude session
-- Report: "SKILL.md updated. Restart your Claude session for changes to take effect."
+- **CRITICAL**: Note that users must restart Claude session after re-installing
+- Report: "SKILL.md updated. After re-installing the plugin, restart your Claude session."
 
 **If `skills/gmcc_macro*/` changed:**
-- Report: "Macro skills updated. Changes take effect immediately."
+- Report: "Macro skills updated. Changes will take effect after plugin re-installation."
 
 **If `ckfs_templates/` changed:**
-- Report: "FAM templates updated. Changes will apply to future /gm_init and /gm_load_branch calls."
+- Report: "FAM templates updated. Changes will apply to future /gm_init and /gm_load_branch calls after re-installation."
 
 **If `scripts/` or `hooks/` changed:**
-- Report: "Scripts/hooks updated. Verify hook configuration if needed."
+- Report: "Scripts/hooks updated. Verify hook configuration after re-installation."
 
 ### Final Report
 
@@ -300,35 +260,42 @@ Evolution Complete: {description}
 
 **ECLAIR Session:** {session_name}
 
-**Template Updated:**
-- {count} files in ~/gmcc_ckfs/gmcc_plugin_template/
-
-**Live Plugin Synced:**
-- {count} files in {LIVE_PLUGIN}
+**Files Modified:**
+- {count} files in {REPO_ROOT}/plugins/gmcc/
 
 **Logged:**
-- EVOLUTION_LOG.md updated
+- EVOLUTION_LOG.md updated (if present)
 - ECLAIR state preserved
 
-{Any warnings about restart needed}
+{Change impact notes}
 
 **Next Steps:**
-- {if SKILL.md changed: "Restart Claude session"}
-- Test the evolution with a simple use case
-- Run /gm_fam_sync to update FAM
+- Commit changes: git add -A && git commit -m "Evolution: {description}"
+- Test locally or push to trigger marketplace update
+- {if SKILL.md changed: "After re-installation, restart Claude session"}
 ```
 
 ---
 
 ## Error Handling
 
-**Template file not found:**
+**Not in gmcc-marketplace repo:**
 ```
-[GMB] Error: Template file not found
+[GMB] Error: Not in gmcc-marketplace repository
 
-Expected: ~/gmcc_ckfs/gmcc_plugin_template/{file}
+The /gm_evolve command can only be run from within the gmcc-marketplace repository.
+This ensures all GM-CDE evolution changes are properly tracked and versioned.
 
-The template may be incomplete. Run /gm_init --force to repopulate.
+Current directory: {pwd}
+```
+
+**Plugin directory not found:**
+```
+[GMB] Error: Plugin directory not found
+
+Expected: {REPO_ROOT}/plugins/gmcc/
+
+Verify you're on the correct branch and the plugin structure exists.
 ```
 
 **Write permission denied:**
@@ -351,19 +318,21 @@ To resume: /gm_evolve --resume {session_name}
 ```
 [GMB] Evolution cancelled
 
-Template changes have been made but live plugin was not synced.
-To complete the sync later, run:
-/gm_evolve --instance-only
+Partial changes may have been made. To see what changed:
+git status
+git diff
 
-Or to revert template changes:
-git checkout ~/gmcc_ckfs/gmcc_plugin_template/
+To revert all changes:
+git checkout .
 ```
 
 ---
 
 ## Flags
 
-**--template-only**: Only update template, skip live plugin sync
-**--instance-only**: Only sync live plugin from existing template changes
 **--resume {session_name}**: Resume a paused ECLAIR evolution session
-**--skip-approval**: Apply live plugin sync without showing diffs (use with caution)
+
+To resume an interrupted evolution:
+1. Run `/gm_evolve --resume {session_name}`
+2. The ECLAIR macro will reload state from `ECLAIR_STATE_{session_name}.md`
+3. Continue from the last incomplete phase
