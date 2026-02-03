@@ -14,10 +14,10 @@ You are evolving the GM-CDE system itself using the ECLAIR macro workflow for hi
 
 ## Status Bar
 ```
-[GMB] MODE: GM-CDE | BRANCH: {ACTIVE_BRANCH} | TASK: gm-evolve | STATE: initializing
+[GMB] MODE: GM-CDE | BRANCH: {ACTIVE_BRANCH} | TASK: evolve | STATE: initializing
 ```
 
-**Write state:** `{"task": "gm-evolve", "state": "initializing"}` to `.claude/GMB_STATE.json` (in the project directory)
+**Write state:** `{"task": "evolve", "state": "initializing"}` to `.claude/GMB_STATE.json` (in the project directory)
 
 ---
 
