@@ -1,5 +1,21 @@
 {
   "name": "gmcc",
-  "version": "3.1.0",
-  "description": "Green Mountain Compiler Collection - GM-CDE plugin for contextual development"
+  "version": "4.0.0",
+  "description": "Green Mountain Compiler Collection - GM-CDE plugin for contextual development with native Claude Code patterns",
+  "features": {
+    "hooks": ["SessionStart", "UserPromptSubmit", "PostToolUse", "Stop"],
+    "agents": ["code_explorer", "code_architect", "code_quality_reviewer", "kbite_crunch_chew", "sync_agent"],
+    "outputStyles": ["gmcc-conservative", "gmcc-aggressive", "gmcc-pragmatic", "gmcc-alternative"],
+    "modelDefault": "opus"
+  },
+  "changelog": {
+    "4.0.0": [
+      "Migrated agents to prompts/ directory with native Task tool spawning",
+      "Added full hook lifecycle (UserPromptSubmit, PostToolUse, Stop)",
+      "Implemented automated kbite trigger checking",
+      "Created methodology output styles",
+      "Upgraded all agents to model: opus for quality-first execution",
+      "Added auto FAM sync on file edits"
+    ]
+  }
 }

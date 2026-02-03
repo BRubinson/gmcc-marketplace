@@ -99,28 +99,20 @@ Update MAW_INDEX.md to show overall status as "chewing".
 
 ### Step 4: Spawn Chew Agents
 
-For each pending crunchable, spawn `gmcc:agent:kbite_crunch_chew()`:
+For each pending crunchable, spawn a kbite crunch chew agent via Task tool.
 
-Per the **gmcc_kbite** skill agent invocation:
-
-```
-gmcc:agent:kbite_crunch_chew(
-  kbite: "{kbite_name}",
-  crunchable: "{crunchable_name}",
-  axis1: "{primary|secondary}",
-  axis2: "{documentation|example_project|api_reference|blogs|all_others}"
-)
-```
-
-**Implementation via Task tool:**
+**v4.0.0 Task Invocation** (uses prompts/ directory with model: opus):
 
 ```
 Task tool:
   subagent_type: gmcc:gmcc_agent_kbite_crunch_chew
+  model: opus
   prompt: |
     Chew the crunchable resource for kbite "{kbite_name}".
 
     **Crunchable**: {crunchable_name}
+    **Axis1**: {primary|secondary}
+    **Axis2**: {documentation|example_project|api_reference|blogs|all_others}
     **Location**: $GMCC_FAM_PATH/maw/{kbite_name}/{axis1}/{axis2}/{crunchable_name}/
     **Output**: $GMCC_FAM_PATH/maw/{kbite_name}/{axis1}/{axis2}/{crunchable_name}_chewed.md
 
@@ -128,6 +120,7 @@ Task tool:
     {Contents of KBITE_PURPOSE.md}
 
     Follow the gmcc_kbite skill chewed file format exactly.
+    Reference the agent prompt at: plugins/gmcc/prompts/gmcc_agent_kbite_crunch_chew.prompt.md
 ```
 
 **Parallelization**: If multiple crunchables are pending, spawn agents in parallel (up to 4 concurrent).
