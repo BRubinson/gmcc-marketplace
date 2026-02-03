@@ -17,6 +17,15 @@ You are formatting the Purpose.md file for the current FAM.
 
 ## Pre-Flight
 
+**Boot Validation**: If `$GMCC_BOOTED` is not set, output:
+```
+[GMB] ERROR: GMCC not booted
+
+GMCC environment variables are not set. Run /gmcc_boot for diagnostics.
+To fix: Restart Claude Code from within a git repository.
+```
+Exit without proceeding.
+
 1. Verify GM-CDE is initialized
 2. Read current Purpose.md
 

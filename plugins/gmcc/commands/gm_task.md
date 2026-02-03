@@ -17,6 +17,15 @@ You are executing a quick task via the ECLAIR macro in LITE mode.
 
 ## Pre-Flight
 
+**Boot Validation**: If `$GMCC_BOOTED` is not set, output:
+```
+[GMB] ERROR: GMCC not booted
+
+GMCC environment variables are not set. Run /gmcc_boot for diagnostics.
+To fix: Restart Claude Code from within a git repository.
+```
+Exit without proceeding.
+
 1. Verify GM-CDE is initialized (`$GMCC_REPO_PATH` exists)
 2. Get current git branch → this is `{ACTIVE_BRANCH}`
 3. Load current FAM context from `$GMCC_FAM_PATH/`:

@@ -23,6 +23,15 @@ You are evolving the GM-CDE system itself using the ECLAIR macro workflow for hi
 
 ## Pre-Flight Checks
 
+**Boot Validation**: If `$GMCC_BOOTED` is not set, output:
+```
+[GMB] ERROR: GMCC not booted
+
+GMCC environment variables are not set. Run /gmcc_boot for diagnostics.
+To fix: Restart Claude Code from within a git repository.
+```
+Exit without proceeding.
+
 ### 1. Verify in gmcc-marketplace Repository
 
 **CRITICAL**: This command only works in the gmcc-marketplace repository.

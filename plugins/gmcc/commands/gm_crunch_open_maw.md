@@ -21,6 +21,15 @@ Opens a "maw" (processing directory) in the current FAM for collecting crunchabl
 
 ## Pre-Flight Checks
 
+**Boot Validation**: If `$GMCC_BOOTED` is not set, output:
+```
+[GMB] ERROR: GMCC not booted
+
+GMCC environment variables are not set. Run /gmcc_boot for diagnostics.
+To fix: Restart Claude Code from within a git repository.
+```
+Exit without proceeding.
+
 1. Verify GM-CDE is initialized (`$GMCC_CKFS_ROOT` exists)
 2. Verify current branch has a FAM (`$GMCC_FAM_PATH` exists)
 3. Parse `{kbite_name}` argument

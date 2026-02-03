@@ -32,6 +32,8 @@ if [ -n "$CLAUDE_ENV_FILE" ]; then
         echo "GMCC_ACTIVE_BRANCH=$BRANCH"
         echo "GMCC_FAM_PATH=$GMCC_FAM_PATH"
         echo "GMCC_REPO_PATH=$GMCC_REPO_PATH"
+        # Signal successful GMCC boot - commands check this to validate environment
+        echo "GMCC_BOOTED=1"
         # Note: CLAUDE_PLUGIN_ROOT is set by Claude itself for marketplace plugins
         # We don't override it here - Claude knows where the plugin is installed
         # Commands will use ${CLAUDE_PLUGIN_ROOT} directly or fall back to searching

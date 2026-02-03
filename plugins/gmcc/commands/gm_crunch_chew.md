@@ -21,6 +21,15 @@ Processes all crunchable resources in the maw, generating analysis ("chewed") fi
 
 ## Pre-Flight Checks
 
+**Boot Validation**: If `$GMCC_BOOTED` is not set, output:
+```
+[GMB] ERROR: GMCC not booted
+
+GMCC environment variables are not set. Run /gmcc_boot for diagnostics.
+To fix: Restart Claude Code from within a git repository.
+```
+Exit without proceeding.
+
 1. Verify GM-CDE is initialized (`$GMCC_CKFS_ROOT` exists)
 2. Verify maw exists at `$GMCC_FAM_PATH/maw/{kbite_name}/`
 3. Read MAW_INDEX.md for current state

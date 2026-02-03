@@ -21,6 +21,15 @@ You are creating a new GM-CDE macro following the gmcc_macro skill specification
 
 ## Pre-Flight
 
+**Boot Validation**: If `$GMCC_BOOTED` is not set, output:
+```
+[GMB] ERROR: GMCC not booted
+
+GMCC environment variables are not set. Run /gmcc_boot for diagnostics.
+To fix: Restart Claude Code from within a git repository.
+```
+Exit without proceeding.
+
 1. Read the macro system definition: `$GMCC_PLUGIN_ROOT/skills/gmcc_macro/SKILL.md`
 2. Verify GM-CDE is initialized (`$GMCC_REPO_PATH` exists)
 3. Get current git branch

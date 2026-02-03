@@ -28,6 +28,15 @@ The following should be set by the SessionStart hook:
 
 ## Pre-Flight Checks
 
+**Boot Validation**: If `$GMCC_BOOTED` is not set, output:
+```
+[GMB] ERROR: GMCC not booted
+
+GMCC environment variables are not set. Run /gmcc_boot for diagnostics.
+To fix: Restart Claude Code from within a git repository.
+```
+Exit without proceeding.
+
 1. Verify GM-CDE is initialized (`$GMCC_REPO_PATH` exists)
 2. Get current git branch: `git branch --show-current`
 3. If $ARGUMENTS provided, use that as branch name override
