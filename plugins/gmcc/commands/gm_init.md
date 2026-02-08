@@ -80,7 +80,7 @@ This directory contains GM-CDE runtime data for all repositories.
 ```
 ~/gmcc_ckfs/
 ├── README.md                    # This file
-├── gmcc_plugin_template/        # SHARED evolution target for /gm_evolve
+├── gmcc_plugin_template/        # SHARED plugin template
 │   ├── agents/
 │   ├── commands/
 │   ├── skills/
@@ -101,22 +101,21 @@ This directory contains GM-CDE runtime data for all repositories.
             ├── Tasks.md
             ├── ChangedFiles.md
             ├── Famalouge.md
-            ├── ECLAIR_BRAIN.md
             └── thoughts/
+                └── mem_{index}_{name}/  # Bot workflow memory sets
 ```
 
 ## Plugin Template
 
-The `gmcc_plugin_template/` directory is the SHARED evolution target:
-- `/gm_evolve` modifies files here first
-- After approval, changes sync to the live plugin at `${CLAUDE_PLUGIN_ROOT}`
+The `gmcc_plugin_template/` directory is a reference copy of the plugin:
 - Shared across ALL repositories (not per-repo)
+- Used as a reference for plugin structure
 
 ## Usage
 
 1. Run `/gm_init` once to create this directory (already done)
 2. Run `/gm_repo_init` in each repository to initialize its CKFS
-3. Run `/gm_load_branch` or `/gm_feature_dev` to start working
+3. Run `/gm_load_branch` or `/gm_bot` to start working
 
 ## Environment Variables
 
@@ -154,7 +153,7 @@ Plugin source: {source path used}
 Next steps:
 1. Navigate to a git repository
 2. Run /gm_repo_init to initialize that repository
-3. Start development with /gm_feature_dev or /gm_task
+3. Start development with /gm_bot_team, /gm_bot_rpi, or /gm_bot
 
 Note: The SessionStart hook will automatically detect git repositories
 and set GMCC_* environment variables when you open Claude Code.
@@ -169,6 +168,6 @@ Searched locations:
 - ~/.claude/plugins/cache/gmcc-marketplace/gmcc/*/ (not found)
 - ~/.claude/plugins/gmcc/ (not found)
 
-The system is initialized but /gm_evolve will not work until the template is populated.
+The system is initialized but the plugin template is not populated.
 You can manually copy: cp -r <plugin_path>/* ~/gmcc_ckfs/gmcc_plugin_template/
 ```

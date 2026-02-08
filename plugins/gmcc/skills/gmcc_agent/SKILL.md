@@ -15,7 +15,7 @@ A GMCC Agent is a specialized persona with:
 - **Specific capabilities** - What actions the agent is suited to perform
 - **Structured output format** - Predictable response syntax for parent orchestration
 
-Unlike macros (which define workflows) or commands (which are user-invoked), agents are **specialized workers** that can be spawned by macros, commands, or directly.
+Unlike commands (which are user-invoked), agents are **specialized workers** that can be spawned by bot workflow commands or directly.
 
 Agents follow the naming convention: `gmcc_agent_{agent_name}`
 
@@ -46,7 +46,7 @@ gmcc:agent:{agent_name}(input)
 gmcc:agent:code_explorer(target: "src/auth/")
 ```
 
-**With methodology seed (for ECLAIR macro):**
+**With methodology seed (for bot workflows):**
 ```
 gmcc:agent:code_architect(
   goal: "design caching layer",
@@ -163,7 +163,7 @@ The agent MUST return output in this exact format:
 
 ### 6. Methodology Support (Optional)
 
-For agents that support ECLAIR macro methodology seeding:
+For agents that support bot workflow methodology seeding:
 
 ```markdown
 ## Methodology Modes
@@ -185,22 +185,30 @@ When invoked with a methodology parameter, adapt behavior:
 
 ---
 
-## Integration with ECLAIR Macro
+## Integration with Bot Workflows
 
-The ECLAIR macro (in FULL mode) spawns multiple instances of GMCC agents with different methodology seeds. The workflow:
+Bot workflow commands spawn GMCC agents for specialized work phases. Agents receive kbite context, task prompts, and methodology assignments.
 
-1. ECLAIR macro receives goal and context
-2. Spawns N agents (typically code_architect) with different methodologies
-3. Each agent produces output in their defined format
-4. ECLAIR synthesizes outputs into unified recommendation
+### Agent Usage by Command
 
-### Agent Selection for ECLAIR
+| Command | Phase | Agent Used |
+|---------|-------|------------|
+| `/gm_bot_rpi` | Implementation Overview | 1x `gmcc_agent_code_explorer` |
+| `/gm_bot_rpi` | Plan | 1x `gmcc_agent_code_architect` |
+| `/gm_bot_rpi` | Review | 1x `gmcc_agent_code_quality_reviewer` |
+| `/gm_bot_team` | Implementation Overview | 4x `gmcc_agent_code_explorer` + 1x `gmcc_agent_code_architect` (synthesizer) |
+| `/gm_bot_team` | Plan | 4x `gmcc_agent_code_architect` + 1x coordinator |
+| `/gm_bot_team` | Review | 4x `gmcc_agent_code_quality_reviewer` |
 
-| Phase | Agent Used |
-|-------|------------|
-| Exploration | `gmcc_agent_code_explorer` |
-| Architecture | `gmcc_agent_code_architect` |
-| Review | `gmcc_agent_code_quality_reviewer` |
+### Methodology Seeding
+
+In `/gm_bot_team`, each agent in a team receives one of four methodology assignments:
+- **Conservative**: Stability, proven patterns, minimal risk
+- **Aggressive**: Innovation, rewrites, new approaches
+- **Pragmatic**: Balance effort/value, team familiarity
+- **Alternative**: Unconventional approaches, challenge assumptions
+
+In `/gm_bot_rpi`, the single agent applies all 4 methodologies sequentially.
 
 ---
 
@@ -211,7 +219,7 @@ To create a new GMCC agent:
 1. Create file: `.claude/agents/gmcc_agent_{name}.md`
 2. Follow the agent file structure above
 3. Update this agent index
-4. Test with direct invocation before using in macros
+4. Test with direct invocation before using in bot workflows
 
 ### Naming Conventions
 
@@ -226,7 +234,7 @@ To create a new GMCC agent:
 1. **Single Focus**: Each agent should excel at one type of task
 2. **Clear Output**: Output format must be parseable by parent workflows
 3. **GM-CDE Aware**: Always reference GMCC skill and respect GM-CDE properties
-4. **Methodology Flexible**: Support methodology seeding for ECLAIR compatibility
+4. **Methodology Flexible**: Support methodology seeding for bot workflow compatibility
 5. **Tool Appropriate**: Only list tools the agent actually needs
 6. **Fail Gracefully**: Include guidance for handling edge cases
 
@@ -234,13 +242,12 @@ To create a new GMCC agent:
 
 ## Syntax Reference
 
-### Unified GMCC Syntax
+### GMCC Syntax
 
 All GMCC constructs use the `gmcc:` prefix:
 
 | Type | Syntax | Example |
 |------|--------|---------|
 | Agent | `gmcc:agent:{name}(params)` | `gmcc:agent:code_explorer(target: "src/")` |
-| Macro | `gmcc:macro:{type}:{name}(params)` | `gmcc:macro:workflow:eclair(mode: "full")` |
 
-This unified syntax makes GMCC constructs easily identifiable and parseable.
+This syntax makes GMCC agent invocations easily identifiable and parseable.

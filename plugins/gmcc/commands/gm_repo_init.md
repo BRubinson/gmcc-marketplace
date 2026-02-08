@@ -334,5 +334,5 @@ Shared plugin template: ~/gmcc_ckfs/gmcc_plugin_template/
 Next steps:
 1. {Edit GREATER_PURPOSE.md if skipped}
 2. Create a feature branch and run /gm_load_branch
-3. Start development with /gm_feature_dev or /gm_task
+3. Start development with /gm_bot_team, /gm_bot_rpi, or /gm_bot
 ```

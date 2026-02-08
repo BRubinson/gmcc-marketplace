@@ -9,7 +9,7 @@
 ## Context for New Sessions
 - Branch purpose: {PURPOSE}
 - Ready for feature development
-- Run /gm_feature_dev to start
+- Run /gm_bot_team or /gm_bot_rpi to start
 
 ---
 *Compiled from thoughts by: GMB*

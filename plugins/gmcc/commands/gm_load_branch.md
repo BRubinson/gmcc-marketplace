@@ -95,7 +95,7 @@ Completed Tasks: {count of checked items}
 Recent Context:
 {last 3 lines from Famalouge.md}
 
-Ready to continue. Run /gm_feature_dev --resume or /gm_task.
+Ready to continue. Run /gm_bot_team, /gm_bot_rpi, or /gm_bot to start working.
 ```
 
 ### If FAM Does Not Exist
@@ -155,7 +155,7 @@ $GMCC_REPO_PATH/fam/{branch_name}/
 # Tasks: {branch_name}
 
 ## Active Tasks
-- [ ] Define initial tasks with /gm_feature_dev or /gm_task
+- [ ] Define initial tasks with /gm_bot_team, /gm_bot_rpi, or /gm_bot
 
 ## Completed Tasks
 *None yet*
@@ -195,7 +195,7 @@ New branch created for: {purpose summary}
 ## Context for New Sessions
 - Branch purpose: {purpose}
 - Ready for feature development
-- Run /gm_feature_dev to start
+- Run /gm_bot_team or /gm_bot_rpi to start
 
 ---
 *Compiled from thoughts by: GMB*
@@ -223,8 +223,8 @@ Save to `$GMCC_REPO_PATH/fam/{branch}/thoughts/{timestamp}_branch_created.md`:
 {GMB's interpretation}
 
 ## Next Steps
-- Define tasks with /gm_feature_dev
-- Or add quick tasks with /gm_task
+- Define tasks with /gm_bot_team or /gm_bot_rpi
+- Or add quick tasks with /gm_bot
 ```
 
 7. **Write state:** `{"task": "none", "state": "idle"}` to `.claude/GMB_STATE.json`
@@ -247,7 +247,7 @@ Files created:
 Updated:
 - $GMCC_REPO_PATH/FAM_INDEX.md
 
-Ready for development. Run /gm_feature_dev or /gm_task to begin.
+Ready for development. Run /gm_bot_team, /gm_bot_rpi, or /gm_bot to begin.
 ```
 
 ## Error Handling

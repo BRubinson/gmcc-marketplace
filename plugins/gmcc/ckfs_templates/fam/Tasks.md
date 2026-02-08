@@ -1,7 +1,7 @@
 # Tasks: {BRANCH_NAME}
 
 ## Active Tasks
-- [ ] Define initial tasks with /gm_feature_dev or /gm_task
+- [ ] Define initial tasks with /gm_bot_team, /gm_bot_rpi, or /gm_bot
 
 ## Completed Tasks
 *None yet*

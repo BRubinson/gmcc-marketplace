@@ -32,7 +32,6 @@ These files define GMB behavior and are installed as a Claude Code plugin:
 ├── .claude-plugin/plugin.json  # Plugin manifest
 ├── skills/gmcc/SKILL.md        # This file - core rules
 ├── skills/gmcc_agent/          # Agent system definition
-├── skills/gmcc_macro/          # Macro system definition
 ├── skills/gmcc_kbite/          # KBite knowledge system definition
 ├── commands/gm_*.md            # All GM commands
 ├── agents/gmcc_agent_*.md      # GMCC agent definitions
@@ -59,8 +58,12 @@ Per-repository CKFS data at `~/gmcc_ckfs/{repo}/`:
         ├── Tasks.md         # Task checklist
         ├── ChangedFiles.md  # Modified files
         ├── Famalouge.md     # Compiled thoughts
-        ├── ECLAIR_BRAIN.md  # Cross-session learnings
-        ├── thoughts/        # Individual thoughts
+        ├── thoughts/
+        │   ├── mem_{index}_{name}/  # Bot workflow memory sets
+        │   │   ├── session_meta.md
+        │   │   ├── fully_clarified_prompt.md
+        │   │   └── ... (workflow-specific files)
+        │   └── {timestamp}_{topic}.md  # Legacy individual thoughts
         └── maw/             # Temporary kbite processing (crunchables)
 ```
 
@@ -155,12 +158,12 @@ The GMB maintains runtime state in `.claude/GMB_STATE.json` (per-project) to ena
 
 **task** (the command/workflow):
 - `none` - No active task
-- `feature-dev` - Running /gm_feature_dev
-- `quick-task` - Running /gm_task
+- `bot` - Running /gm_bot
+- `bot-rpi` - Running /gm_bot_rpi
+- `bot-team` - Running /gm_bot_team
 - `execute-remaining` - Running /gm_execute_remaining
 - `fam-sync` - Running /gm_fam_sync
 - `branch-load` - Running /gm_load_branch
-- `gm-evolve` - Running /gm_evolve
 
 **state** (current phase):
 - `idle` - No work in progress
@@ -296,58 +299,46 @@ Example: `gmcc:agent:code_explorer(target: "src/auth/")`
 
 ---
 
-## Macro System
+## Bot Workflow System
 
-Macros are reusable behavioral templates defined as skills. The macro system is defined in `$GMCC_PLUGIN_ROOT/skills/gmcc_macro/SKILL.md`.
+The bot workflow system provides three tiers of development assistance, replacing the former macro system with direct command-based workflows.
 
-### Macro Structure
+| Command | Mode | Agents | Use Case |
+|---------|------|--------|----------|
+| `/gm_bot` | Lightweight | None (primary context) | Quick tasks, small changes |
+| `/gm_bot_rpi` | Subagent RPI | 1 per phase (explore, architect, review) | Medium complexity |
+| `/gm_bot_team` | Full Teams | 4+1 per phase (true agent teams) | Complex features, thorough exploration |
 
-Macros follow the naming convention: `gmcc_macro_{type}_{name}`
+### Memory System
 
-Types:
-- **Workflow**: Multi-phase process with hooks (Before All, Before Each, After Each, After All)
-- **CLI**: Shell automation patterns (future)
+All bot workflows use organized memory folders at `$GMCC_FAM_PATH/thoughts/mem_{index}_{mem_name}/`.
 
-### Available Macros
+- **New memory**: Provide a mem-name as the first argument to start fresh
+- **Resume**: Provide an index number to load existing memory and continue
+- Each workflow writes specific artifacts to the mem folder (session_meta, fully_clarified_prompt, exploration_report, architecture docs, review reports)
 
-| Macro | Type | Purpose |
-|-------|------|---------|
-| `gmcc_macro_workflow_eclair` | Workflow | 6-phase workflow with cross-session learning (FULL or LITE mode) |
+### KBite Integration
 
-### Macro Invocation
-
-```
-gmcc:macro:{type}:{name}(params)
-```
-
-Example: `gmcc:macro:workflow:eclair(session_name: "feat_oauth", initial_prompt: "add OAuth support")`
-
-### Core Macros
-
-**ECLAIR Macro** (`gmcc_macro_workflow_eclair`)
-- 6-phase workflow: Explore, Clarify, Learn, Architect, Implement, Review
-- FULL mode: Spawns 4 divergent agents per phase (Conservative, Aggressive, Pragmatic, Alternative)
-- LITE mode: Single hybrid agent (Pragmatic+Alternative) for quick tasks
-- Cross-session learning via ECLAIR_BRAIN.md
-
-### Creating Macros
-
-Use `/gm_new_macro` to create new macros following the gmcc_macro skill format.
+All bot workflows load kbites during initialization. For `/gm_bot_rpi` and `/gm_bot_team`, kbite content is passed to all spawned agents.
 
 ---
 
 ## Thought System
 
-GMB should write thoughts to capture reasoning and decisions.
+GMB captures reasoning and decisions in the thoughts directory.
 
-### When to Write Thoughts
-- After clarifying questions are answered
-- When making architectural decisions
-- When encountering unexpected issues
-- When completing significant milestones
+### Bot Workflow Memory (Primary)
 
-### Thought Format
-Save to `$GMCC_FAM_PATH/thoughts/{timestamp}_{topic}.md`:
+Bot workflows (`/gm_bot`, `/gm_bot_rpi`, `/gm_bot_team`) write structured artifacts to `$GMCC_FAM_PATH/thoughts/mem_{index}_{mem_name}/`. These memory folders contain:
+- `session_meta.md` - Session metadata, kbites loaded, phase history
+- `fully_clarified_prompt.md` - Clarified requirements (all workflows)
+- `exploration_report.md` - Codebase exploration findings (rpi, team)
+- `architecture_document.md` or `architecture_discussion_result.md` - Design (rpi, team)
+- `review_report.md` - Code review findings (rpi, team)
+
+### Legacy Individual Thoughts
+
+For decisions outside bot workflows, save to `$GMCC_FAM_PATH/thoughts/{timestamp}_{topic}.md`:
 ```markdown
 # Thought: {Topic}
 **Date**: {timestamp}
@@ -358,9 +349,6 @@ Save to `$GMCC_FAM_PATH/thoughts/{timestamp}_{topic}.md`:
 
 ## Decision
 {What was decided and why}
-
-## Implications
-{What this means for the task/project}
 ```
 
 Thoughts are **immutable** once written. Never edit, only append new thoughts.
@@ -377,11 +365,11 @@ Thoughts are **immutable** once written. Never edit, only append new thoughts.
 | `/gm_fam_sync` | Sync FAM with current changes |
 | `/gm_fam_fmt` | Format FAM Purpose.md |
 | `/gm_merge_branch` | Prepare merge and update indexes |
-| `/gm_feature_dev` | Enhanced feature development |
-| `/gm_task` | Create a lighter task |
+| `/gm_bot` | Lightweight bot workflow (primary context) |
+| `/gm_bot_rpi` | Subagent Research/Plan/Implement workflow |
+| `/gm_bot_team` | Full agent team workflow |
 | `/gm_execute_remaining` | Execute pending tasks |
 | `/gm_famalogue` | Compile thoughts to famalouge |
-| `/gm_new_macro` | Create new macros |
 | `/gm_crunch_open_maw` | Create maw for collecting kbite crunchables |
 | `/gm_crunch_chew` | Process crunchables into analyzed knowledge |
 | `/gm_crunch_digest` | Finalize kbite from chewed resources |
@@ -454,15 +442,13 @@ Full kbite system documentation is in `$GMCC_PLUGIN_ROOT/skills/gmcc_kbite/SKILL
 
 ---
 
-## Integration with Feature Dev
+## Integration with Bot Workflows
 
-When `/gm_feature_dev` is invoked:
-1. All properties are passed to GMCC agents
+When bot workflow commands are invoked:
+1. All kbite knowledge is loaded and passed to agents
 2. Agents execute within GM-CDE rules
-3. Clarifying questions phase creates a thought
-4. Architecture decisions create a thought
-5. Tasks are tracked in FAM Tasks.md
-6. `gmcc:macro:workflow:eclair()` is used for workflow orchestration
+3. All artifacts are written to `$GMCC_FAM_PATH/thoughts/mem_{index}_{name}/`
+4. State is tracked via `GMB_STATE.json` and `session_meta.md`
 
 ### GMCC Syntax Reference
 
@@ -471,7 +457,6 @@ All GMCC constructs use the `gmcc:` prefix:
 | Type | Syntax | Example |
 |------|--------|---------|
 | Agent | `gmcc:agent:{name}(params)` | `gmcc:agent:code_explorer(target: "src/")` |
-| Macro | `gmcc:macro:{type}:{name}(params)` | `gmcc:macro:workflow:eclair(mode: "full")` |
 
 ---
 

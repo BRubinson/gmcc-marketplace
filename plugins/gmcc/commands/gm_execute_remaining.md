@@ -235,7 +235,7 @@ All tasks complete!
 No remaining tasks in Tasks.md.
 
 Options:
-- Add new tasks with /gm_task
-- Start new feature with /gm_feature_dev
+- Add new tasks with /gm_bot_rpi
+- Start new feature with /gm_bot_team
 - Merge branch with /gm_merge_branch
 ```

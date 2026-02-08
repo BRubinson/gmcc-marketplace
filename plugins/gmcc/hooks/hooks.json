@@ -35,16 +35,6 @@
           }
         ]
       }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/eclair_stop_check.sh"
-          }
-        ]
-      }
     ]
   }
 }
