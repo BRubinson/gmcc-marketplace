@@ -32,14 +32,19 @@ for kbite_dir in "$KBITES_DIR"/*/; do
         triggers_file="$kbite_dir/KBITE_TRIGGERS.md"
 
         if [ -f "$triggers_file" ]; then
-            # Extract trigger keywords from KBITE_TRIGGERS.md
-            # Format: each line starting with "- " is a trigger
+            # [FIX #9] Parse markdown table rows from KBITE_TRIGGERS.md
+            # Format: | Trigger | Confidence | Context |
+            # Old code expected "- trigger" list format which didn't match
+            # the actual markdown table format used by KBITE_TRIGGERS.md
             while IFS= read -r line; do
-                if [[ "$line" =~ ^-[[:space:]](.+) ]]; then
+                # Match table rows: | word(s) | number | ... |
+                if [[ "$line" =~ ^\|[[:space:]]*([^|]+)[[:space:]]*\|[[:space:]]*([0-9]+) ]]; then
                     trigger="${BASH_REMATCH[1]}"
-                    # Remove trailing colon and reason if present
-                    trigger="${trigger%%:*}"
                     trigger=$(echo "$trigger" | xargs) # trim whitespace
+                    # Skip header row and separator lines
+                    if [ "$trigger" = "Trigger" ] || [ "$trigger" = "Word" ] || [[ "$trigger" =~ ^-+$ ]]; then
+                        continue
+                    fi
                     if [ -n "$trigger" ]; then
                         TRIGGERS="$TRIGGERS$kbite_name:$trigger"$'\n'
                     fi

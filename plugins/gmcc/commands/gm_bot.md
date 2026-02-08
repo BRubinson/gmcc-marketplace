@@ -212,6 +212,11 @@ This is the single source of truth for what needs to be built.}
 [GMB] MODE: GM-CDE | BRANCH: {ACTIVE_BRANCH} | TASK: bot | STATE: planning
 ```
 
+<!-- [FIX #11] /gm_bot uses native EnterPlanMode for user approval.
+     This is intentional: lightweight workflow benefits from Claude's built-in plan/approval flow.
+     In contrast, /gm_bot_rpi and /gm_bot_team use AskUserQuestion for approval because
+     their architecture phase runs in subagents/teammates, not the primary context. -->
+
 1. Enter plan mode using EnterPlanMode
 2. Design the implementation approach based on:
    - The fully clarified prompt

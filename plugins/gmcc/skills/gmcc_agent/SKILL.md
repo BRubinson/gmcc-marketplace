@@ -2,6 +2,10 @@
 name: gmcc_agent
 description: GM-CDE Agent System - Defines how GMCC agents are structured, invoked, and behave. Agents are specialized personas with defined capabilities, behaviors, and output formats that operate within the GM-CDE framework.
 user-invocable: false
+disable-model-invocation: true
+# [FIX #3] Added disable-model-invocation to prevent auto-loading on every prompt.
+# This skill is only needed during /gm_bot_* workflows, not general conversation.
+# Saves ~254 lines (~1,500 tokens) of context per message when not in a bot workflow.
 ---
 
 # GMCC Agent System

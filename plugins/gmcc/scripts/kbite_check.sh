@@ -55,16 +55,19 @@ done < "$CACHE_FILE"
 if [ -n "$MATCHED_KBITES" ]; then
     echo "export GMCC_MATCHED_KBITES=\"$MATCHED_KBITES\""
 
-    # Build paths to chewed files for matched kbites
+    # [FIX #4] Build paths to kbite root directories for matched kbites
+    # Chewed files live alongside source folders as {name}_chewed.md
+    # (e.g., kbites/name/primary/documentation/resource_chewed.md)
+    # NOT in a separate chewed/ directory as previously assumed
     CHEWED_PATHS=""
     IFS=',' read -ra KBITES <<< "$MATCHED_KBITES"
     for kb in "${KBITES[@]}"; do
-        chewed_dir="$CKFS_ROOT/kbites/$kb/chewed"
-        if [ -d "$chewed_dir" ]; then
+        kbite_dir="$CKFS_ROOT/kbites/$kb"
+        if [ -d "$kbite_dir" ]; then
             if [ -n "$CHEWED_PATHS" ]; then
-                CHEWED_PATHS="$CHEWED_PATHS:$chewed_dir"
+                CHEWED_PATHS="$CHEWED_PATHS:$kbite_dir"
             else
-                CHEWED_PATHS="$chewed_dir"
+                CHEWED_PATHS="$kbite_dir"
             fi
         fi
     done

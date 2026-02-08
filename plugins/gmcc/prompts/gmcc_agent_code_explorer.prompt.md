@@ -1,7 +1,9 @@
 ---
 name: gmcc_agent_code_explorer
 description: Deep codebase analysis agent. Traces execution paths, maps architecture layers, discovers patterns and abstractions, and documents dependencies to inform development decisions.
-model: opus
+# [FIX #16] Use sonnet for exploration - fast, cost-effective, sufficient for code reading
+# [FIX #8] Exploration is broad work; sonnet handles it well at lower cost/latency
+model: sonnet
 tools: Glob, Grep, LS, Read, WebFetch, WebSearch
 ---
 
@@ -188,10 +190,34 @@ When invoked with a methodology parameter (for bot workflow compatibility), adap
 
 ---
 
+## Effort Guidance
+
+<!-- [FIX #8] Opus 4.6 effort tuning: adjust reasoning depth based on exploration scope -->
+- **Broad exploration** (mapping directories, listing patterns): Use medium effort
+- **Deep analysis** (tracing complex execution paths, understanding abstractions): Use high effort
+- When invoked by bot workflows, the methodology assignment implies effort level:
+  - Conservative/Pragmatic: medium effort (focused, efficient)
+  - Aggressive/Alternative: high effort (thorough, creative)
+
+---
+
+## Output Style Integration
+
+<!-- [FIX #12] Reference methodology-specific output styles for consistent tone -->
+When assigned a methodology, also apply the corresponding output style principles:
+- Conservative: `$GMCC_PLUGIN_ROOT/output-styles/gmcc-conservative.md`
+- Aggressive: `$GMCC_PLUGIN_ROOT/output-styles/gmcc-aggressive.md`
+- Pragmatic: `$GMCC_PLUGIN_ROOT/output-styles/gmcc-pragmatic.md`
+- Alternative: `$GMCC_PLUGIN_ROOT/output-styles/gmcc-alternative.md`
+
+Read and apply the style that matches your methodology assignment.
+
+---
+
 ## Example Invocation
 
 ```
-Task tool with subagent_type="gmcc:gmcc_agent_code_explorer":
+Task tool with subagent_type="general-purpose":
   prompt: |
     Explore src/auth/ to understand authentication flow for adding OAuth.
     Methodology: pragmatic

@@ -3,12 +3,23 @@
 # GM-CDE Repository Detection Script
 # Runs on SessionStart to detect git repository and set environment variables
 # These variables are used by all GMCC commands for path resolution
+#
+# [FIX #14] This intentionally runs on SessionStart (not Setup) because
+# the active git branch can change between sessions in the same project.
+# SessionStart ensures env vars always reflect current git state.
 
 # Only proceed if we're in a git repository
 if ! git rev-parse --git-dir > /dev/null 2>&1; then
     # Not in a git repo - no GMCC env vars to set
     exit 0
 fi
+
+# [FIX #1] Resolve plugin root from this script's location
+# ${CLAUDE_PLUGIN_ROOT} is resolved by Claude Code in hook command strings
+# but is NOT available as a persistent session env var. We derive it from
+# this script's path: plugins/gmcc/scripts/detect_repo.sh -> parent of scripts/
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+GMCC_PLUGIN_DIR="$(dirname "$SCRIPT_DIR")"
 
 # Get repository information
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
@@ -34,10 +45,8 @@ if [ -n "$CLAUDE_ENV_FILE" ]; then
         echo "GMCC_REPO_PATH=$GMCC_REPO_PATH"
         # Signal successful GMCC boot - commands check this to validate environment
         echo "GMCC_BOOTED=1"
-        # Note: CLAUDE_PLUGIN_ROOT is set by Claude itself for marketplace plugins
-        # We don't override it here - Claude knows where the plugin is installed
-        # Commands will use ${CLAUDE_PLUGIN_ROOT} directly or fall back to searching
-        # common locations (marketplace cache, manual install path)
+        # [FIX #1] Export resolved plugin root for use by commands and agents
+        echo "GMCC_PLUGIN_ROOT=$GMCC_PLUGIN_DIR"
     } >> "$CLAUDE_ENV_FILE"
 fi
 

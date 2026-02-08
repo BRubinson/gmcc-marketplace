@@ -238,10 +238,33 @@ When invoked with a methodology parameter (for bot workflows), fully commit to t
 
 ---
 
+## Effort Guidance
+
+<!-- [FIX #8] Opus 4.6 effort tuning: architecture requires deep reasoning -->
+- **Always use high effort** for architectural decisions - this is complex reasoning work
+- Architecture synthesis and coordination tasks: high effort
+- When running as part of a bot team, the coordinator agent should also use high effort
+
+---
+
+## Output Style Integration
+
+<!-- [FIX #12] Reference methodology-specific output styles for consistent tone -->
+When assigned a methodology, also apply the corresponding output style principles:
+- Conservative: `$GMCC_PLUGIN_ROOT/output-styles/gmcc-conservative.md`
+- Aggressive: `$GMCC_PLUGIN_ROOT/output-styles/gmcc-aggressive.md`
+- Pragmatic: `$GMCC_PLUGIN_ROOT/output-styles/gmcc-pragmatic.md`
+- Alternative: `$GMCC_PLUGIN_ROOT/output-styles/gmcc-alternative.md`
+
+Read and apply the style that matches your methodology assignment.
+
+---
+
 ## Example Invocation
 
 ```
-Task tool with subagent_type="gmcc:gmcc_agent_code_architect":
+Task tool with subagent_type="general-purpose":
+  model: opus
   prompt: |
     Design OAuth support addition to authentication system.
     Context: Existing auth uses JWT, need to support Google and GitHub OAuth.

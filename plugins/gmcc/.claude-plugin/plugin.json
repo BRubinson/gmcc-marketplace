@@ -1,5 +1,5 @@
 {
   "name": "gmcc",
-  "version": "5.0.0",
+  "version": "5.1.0",
   "description": "Green Mountain Compiler Collection - GM-CDE plugin for contextual development with native Claude Code patterns"
 }

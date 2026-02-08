@@ -156,69 +156,38 @@ Spawn 1 explore subagent using the Task tool:
 
 ### Agent: gmcc:agent:code_explorer
 
-Read the agent prompt from `$GMCC_PLUGIN_ROOT/prompts/gmcc_agent_code_explorer.prompt.md` and construct the full Task prompt:
+<!-- [FIX #7] Agent reads its own prompt file instead of loading it into primary context.
+     [FIX #6] Moved verbose output template to the agent's responsibility.
+     This prevents ~200 lines of agent prompt from polluting the primary context window. -->
+
+Spawn a general-purpose subagent (model: sonnet) with this Task prompt:
 
 ```
 Task tool:
   subagent_type: general-purpose
+  model: sonnet
   prompt: |
-    {Contents of gmcc_agent_code_explorer.prompt.md}
+    Read and follow your agent identity from: $GMCC_PLUGIN_ROOT/prompts/gmcc_agent_code_explorer.prompt.md
 
     ## Task Context
-
     **Exploration Target**: {initial prompt}
-    **Repository**: {GMCC_REPO_PATH}
+    **Repository**: Explore from the current working directory
     **Branch**: {ACTIVE_BRANCH}
 
     ## KBite Knowledge
     {kbite context summary from session_meta.md}
 
     ## Exploration Approach
-
     Apply all 4 methodologies sequentially:
-
     1. **Conservative**: Find existing patterns that can be reused directly
     2. **Aggressive**: Identify areas that might need significant changes
     3. **Pragmatic**: Balance effort/value in exploration scope
     4. **Alternative**: Look for unconventional integration points
 
-    ## Output Requirements
-
+    ## Output
     Write your complete exploration report to: {mem_folder_path}/exploration_report.md
-
-    Use this format:
-
-    # Exploration Report
-
-    ## Target
-    {what was explored}
-
-    ## Key Files
-    | File | Relevance | Must Read |
-    |------|-----------|-----------|
-    | {path} | {why} | {yes/no} |
-
-    ## Patterns Discovered
-    {patterns found across all 4 methodology passes}
-
-    ## Integration Points
-    {where new code should connect}
-
-    ## Dependencies
-    {what depends on what}
-
-    ## Uncertainties
-    {questions that couldn't be answered from code alone}
-
-    ## Methodology Insights
-    ### Conservative Findings
-    {patterns to preserve}
-    ### Aggressive Findings
-    {areas ripe for improvement}
-    ### Pragmatic Findings
-    {high-value focus areas}
-    ### Alternative Findings
-    {unconventional approaches worth considering}
+    Use the Code Explorer Report format from your prompt file.
+    Include sections for: Target, Key Files, Patterns, Integration Points, Dependencies, Uncertainties, and Methodology Insights.
 ```
 
 After the agent completes, verify `exploration_report.md` was written. Read it into context.
@@ -290,16 +259,20 @@ Spawn 1 architecture subagent using the Task tool:
 
 ### Agent: gmcc:agent:code_architect
 
-Read the agent prompt from `$GMCC_PLUGIN_ROOT/prompts/gmcc_agent_code_architect.prompt.md` and construct the full Task prompt:
+<!-- [FIX #7] Agent reads its own prompt file instead of loading into primary context.
+     [FIX #6] Moved verbose output template to the agent's responsibility.
+     [FIX #16] Architecture uses opus model for complex reasoning (opusplan pattern). -->
+
+Spawn a general-purpose subagent (model: opus) with this Task prompt:
 
 ```
 Task tool:
   subagent_type: general-purpose
+  model: opus
   prompt: |
-    {Contents of gmcc_agent_code_architect.prompt.md}
+    Read and follow your agent identity from: $GMCC_PLUGIN_ROOT/prompts/gmcc_agent_code_architect.prompt.md
 
     ## Architecture Context
-
     **Goal**: {refined task description from fully_clarified_prompt.md}
 
     ## Fully Clarified Prompt
@@ -312,68 +285,17 @@ Task tool:
     {kbite context summary}
 
     ## Architecture Approach
-
     Apply all 4 methodologies and synthesize:
     1. **Conservative**: Minimal changes, proven patterns
     2. **Aggressive**: Consider rewrites and new patterns
     3. **Pragmatic**: Balance effort and value
     4. **Alternative**: Unconventional but valuable approaches
+    Then synthesize the best elements into a unified architecture.
 
-    Then synthesize the best elements from each into a unified architecture.
-
-    ## Output Requirements
-
+    ## Output
     Write your architecture document to: {mem_folder_path}/architecture_document.md
-
-    Use this format:
-
-    # Architecture Document
-
-    ## Goal
-    {what is being designed}
-
-    ## Approach Summary
-    {2-3 sentence summary}
-
-    ## Component Specifications
-    ### {Component Name}
-    - **Responsibility**: {what it does}
-    - **Interface**: {key methods/properties}
-    - **Location**: {file path}
-
-    ## Files to Modify
-    | File | Changes | Reason |
-    |------|---------|--------|
-    | {path} | {what changes} | {why} |
-
-    ## Files to Create
-    | File | Purpose | Key Contents |
-    |------|---------|--------------|
-    | {path} | {responsibility} | {main exports} |
-
-    ## Build Sequence
-    1. {step 1} - {why first}
-    2. {step 2} - {dependencies}
-
-    ## Acceptance Criteria
-    - {criterion 1}
-    - {criterion 2}
-
-    ## Trade-offs
-    **Pros**: {advantages}
-    **Cons**: {limitations}
-
-    ## Methodology Analysis
-    ### Conservative Approach
-    {what it would look like}
-    ### Aggressive Approach
-    {what it would look like}
-    ### Pragmatic Approach
-    {what it would look like}
-    ### Alternative Approach
-    {what it would look like}
-    ### Synthesis Rationale
-    {why the final design was chosen}
+    Use the Code Architect Report format from your prompt file.
+    Include: Goal, Approach Summary, Components, Files to Modify/Create, Build Sequence, Acceptance Criteria, Trade-offs, Methodology Analysis with Synthesis Rationale.
 ```
 
 After the agent completes, verify `architecture_document.md` was written.
@@ -423,16 +345,19 @@ Spawn 1 review subagent using the Task tool:
 
 ### Agent: gmcc:agent:code_quality_reviewer
 
-Read the agent prompt from `$GMCC_PLUGIN_ROOT/prompts/gmcc_agent_code_quality_reviewer.prompt.md` and construct the full Task prompt:
+<!-- [FIX #7] Agent reads its own prompt file instead of loading into primary context.
+     [FIX #6] Slimmed spawn template. [FIX #16] Review uses sonnet (cost-effective). -->
+
+Spawn a general-purpose subagent (model: sonnet) with this Task prompt:
 
 ```
 Task tool:
   subagent_type: general-purpose
+  model: sonnet
   prompt: |
-    {Contents of gmcc_agent_code_quality_reviewer.prompt.md}
+    Read and follow your agent identity from: $GMCC_PLUGIN_ROOT/prompts/gmcc_agent_code_quality_reviewer.prompt.md
 
     ## Review Context
-
     **Task**: {refined task description}
 
     ## Fully Clarified Prompt
@@ -445,17 +370,14 @@ Task tool:
     {List of files that were created or modified during implementation}
 
     ## Review Instructions
-
     1. Read each changed file
     2. Validate against the architecture document and acceptance criteria
     3. Check for bugs, security issues, and quality problems
     4. Verify conventions are followed
 
-    ## Output Requirements
-
+    ## Output
     Write your review report to: {mem_folder_path}/review_report.md
-
-    Use the standard Code Quality Review Report format from your prompt.
+    Use the Code Quality Review Report format from your prompt file.
 ```
 
 After the agent completes, read `review_report.md`.

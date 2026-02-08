@@ -2,6 +2,10 @@
 name: gmcc_kbite
 description: GM-CDE Knowledge Bite System - Defines persistent knowledge directories (kbites) that store pre-tokenized, indexed reference material for efficient lookup by GMCC agents and contexts. Includes the crunchable maw workflow for ingesting new knowledge sources.
 user-invocable: false
+disable-model-invocation: true
+# [FIX #3] Added disable-model-invocation to prevent auto-loading on every prompt.
+# This skill is only needed during /gm_crunch_* operations, not general conversation.
+# Saves ~478 lines (~2,800 tokens) of context per message when not doing kbite work.
 ---
 
 # GMCC KBite System

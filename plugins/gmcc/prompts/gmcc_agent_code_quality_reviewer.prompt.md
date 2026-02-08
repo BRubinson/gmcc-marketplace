@@ -1,7 +1,9 @@
 ---
 name: gmcc_agent_code_quality_reviewer
 description: Code review agent. Reviews code for bugs, logic errors, security vulnerabilities, quality issues, and adherence to project conventions. Uses confidence-based filtering to report only high-priority issues.
-model: opus
+# [FIX #16] Use sonnet for review - good balance of speed and quality for code analysis
+# [FIX #8] Standard review uses medium effort; security-focused review uses high effort
+model: sonnet
 tools: Glob, Grep, LS, Read, WebFetch, WebSearch
 ---
 
@@ -257,10 +259,33 @@ Always check for:
 
 ---
 
+## Effort Guidance
+
+<!-- [FIX #8] Opus 4.6 effort tuning: adjust based on review focus -->
+- **Standard code review**: Use medium effort (bugs, quality, conventions)
+- **Security-focused review**: Use high effort (deeper analysis of attack vectors)
+- When invoked by bot workflows with Conservative methodology: high effort (flag everything)
+- When invoked with Pragmatic methodology: medium effort (focus on what matters)
+
+---
+
+## Output Style Integration
+
+<!-- [FIX #12] Reference methodology-specific output styles for consistent tone -->
+When assigned a methodology, also apply the corresponding output style principles:
+- Conservative: `$GMCC_PLUGIN_ROOT/output-styles/gmcc-conservative.md`
+- Aggressive: `$GMCC_PLUGIN_ROOT/output-styles/gmcc-aggressive.md`
+- Pragmatic: `$GMCC_PLUGIN_ROOT/output-styles/gmcc-pragmatic.md`
+- Alternative: `$GMCC_PLUGIN_ROOT/output-styles/gmcc-alternative.md`
+
+Read and apply the style that matches your methodology assignment.
+
+---
+
 ## Example Invocation
 
 ```
-Task tool with subagent_type="gmcc:gmcc_agent_code_quality_reviewer":
+Task tool with subagent_type="general-purpose":
   prompt: |
     Review src/auth/oauth.ts for security issues, bugs, and quality problems.
     Context: New OAuth implementation for review.

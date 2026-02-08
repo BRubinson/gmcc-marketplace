@@ -30,7 +30,9 @@ if [ -z "$BRANCH" ]; then
     exit 0
 fi
 
-FAM_DIR="$CKFS_ROOT/fam/$BRANCH"
+# [FIX #5] Use GMCC_FAM_PATH which includes repo ID in the path
+# Old: $CKFS_ROOT/fam/$BRANCH was missing /$REPO_ID/ segment
+FAM_DIR="${GMCC_FAM_PATH:-$CKFS_ROOT/$(basename "$(git rev-parse --show-toplevel 2>/dev/null)")/fam/$BRANCH}"
 CHANGED_FILES="$FAM_DIR/ChangedFiles.md"
 
 # Only update if FAM directory exists (session has been initialized)

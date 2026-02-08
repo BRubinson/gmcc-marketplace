@@ -35,7 +35,8 @@ git log main..HEAD --oneline
 
 ### 2. Update ChangedFiles.md
 
-Write to `.claude/ckfs/fam/{branch}/ChangedFiles.md`:
+# [FIX #13] Use $GMCC_FAM_PATH (old path .claude/ckfs/fam/ was legacy)
+Write to `$GMCC_FAM_PATH/ChangedFiles.md`:
 
 ```markdown
 # Changed Files: {branch}
