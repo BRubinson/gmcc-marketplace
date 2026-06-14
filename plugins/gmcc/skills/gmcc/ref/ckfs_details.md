@@ -35,32 +35,31 @@
         ├── ChangedFiles.md  # Modified files
         ├── Famalouge.md     # Compiled thoughts
         ├── compact_recovery.md  # Compaction state (auto-generated)
-        ├── thoughts/
-        │   ├── mem_{index}_{name}/  # Bot workflow memory sets
-        │   │   ├── session_meta.md
-        │   │   ├── fully_clarified_prompt.md
-        │   │   └── ... (workflow-specific files)
-        │   └── {timestamp}_{topic}.md  # Legacy individual thoughts
-        └── maw/             # Temporary kbite processing (crunchables)
+        └── thoughts/
+            ├── mem_{index}_{name}/  # Bot workflow memory sets
+            │   ├── session_meta.md
+            │   ├── fully_clarified_prompt.md
+            │   └── ... (workflow-specific files)
+            └── {timestamp}_{topic}.md  # Legacy individual thoughts
 ```
 
 ## System-Level KBites
 ```
-~/gmcc_ckfs/kbites/
-└── {kbite_name}/
-    ├── KBITE_PURPOSE.md
-    ├── KBITE_INDEX.md
-    ├── KBITE_TRIGGERS.md
-    ├── KBITE_TRIGGER_MAP.md
-    ├── KBITE_RELATIONSHIPS.md
-    ├── primary/
-    │   ├── documentation/
-    │   ├── example_project/
-    │   ├── api_reference/
-    │   ├── blogs/
-    │   └── all_others/
-    └── secondary/
-        └── (same structure)
+~/gmcc_ckfs/kbites/                       # $GMCC_KBITE
+├── digested/                             # $GMCC_KBITE_DIGESTED
+│   └── {kbite_name}/
+│       ├── KBITE_PURPOSE.md
+│       ├── KBITE_INDEX.md
+│       ├── KBITE_TRIGGERS.md
+│       ├── KBITE_TRIGGER_MAP.md
+│       ├── KBITE_RELATIONSHIPS.md
+│       ├── primary/{axis2}/...
+│       └── secondary/{axis2}/...
+└── open/                                 # $GMCC_KBITE_OPEN — in-progress maws
+    └── {kbite_name}/
+        ├── MAW_INDEX.md
+        ├── primary/{axis2}/...
+        └── secondary/{axis2}/...
 ```
 
 ## ckfs Maintenance Rules

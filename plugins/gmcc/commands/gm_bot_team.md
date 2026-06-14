@@ -22,11 +22,6 @@ allowed-tools: Read, Write, Edit, Grep, Glob, Bash, Task, AskUserQuestion
 
 You are the **team lead** executing the most thorough development workflow, leveraging Claude Code Agent Teams with independent teammate instances coordinated through shared task lists and mailbox messaging.
 
-## Status Bar
-```
-[GMB] MODE: GM-CDE | BRANCH: {ACTIVE_BRANCH} | TASK: bot-team | STATE: initializing
-```
-
 ---
 
 ## Prerequisites: Agent Teams Must Be Enabled
@@ -167,9 +162,7 @@ Write to `$GMCC_FAM_PATH/thoughts/mem_{index}_{mem_name}/session_meta.md`:
 
 **Skip this phase if resuming an existing memory set.**
 
-**Write state:** `{"task": "bot-team", "state": "initializing"}` to `.claude/GMB_STATE.json`
-
-1. List available kbites from `$GMCC_CKFS_ROOT/kbites/`:
+1. List available kbites from `$GMCC_KBITE_DIGESTED/`:
    - For each kbite directory, read `KBITE_PURPOSE.md` for a one-line summary
 
 2. Use AskUserQuestion (multiSelect: true):
@@ -194,12 +187,6 @@ Available kbites:
 ---
 
 ## Phase 2: Implementation Overview (Explore Team)
-
-**Write state:** `{"task": "bot-team", "state": "exploring"}` to `.claude/GMB_STATE.json`
-
-```
-[GMB] MODE: GM-CDE | BRANCH: {ACTIVE_BRANCH} | TASK: bot-team | STATE: exploring
-```
 
 <!-- [FIX #15] Uses actual agent teams instead of Task tool subagents.
      [FIX #7] Teammates read their own prompt files (each has its own context window).
@@ -322,12 +309,6 @@ Update `session_meta.md` phase history.
 
 ## Phase 3: Clarify
 
-**Write state:** `{"task": "bot-team", "state": "clarifying"}` to `.claude/GMB_STATE.json`
-
-```
-[GMB] MODE: GM-CDE | BRANCH: {ACTIVE_BRANCH} | TASK: bot-team | STATE: clarifying
-```
-
 1. Read `relevant_implementation_report.md`
 2. Extract the rated open questions (sorted by rating, highest first)
 3. Present ALL uncertainties to the human using AskUserQuestion
@@ -374,12 +355,6 @@ This is the single source of truth for what needs to be built.}
 ---
 
 ## Phase 4: Plan (Architecture Team)
-
-**Write state:** `{"task": "bot-team", "state": "planning"}` to `.claude/GMB_STATE.json`
-
-```
-[GMB] MODE: GM-CDE | BRANCH: {ACTIVE_BRANCH} | TASK: bot-team | STATE: planning
-```
 
 <!-- [FIX #15] Architecture team uses real agent teams.
      [FIX #16] Architect teammates use opus model for complex reasoning (opusplan pattern).
@@ -550,12 +525,6 @@ Update `session_meta.md` phase history.
 
 ## Phase 5: Implement
 
-**Write state:** `{"task": "bot-team", "state": "implementing"}` to `.claude/GMB_STATE.json`
-
-```
-[GMB] MODE: GM-CDE | BRANCH: {ACTIVE_BRANCH} | TASK: bot-team | STATE: implementing
-```
-
 Implementation runs in primary context with full mem artifacts:
 
 1. Read `fully_clarified_prompt.md` - the refined task description
@@ -569,12 +538,6 @@ Implementation runs in primary context with full mem artifacts:
 ---
 
 ## Phase 6: Review (Review Team)
-
-**Write state:** `{"task": "bot-team", "state": "reviewing"}` to `.claude/GMB_STATE.json`
-
-```
-[GMB] MODE: GM-CDE | BRANCH: {ACTIVE_BRANCH} | TASK: bot-team | STATE: reviewing
-```
 
 <!-- [FIX #15] Review team uses real agent teams.
      [FIX #16] Review teammates use sonnet (cost-effective for code analysis).
@@ -712,15 +675,11 @@ Implement requested fixes.
 
 4. On completion:
 
-**Write state:** `{"task": "none", "state": "idle"}` to `.claude/GMB_STATE.json`
-
 Update `session_meta.md`:
 - Set Status to `completed`
 - Add final phase history entry
 
 ```
-[GMB] MODE: GM-CDE | BRANCH: {ACTIVE_BRANCH} | TASK: none | STATE: idle
-
 Bot Team Complete: {mem_name}
 
 **Memory**: thoughts/mem_{index}_{mem_name}/

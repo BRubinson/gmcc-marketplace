@@ -10,13 +10,6 @@ allowed-tools: Read, Write, Bash, Glob, Grep, Task, AskUserQuestion
 
 Downloads web pages into a maw using headless Playwright for JS-rendered content. Supports interactive, inline, and programmatic invocation modes.
 
-## Status Bar
-```
-[GMB] MODE: GM-CDE | BRANCH: {ACTIVE_BRANCH} | TASK: maw-fetch | STATE: collecting
-```
-
-**Write state:** `{"task": "maw-fetch", "state": "collecting"}` to `.claude/GMB_STATE.json`
-
 ---
 
 ## Pre-Flight Checks
@@ -30,9 +23,9 @@ To fix: Restart Claude Code from within a git repository.
 ```
 Exit without proceeding.
 
-1. Verify GM-CDE is initialized (`$GMCC_CKFS_ROOT` exists)
+1. Verify GM-CDE is initialized (`$GMCC_KBITE` is set)
 2. Parse `{kbite_name}` from first token of `$ARGUMENTS`
-3. Verify maw exists at `$GMCC_FAM_PATH/maw/{kbite_name}/`
+3. Verify maw exists at `$GMCC_KBITE_OPEN/{kbite_name}/`
 4. Read MAW_INDEX.md for current state
 5. Verify Node.js v18+ is available:
    ```bash
@@ -181,8 +174,6 @@ Each entry in `resources` becomes one crunchable directory containing one or mor
 
 ## Execution
 
-**Update state:** `{"task": "maw-fetch", "state": "downloading"}`
-
 For each resource entry:
 
 ### Step 1: Validate
@@ -204,15 +195,15 @@ Task tool:
     Download web pages for kbite "{kbite_name}".
 
     **Script Path**: $GMCC_PLUGIN_ROOT/scripts/maw_web_fetch.mjs
-    **Maw Root**: $GMCC_FAM_PATH/maw/{kbite_name}/
-    **MAW_INDEX**: $GMCC_FAM_PATH/maw/{kbite_name}/MAW_INDEX.md
+    **Maw Root**: $GMCC_KBITE_OPEN/{kbite_name}/
+    **MAW_INDEX**: $GMCC_KBITE_OPEN/{kbite_name}/MAW_INDEX.md
 
     Resource to download:
     - Name: {resource_name}
     - URLs: {url_list as JSON array}
     - Axis1: {axis1}
     - Axis2: {axis2}
-    - Output Dir: $GMCC_FAM_PATH/maw/{kbite_name}/{axis1}/{axis2}/{resource_name}/
+    - Output Dir: $GMCC_KBITE_OPEN/{kbite_name}/{axis1}/{axis2}/{resource_name}/
 ```
 
 ### Step 3: Collect Results
@@ -223,14 +214,10 @@ Read agent results. Track success/failure per resource.
 
 ## Final Report
 
-**Write state:** `{"task": "none", "state": "idle"}` to `.claude/GMB_STATE.json`
-
 ```
-[GMB] MODE: GM-CDE | BRANCH: {ACTIVE_BRANCH} | TASK: none | STATE: idle
-
 Maw Fetch Complete: {kbite_name}
 
-**Maw Location**: $GMCC_FAM_PATH/maw/{kbite_name}/
+**Maw Location**: $GMCC_KBITE_OPEN/{kbite_name}/
 
 ## Download Summary
 
@@ -273,11 +260,11 @@ Falling back to direct script execution via Bash.
 
 On agent failure, attempt direct execution as fallback:
 ```bash
-# Write manifest to $GMCC_FAM_PATH/maw/{kbite_name}/.maw_fetch_manifest.json
+# Write manifest to $GMCC_KBITE_OPEN/{kbite_name}/.maw_fetch_manifest.json
 # Execute: node $GMCC_PLUGIN_ROOT/scripts/maw_web_fetch.mjs /path/to/manifest.json
 # Verify results
 # Update MAW_INDEX manually
-# Cleanup: rm -f $GMCC_FAM_PATH/maw/{kbite_name}/.maw_fetch_manifest.json
+# Cleanup: rm -f $GMCC_KBITE_OPEN/{kbite_name}/.maw_fetch_manifest.json
 ```
 
 **All downloads failed:**

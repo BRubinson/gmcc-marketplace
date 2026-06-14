@@ -94,20 +94,9 @@ Create the repository CKFS structure at `$GMCC_REPO_PATH`:
 
 **NOTE**: The plugin template is NOT stored per-repo. It lives at `~/gmcc_ckfs/gmcc_plugin_template/` and is shared across all repositories.
 
-Also create in the project's `.claude/` directory:
-```
-.claude/
-└── GMB_STATE.json
-```
-
 ## File Templates
 
 Use templates from `~/gmcc_ckfs/gmcc_plugin_template/ckfs_templates/` if they exist, otherwise use the inline templates below.
-
-### GMB_STATE.json (in project .claude/)
-```json
-{"task": "none", "state": "idle"}
-```
 
 ### REPOSITORY_INDEX.md
 ```markdown
@@ -284,19 +273,7 @@ GM-CDE has been initialized. The main branch serves as the stable integration po
 
 After creating all files:
 
-1. **Configure Status Line** (if not already set):
-   - Check `.claude/settings.local.json` for existing statusLine
-   - If not present, add:
-   ```json
-   {
-     "statusLine": {
-       "type": "command",
-       "command": "${CLAUDE_PLUGIN_ROOT}/scripts/gm_statusline.sh"
-     }
-   }
-   ```
-
-2. **Prompt for GREATER_PURPOSE**:
+1. **Prompt for GREATER_PURPOSE**:
    Use AskUserQuestion:
    ```
    Would you like to define the GREATER_PURPOSE now?
@@ -311,10 +288,8 @@ After creating all files:
 
    Format their responses into GREATER_PURPOSE.md.
 
-3. **Report Success**:
+2. **Report Success**:
 ```
-[GMB] MODE: GM-CDE | BRANCH: main | TASK: none | STATE: idle
-
 GM-CDE repository initialized successfully!
 
 Created at $GMCC_REPO_PATH:
@@ -325,9 +300,6 @@ Created at $GMCC_REPO_PATH:
 - CHANGELOG.md
 - EVOLUTION_LOG.md
 - fam/main/ (complete FAM structure)
-
-Created at .claude/:
-- GMB_STATE.json (status line state)
 
 Shared plugin template: ~/gmcc_ckfs/gmcc_plugin_template/
 

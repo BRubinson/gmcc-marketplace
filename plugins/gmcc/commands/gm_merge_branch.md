@@ -10,11 +10,6 @@ allowed-tools: Read, Write, Edit, Bash, Grep, Glob, Task, AskUserQuestion
 
 You are preparing to merge the active branch to main with full GM-CDE tracking.
 
-## Status Bar
-```
-[GMB] MODE: GM-CDE | BRANCH: {ACTIVE_BRANCH} | TASK: merge-prep | STATE: in_progress
-```
-
 ## Pre-Flight
 
 **Boot Validation**: If `$GMCC_BOOTED` is not set, output:
@@ -219,8 +214,6 @@ Update property tracking.
 ### Report Success
 
 ```
-[GMB] MODE: GM-CDE | BRANCH: main | TASK: none | STATE: idle
-
 Merge Preparation Complete: {branch}
 
 **Updated:**

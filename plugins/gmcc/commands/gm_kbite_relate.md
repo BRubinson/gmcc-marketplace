@@ -10,13 +10,6 @@ allowed-tools: Read, Write, Bash, Glob
 
 Creates or updates a relationship between two kbites, enabling cross-referencing during knowledge lookup.
 
-## Status Bar
-```
-[GMB] MODE: GM-CDE | BRANCH: {ACTIVE_BRANCH} | TASK: kbite-relate | STATE: updating
-```
-
-**Write state:** `{"task": "kbite-relate", "state": "updating"}` to `.claude/GMB_STATE.json`
-
 ---
 
 ## Arguments
@@ -40,9 +33,9 @@ To fix: Restart Claude Code from within a git repository.
 ```
 Exit without proceeding.
 
-1. Verify GM-CDE is initialized (`$GMCC_CKFS_ROOT` exists)
-2. Verify source kbite exists at `$GMCC_CKFS_ROOT/kbites/{kbite_from}/`
-3. Verify target kbite exists at `$GMCC_CKFS_ROOT/kbites/{kbite_to}/`
+1. Verify GM-CDE is initialized (`$GMCC_KBITE` is set)
+2. Verify source kbite exists at `$GMCC_KBITE_DIGESTED/{kbite_from}/`
+3. Verify target kbite exists at `$GMCC_KBITE_DIGESTED/{kbite_to}/`
 4. Parse relationship description to determine type
 
 ### If Source KBite Missing
@@ -50,7 +43,7 @@ Exit without proceeding.
 [GMB] Error: Source kbite not found: {kbite_from}
 
 Available kbites:
-- {list of kbites in $GMCC_CKFS_ROOT/kbites/}
+- {list of kbites in $GMCC_KBITE_DIGESTED/}
 ```
 Exit without changes.
 
@@ -59,7 +52,7 @@ Exit without changes.
 [GMB] Error: Target kbite not found: {kbite_to}
 
 Available kbites:
-- {list of kbites in $GMCC_CKFS_ROOT/kbites/}
+- {list of kbites in $GMCC_KBITE_DIGESTED/}
 ```
 Exit without changes.
 
@@ -103,7 +96,7 @@ What type of relationship is this?
 
 Read from source kbite:
 ```
-$GMCC_CKFS_ROOT/kbites/{kbite_from}/KBITE_RELATIONSHIPS.md
+$GMCC_KBITE_DIGESTED/{kbite_from}/KBITE_RELATIONSHIPS.md
 ```
 
 If doesn't exist, create from template per **gmcc_kbite** skill.
@@ -120,7 +113,7 @@ Add or update entry in "Outgoing Relationships" table:
 
 ### Step 4: Update Target KBite Incoming Relationships
 
-Read `$GMCC_CKFS_ROOT/kbites/{kbite_to}/KBITE_RELATIONSHIPS.md`
+Read `$GMCC_KBITE_DIGESTED/{kbite_to}/KBITE_RELATIONSHIPS.md`
 
 Add or update entry in "Incoming Relationships" table:
 
@@ -160,11 +153,7 @@ Per the **gmcc_kbite** skill:
 
 ## Final Report
 
-**Write state:** `{"task": "none", "state": "idle"}` to `.claude/GMB_STATE.json`
-
 ```
-[GMB] MODE: GM-CDE | BRANCH: {ACTIVE_BRANCH} | TASK: none | STATE: idle
-
 Relationship Created
 
 **From**: {kbite_from}
@@ -174,8 +163,8 @@ Relationship Created
 
 ## Updated Files
 
-- $GMCC_CKFS_ROOT/kbites/{kbite_from}/KBITE_RELATIONSHIPS.md (outgoing)
-- $GMCC_CKFS_ROOT/kbites/{kbite_to}/KBITE_RELATIONSHIPS.md (incoming)
+- $GMCC_KBITE_DIGESTED/{kbite_from}/KBITE_RELATIONSHIPS.md (outgoing)
+- $GMCC_KBITE_DIGESTED/{kbite_to}/KBITE_RELATIONSHIPS.md (incoming)
 
 ## Relationship Graph (for {kbite_from})
 
@@ -229,7 +218,7 @@ Continue?
 ```
 [GMB] Error: Failed to update KBITE_RELATIONSHIPS.md
 
-Check permissions on $GMCC_CKFS_ROOT/kbites/{kbite_name}/
+Check permissions on $GMCC_KBITE_DIGESTED/{kbite_name}/
 ```
 
 ---

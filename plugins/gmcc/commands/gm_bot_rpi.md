@@ -10,11 +10,6 @@ allowed-tools: Read, Write, Edit, Grep, Glob, Bash, Task, AskUserQuestion
 
 You are executing an enhanced development workflow that leverages GMCC subagents for Research, Planning, and Review phases.
 
-## Status Bar
-```
-[GMB] MODE: GM-CDE | BRANCH: {ACTIVE_BRANCH} | TASK: bot-rpi | STATE: initializing
-```
-
 ---
 
 ## Pre-Flight
@@ -118,9 +113,7 @@ Write to `$GMCC_FAM_PATH/thoughts/mem_{index}_{mem_name}/session_meta.md`:
 
 **Skip this phase if resuming an existing memory set.**
 
-**Write state:** `{"task": "bot-rpi", "state": "initializing"}` to `.claude/GMB_STATE.json`
-
-1. List available kbites from `$GMCC_CKFS_ROOT/kbites/`:
+1. List available kbites from `$GMCC_KBITE_DIGESTED/`:
    - For each kbite directory, read `KBITE_PURPOSE.md` for a one-line summary
 
 2. Use AskUserQuestion (multiSelect: true):
@@ -145,12 +138,6 @@ Available kbites:
 ---
 
 ## Phase 2: Implementation Overview (Explore Agent)
-
-**Write state:** `{"task": "bot-rpi", "state": "exploring"}` to `.claude/GMB_STATE.json`
-
-```
-[GMB] MODE: GM-CDE | BRANCH: {ACTIVE_BRANCH} | TASK: bot-rpi | STATE: exploring
-```
 
 Spawn 1 explore subagent using the Task tool:
 
@@ -198,12 +185,6 @@ Update `session_meta.md` phase history.
 
 ## Phase 3: Clarify
 
-**Write state:** `{"task": "bot-rpi", "state": "clarifying"}` to `.claude/GMB_STATE.json`
-
-```
-[GMB] MODE: GM-CDE | BRANCH: {ACTIVE_BRANCH} | TASK: bot-rpi | STATE: clarifying
-```
-
 1. Review the exploration report for uncertainties and ambiguities
 
 2. Use AskUserQuestion to resolve all identified issues:
@@ -248,12 +229,6 @@ integrated inline. This is the single source of truth for what needs to be built
 ---
 
 ## Phase 4: Plan (Architecture Agent)
-
-**Write state:** `{"task": "bot-rpi", "state": "planning"}` to `.claude/GMB_STATE.json`
-
-```
-[GMB] MODE: GM-CDE | BRANCH: {ACTIVE_BRANCH} | TASK: bot-rpi | STATE: planning
-```
 
 Spawn 1 architecture subagent using the Task tool:
 
@@ -320,12 +295,6 @@ Update `session_meta.md` phase history.
 
 ## Phase 5: Implement
 
-**Write state:** `{"task": "bot-rpi", "state": "implementing"}` to `.claude/GMB_STATE.json`
-
-```
-[GMB] MODE: GM-CDE | BRANCH: {ACTIVE_BRANCH} | TASK: bot-rpi | STATE: implementing
-```
-
 1. Read `architecture_document.md` for the implementation plan
 2. Follow the build sequence
 3. Write code changes
@@ -334,12 +303,6 @@ Update `session_meta.md` phase history.
 ---
 
 ## Phase 6: Review (Code Review Agent)
-
-**Write state:** `{"task": "bot-rpi", "state": "reviewing"}` to `.claude/GMB_STATE.json`
-
-```
-[GMB] MODE: GM-CDE | BRANCH: {ACTIVE_BRANCH} | TASK: bot-rpi | STATE: reviewing
-```
 
 Spawn 1 review subagent using the Task tool:
 
@@ -399,8 +362,6 @@ Implement requested fixes.
 
 ## Phase 7: Feedback Integration
 
-**Write state:** `{"task": "bot-rpi", "state": "reviewing"}` to `.claude/GMB_STATE.json`
-
 1. Present a complete summary:
    - What was built (from architecture_document.md)
    - Files created/modified
@@ -413,15 +374,11 @@ Implement requested fixes.
 
 4. On completion:
 
-**Write state:** `{"task": "none", "state": "idle"}` to `.claude/GMB_STATE.json`
-
 Update `session_meta.md`:
 - Set Status to `completed`
 - Add final phase history entry
 
 ```
-[GMB] MODE: GM-CDE | BRANCH: {ACTIVE_BRANCH} | TASK: none | STATE: idle
-
 Bot RPI Complete: {mem_name}
 
 **Memory**: thoughts/mem_{index}_{mem_name}/

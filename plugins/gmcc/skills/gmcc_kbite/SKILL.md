@@ -28,24 +28,36 @@ KBites transform raw reference materials (documentation, examples, APIs) into st
 
 ## KBite Storage Location
 
-KBites are stored at the **system level**, shared across all repositories:
+KBites are stored at the **system level**, shared across all repositories. The kbites root has exactly two top-level subfolders — `digested/` for persisted indexes and `open/` for in-progress maws — each containing one entry per kbite:
 
 ```
-$GMCC_CKFS_ROOT/kbites/
-└── {kbite_name}/
-    └── ... (structure below)
+$GMCC_KBITE/                                # = $GMCC_CKFS_ROOT/kbites/
+├── digested/                               # = $GMCC_KBITE_DIGESTED — canonical active indexes
+│   └── {kbite_name}/...
+└── open/                                   # = $GMCC_KBITE_OPEN — in-progress maws
+    └── {kbite_name}/...
 ```
 
-Example: `~/gmcc_ckfs/kbites/claude_code_sdk/`
+Example: `~/gmcc_ckfs/kbites/digested/claude_code_sdk/`
+
+### Env vars
+
+| Var | Value | Per-kbite usage |
+|-----|-------|-----------------|
+| `GMCC_KBITE` | `$GMCC_CKFS_ROOT/kbites` | — |
+| `GMCC_KBITE_DIGESTED` | `$GMCC_CKFS_ROOT/kbites/digested` | `$GMCC_KBITE_DIGESTED/{name}/...` |
+| `GMCC_KBITE_OPEN` | `$GMCC_CKFS_ROOT/kbites/open` | `$GMCC_KBITE_OPEN/{name}/...` |
+
+The list of known kbites is `ls $GMCC_KBITE_DIGESTED/`.
 
 ---
 
 ## Directory Structure
 
-### Persisted KBite Structure
+### Digested KBite Structure (Persisted, Active Index)
 
 ```
-$GMCC_CKFS_ROOT/kbites/{kbite_name}/
+$GMCC_KBITE_DIGESTED/{kbite_name}/
 ├── KBITE_PURPOSE.md                    # Why this kbite exists
 ├── KBITE_INDEX.md                      # Master index of all digested resources
 ├── KBITE_TRIGGERS.md                   # Trigger words that activate this kbite
@@ -70,12 +82,12 @@ $GMCC_CKFS_ROOT/kbites/{kbite_name}/
     └── all_others/
 ```
 
-### Crunchable Maw Structure (Temporary Processing)
+### Open Maw Structure (Temporary Processing)
 
-The **maw** is a temporary holding area for resources being processed ("crunched") into a kbite. Located within the FAM:
+The **open maw** is a temporary holding area for resources being processed ("crunched") into the digested index. It lives under `$GMCC_KBITE_OPEN/{kbite_name}/` — there is at most one open maw per kbite, system-wide:
 
 ```
-$GMCC_FAM_PATH/maw/{kbite_name}/
+$GMCC_KBITE_OPEN/{kbite_name}/
 ├── MAW_INDEX.md                        # Index of crunchables in this maw
 │
 ├── primary/
@@ -207,7 +219,7 @@ A glossary/table of contents of the raw source contents:
 | {filename} | {md/ts/json/etc} | {what this file contains} |
 
 **Full Paths**:
-- `{$GMCC_CKFS_ROOT}/kbites/{kbite}/{axis1}/{axis2}/{resource}/{file}`
+- `{$GMCC_KBITE_DIGESTED}/{kbite}/{axis1}/{axis2}/{resource}/{file}`
 
 ---
 
@@ -381,13 +393,13 @@ Processes each crunchable:
 
 ### 4. Digest (`/gm_crunch_digest {kbite_name}`)
 
-Moves chewed resources to persisted kbite:
+Moves chewed resources from the open maw into the digested index:
 1. Reviews all chewed crunchables
 2. Spawns architects to determine optimal index structure
-3. Moves resources from maw to `$GMCC_CKFS_ROOT/kbites/{kbite_name}/`
+3. Moves resources from `$GMCC_KBITE_OPEN/{kbite_name}/` to `$GMCC_KBITE_DIGESTED/{kbite_name}/`
 4. Updates KBITE_INDEX
 5. Generates KBITE_TRIGGERS and KBITE_TRIGGER_MAP
-6. Deletes the maw
+6. Deletes the `open/` folder
 
 ---
 
@@ -406,11 +418,11 @@ When operating in GM-CDE mode, GMB MUST:
 
 ```
 1. Parse user prompt for keywords
-2. For each kbite in $GMCC_CKFS_ROOT/kbites/:
-   a. Read KBITE_TRIGGERS.md
+2. For each kbite in $GMCC_KBITE_DIGESTED/:
+   a. Read $GMCC_KBITE_DIGESTED/{name}/KBITE_TRIGGERS.md
    b. Check for keyword matches
    c. If match found with confidence > 70:
-      - Read KBITE_TRIGGER_MAP.md
+      - Read $GMCC_KBITE_DIGESTED/{name}/KBITE_TRIGGER_MAP.md
       - Load relevant chewed files
       - Include knowledge in context
 3. Proceed with task using loaded knowledge
@@ -449,8 +461,8 @@ GMB should suggest creating a kbite when:
 
 The kbite system integrates with core GMCC:
 
-1. **Environment**: Uses `$GMCC_CKFS_ROOT` for storage location
-2. **FAM Integration**: Maw is stored in current FAM during processing
+1. **Environment**: Uses `$GMCC_KBITE`, `$GMCC_KBITE_DIGESTED`, `$GMCC_KBITE_OPEN` for path resolution
+2. **System-Level Storage**: Open maws live next to digested indexes under the same kbite folder — independent of FAM/branch
 3. **Agent System**: Uses GMCC agent framework for chewing
 4. **Trigger System**: Adds behavioral rule to core GMCC skill
 

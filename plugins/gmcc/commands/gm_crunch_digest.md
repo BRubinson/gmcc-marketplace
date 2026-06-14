@@ -10,13 +10,6 @@ allowed-tools: Read, Write, Bash, Glob, Grep, Task
 
 Finalizes a kbite by moving all chewed resources from the maw to persistent storage and generating index/trigger files.
 
-## Status Bar
-```
-[GMB] MODE: GM-CDE | BRANCH: {ACTIVE_BRANCH} | TASK: crunch-digest | STATE: reviewing
-```
-
-**Write state:** `{"task": "crunch-digest", "state": "reviewing"}` to `.claude/GMB_STATE.json`
-
 ---
 
 ## Pre-Flight Checks
@@ -30,10 +23,10 @@ To fix: Restart Claude Code from within a git repository.
 ```
 Exit without proceeding.
 
-1. Verify GM-CDE is initialized (`$GMCC_CKFS_ROOT` exists)
-2. Verify maw exists at `$GMCC_FAM_PATH/maw/{kbite_name}/`
+1. Verify GM-CDE is initialized (`$GMCC_KBITE` is set)
+2. Verify maw exists at `$GMCC_KBITE_OPEN/{kbite_name}/`
 3. Read MAW_INDEX.md - verify status is "ready_to_digest" or has chewed resources
-4. Verify KBITE_PURPOSE.md exists at `$GMCC_CKFS_ROOT/kbites/{kbite_name}/`
+4. Verify KBITE_PURPOSE.md exists at `$GMCC_KBITE_DIGESTED/{kbite_name}/KBITE_PURPOSE.md`
 
 ### If Maw Missing
 ```
@@ -56,7 +49,7 @@ Exit without changes.
 [GMB] Error: KBITE_PURPOSE.md not found
 
 The kbite purpose file is required at:
-$GMCC_CKFS_ROOT/kbites/{kbite_name}/KBITE_PURPOSE.md
+$GMCC_KBITE_DIGESTED/{kbite_name}/KBITE_PURPOSE.md
 
 Run /gm_crunch_open_maw {kbite_name} to create it.
 ```
@@ -68,17 +61,17 @@ Exit without changes.
 
 Per the **gmcc_kbite** skill:
 
-**Source (maw):**
+**Source (open maw):**
 ```
-$GMCC_FAM_PATH/maw/{kbite_name}/
+$GMCC_KBITE_OPEN/{kbite_name}/
 ├── MAW_INDEX.md
 ├── {axis1}/{axis2}/{resource_name}/
 └── {axis1}/{axis2}/{resource_name}_chewed.md
 ```
 
-**Destination (persisted kbite):**
+**Destination (digested index):**
 ```
-$GMCC_CKFS_ROOT/kbites/{kbite_name}/
+$GMCC_KBITE_DIGESTED/{kbite_name}/
 ├── KBITE_PURPOSE.md
 ├── KBITE_INDEX.md
 ├── KBITE_TRIGGERS.md
@@ -94,15 +87,11 @@ $GMCC_CKFS_ROOT/kbites/{kbite_name}/
 
 ### Step 1: Review Chewed Resources
 
-**Update state:** `{"task": "crunch-digest", "state": "reviewing"}`
-
 1. Read all `*_chewed.md` files from the maw
 2. Collect all keywords, triggers, and takeaways
 3. Read existing KBITE_INDEX.md (if exists) for merge
 
 ### Step 2: Spawn Architect Agents
-
-**Update state:** `{"task": "crunch-digest", "state": "architecting"}`
 
 Spawn 4 `gmcc:agent:code_architect` agents with different methodologies to determine optimal:
 - Index structure
@@ -136,21 +125,19 @@ Combine insights from all 4 architects:
 
 ### Step 4: Create/Update Persisted KBite Directory
 
-**Update state:** `{"task": "crunch-digest", "state": "moving"}`
-
 Ensure directory structure exists:
 
 ```bash
-mkdir -p "$GMCC_CKFS_ROOT/kbites/{kbite_name}/primary/documentation"
-mkdir -p "$GMCC_CKFS_ROOT/kbites/{kbite_name}/primary/example_project"
-mkdir -p "$GMCC_CKFS_ROOT/kbites/{kbite_name}/primary/api_reference"
-mkdir -p "$GMCC_CKFS_ROOT/kbites/{kbite_name}/primary/blogs"
-mkdir -p "$GMCC_CKFS_ROOT/kbites/{kbite_name}/primary/all_others"
-mkdir -p "$GMCC_CKFS_ROOT/kbites/{kbite_name}/secondary/documentation"
-mkdir -p "$GMCC_CKFS_ROOT/kbites/{kbite_name}/secondary/example_project"
-mkdir -p "$GMCC_CKFS_ROOT/kbites/{kbite_name}/secondary/api_reference"
-mkdir -p "$GMCC_CKFS_ROOT/kbites/{kbite_name}/secondary/blogs"
-mkdir -p "$GMCC_CKFS_ROOT/kbites/{kbite_name}/secondary/all_others"
+mkdir -p "$GMCC_KBITE_DIGESTED/{kbite_name}/primary/documentation"
+mkdir -p "$GMCC_KBITE_DIGESTED/{kbite_name}/primary/example_project"
+mkdir -p "$GMCC_KBITE_DIGESTED/{kbite_name}/primary/api_reference"
+mkdir -p "$GMCC_KBITE_DIGESTED/{kbite_name}/primary/blogs"
+mkdir -p "$GMCC_KBITE_DIGESTED/{kbite_name}/primary/all_others"
+mkdir -p "$GMCC_KBITE_DIGESTED/{kbite_name}/secondary/documentation"
+mkdir -p "$GMCC_KBITE_DIGESTED/{kbite_name}/secondary/example_project"
+mkdir -p "$GMCC_KBITE_DIGESTED/{kbite_name}/secondary/api_reference"
+mkdir -p "$GMCC_KBITE_DIGESTED/{kbite_name}/secondary/blogs"
+mkdir -p "$GMCC_KBITE_DIGESTED/{kbite_name}/secondary/all_others"
 ```
 
 ### Step 5: Move Resources
@@ -159,17 +146,15 @@ For each chewed resource in the maw:
 
 ```bash
 # Move source folder
-cp -r "$GMCC_FAM_PATH/maw/{kbite_name}/{axis1}/{axis2}/{resource_name}" \
-      "$GMCC_CKFS_ROOT/kbites/{kbite_name}/{axis1}/{axis2}/"
+cp -r "$GMCC_KBITE_OPEN/{kbite_name}/{axis1}/{axis2}/{resource_name}" \
+      "$GMCC_KBITE_DIGESTED/{kbite_name}/{axis1}/{axis2}/"
 
 # Move chewed file
-cp "$GMCC_FAM_PATH/maw/{kbite_name}/{axis1}/{axis2}/{resource_name}_chewed.md" \
-   "$GMCC_CKFS_ROOT/kbites/{kbite_name}/{axis1}/{axis2}/"
+cp "$GMCC_KBITE_OPEN/{kbite_name}/{axis1}/{axis2}/{resource_name}_chewed.md" \
+   "$GMCC_KBITE_DIGESTED/{kbite_name}/{axis1}/{axis2}/"
 ```
 
 ### Step 6: Generate KBITE_INDEX.md
-
-**Update state:** `{"task": "crunch-digest", "state": "indexing"}`
 
 Per the **gmcc_kbite** skill KBITE_INDEX format:
 
@@ -251,26 +236,22 @@ If not exists, create per the **gmcc_kbite** skill format:
 | *None yet* | - | - |
 ```
 
-### Step 10: Delete Maw
+### Step 10: Delete Open Maw
 
 After successful migration:
 
 ```bash
-rm -rf "$GMCC_FAM_PATH/maw/{kbite_name}"
+rm -rf "$GMCC_KBITE_OPEN/{kbite_name}"
 ```
 
 ---
 
 ## Final Report
 
-**Write state:** `{"task": "none", "state": "idle"}` to `.claude/GMB_STATE.json`
-
 ```
-[GMB] MODE: GM-CDE | BRANCH: {ACTIVE_BRANCH} | TASK: none | STATE: idle
-
 Digest Complete: {kbite_name}
 
-**KBite Location**: $GMCC_CKFS_ROOT/kbites/{kbite_name}/
+**KBite Location**: $GMCC_KBITE_DIGESTED/{kbite_name}/
 
 ## Digest Summary
 
@@ -297,7 +278,7 @@ Digest Complete: {kbite_name}
 
 ## Maw Cleanup
 
-The maw at `$GMCC_FAM_PATH/maw/{kbite_name}/` has been deleted.
+The open maw at `$GMCC_KBITE_OPEN/{kbite_name}/` has been deleted.
 
 ## Next Steps
 

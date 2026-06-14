@@ -84,7 +84,7 @@ For each downloaded URL, the script saves:
 | `{slug}.md` | Extracted text content as basic markdown |
 | `_manifest.json` | Metadata: URLs, timestamps, sizes, errors |
 
-Files are saved to: `$GMCC_FAM_PATH/maw/{kbite}/{axis1}/{axis2}/{resource_name}/`
+Files are saved to: `$GMCC_KBITE_OPEN/{kbite}/{axis1}/{axis2}/{resource_name}/`
 
 ---
 

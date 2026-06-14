@@ -10,11 +10,6 @@ allowed-tools: Read, Write
 
 You are formatting the Purpose.md file for the current FAM.
 
-## Status Bar
-```
-[GMB] MODE: GM-CDE | BRANCH: {ACTIVE_BRANCH} | TASK: fam-fmt | STATE: in_progress
-```
-
 ## Pre-Flight
 
 **Boot Validation**: If `$GMCC_BOOTED` is not set, output:
@@ -82,8 +77,6 @@ Reorganize to this structure:
 ## Report
 
 ```
-[GMB] MODE: GM-CDE | BRANCH: {ACTIVE_BRANCH} | TASK: none | STATE: idle
-
 Purpose.md formatted.
 
 Changes:

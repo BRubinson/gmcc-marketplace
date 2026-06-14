@@ -1,4 +1,57 @@
-# GMCC Migration Guide: v4.x to v5.0.0
+# GMCC Migration Guide
+
+## v5.2.x to v5.3.0 — KBite Layout Refactor
+
+### What changed
+
+The per-FAM maw is gone. All kbite state now lives under `$GMCC_CKFS_ROOT/kbites/` with two top-level subfolders, each containing one entry per kbite:
+
+```
+$GMCC_CKFS_ROOT/kbites/
+├── digested/{kbite_name}/...      # persisted active index
+└── open/{kbite_name}/...          # in-progress maw (one per kbite, system-wide)
+```
+
+| Old path | New path |
+|----------|----------|
+| `$GMCC_CKFS_ROOT/kbites/{name}/KBITE_*.md` | `$GMCC_CKFS_ROOT/kbites/digested/{name}/KBITE_*.md` |
+| `$GMCC_CKFS_ROOT/kbites/{name}/primary/...` | `$GMCC_CKFS_ROOT/kbites/digested/{name}/primary/...` |
+| `$GMCC_CKFS_ROOT/kbites/{name}/secondary/...` | `$GMCC_CKFS_ROOT/kbites/digested/{name}/secondary/...` |
+| `$GMCC_FAM_PATH/maw/{name}/...` | `$GMCC_CKFS_ROOT/kbites/open/{name}/...` |
+
+### New env vars
+
+`detect_repo.sh` now exports three additional vars on every session start:
+
+| Var | Value |
+|-----|-------|
+| `GMCC_KBITE` | `$GMCC_CKFS_ROOT/kbites` |
+| `GMCC_KBITE_DIGESTED` | `$GMCC_CKFS_ROOT/kbites/digested` |
+| `GMCC_KBITE_OPEN` | `$GMCC_CKFS_ROOT/kbites/open` |
+
+Add the same exports to the `gmcc env` block in `~/.zshrc`:
+
+```bash
+# >>> gmcc env >>>
+export GMCC_CKFS_ROOT="$HOME/gmcc_ckfs"
+export GMCC_KBITE="$GMCC_CKFS_ROOT/kbites"
+export GMCC_KBITE_DIGESTED="$GMCC_CKFS_ROOT/kbites/digested"
+export GMCC_KBITE_OPEN="$GMCC_CKFS_ROOT/kbites/open"
+# <<< gmcc env <<<
+```
+
+### Migration steps
+
+1. Update the plugin to v5.3.0.
+2. Restart Claude Code (so `detect_repo.sh` exports the new env vars).
+3. Run `/gm_bot_v4_migrate_kbite` once. The command:
+   - Moves each existing `kbites/{name}/{KBITE_*.md, primary/, secondary/}` into `kbites/digested/{name}/`.
+   - Moves each legacy `$GMCC_CKFS_ROOT/{repo}/fam/{branch}/maw/{kbite}/` into `$GMCC_KBITE_OPEN/{kbite}/`.
+   - Is idempotent — re-running on an already-migrated kbite is a no-op.
+
+---
+
+## v4.x to v5.0.0
 
 ## Breaking Changes
 
@@ -48,11 +101,3 @@ All three bot commands use the same argument format:
 /gm_bot <mem-name> <task description>     # New memory set
 /gm_bot <index> <continuation prompt>     # Resume existing
 ```
-
-## State Values Change
-
-GMB_STATE.json `task` values updated:
-- `feature-dev` → `bot-team`
-- `quick-task` → `bot-rpi`
-- New: `bot` (for /gm_bot)
-- Removed: `macro-eclair`, `gm-evolve`

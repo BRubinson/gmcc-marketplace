@@ -47,6 +47,13 @@ if [ -n "$CLAUDE_ENV_FILE" ]; then
         echo "GMCC_BOOTED=1"
         # [FIX #1] Export resolved plugin root for use by commands and agents
         echo "GMCC_PLUGIN_ROOT=$GMCC_PLUGIN_DIR"
+        # KBite layout vars (v5.3.0).
+        # Layout: $GMCC_KBITE/{digested,open}/{kbite_name}/...
+        # Each kbite's persisted index lives under $GMCC_KBITE_DIGESTED/{name}/
+        # and its in-progress maw lives under $GMCC_KBITE_OPEN/{name}/.
+        echo "GMCC_KBITE=$GMCC_CKFS_ROOT/kbites"
+        echo "GMCC_KBITE_DIGESTED=$GMCC_CKFS_ROOT/kbites/digested"
+        echo "GMCC_KBITE_OPEN=$GMCC_CKFS_ROOT/kbites/open"
     } >> "$CLAUDE_ENV_FILE"
 fi
 

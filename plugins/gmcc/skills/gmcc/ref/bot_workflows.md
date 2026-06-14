@@ -22,7 +22,7 @@ All bot workflows use organized memory folders at `$GMCC_FAM_PATH/thoughts/mem_{
 ## KBite Integration
 
 All bot workflows load kbites during initialization:
-1. List available kbites from `$GMCC_CKFS_ROOT/kbites/`
+1. List available kbites from `$GMCC_KBITE_DIGESTED/`
 2. Ask user to select relevant kbites
 3. Load chewed files for selected kbites
 4. Pass kbite context to all spawned agents

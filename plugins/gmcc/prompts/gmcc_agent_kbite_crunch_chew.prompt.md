@@ -259,7 +259,7 @@ Task tool with subagent_type="gmcc:gmcc_agent_kbite_crunch_chew":
     Crunchable: official_docs
     Axis1: primary
     Axis2: documentation
-    Maw path: $GMCC_FAM_PATH/maw/claude_code_sdk/primary/documentation/official_docs/
+    Maw path: $GMCC_KBITE_OPEN/claude_code_sdk/primary/documentation/official_docs/
 ```
 
 The agent will:

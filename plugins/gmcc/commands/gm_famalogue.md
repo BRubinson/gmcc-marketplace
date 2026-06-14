@@ -10,11 +10,6 @@ allowed-tools: Read, Write, Glob
 
 You are compiling all thoughts into a coherent Famalouge for the current branch.
 
-## Status Bar
-```
-[GMB] MODE: GM-CDE | BRANCH: {ACTIVE_BRANCH} | TASK: famalogue | STATE: compiling
-```
-
 ## Pre-Flight
 
 **Boot Validation**: If `$GMCC_BOOTED` is not set, output:
@@ -97,8 +92,6 @@ Create a narrative that includes:
 ## Report
 
 ```
-[GMB] MODE: GM-CDE | BRANCH: {ACTIVE_BRANCH} | TASK: none | STATE: idle
-
 Famalouge compiled from {n} thoughts.
 
 Key decisions captured:

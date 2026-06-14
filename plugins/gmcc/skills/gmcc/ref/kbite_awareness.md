@@ -5,16 +5,16 @@
 
 ## Trigger Check Protocol (CRITICAL)
 
-The KBite system provides persistent, indexed knowledge at `$GMCC_CKFS_ROOT/kbites/`.
+The KBite system provides persistent, indexed knowledge at `$GMCC_KBITE_DIGESTED/`.
 
 **On EVERY prompt**, before beginning work:
 
 1. **Scan for triggers**: Parse the user prompt for keywords that might match kbite triggers
-2. **Check available kbites**: For each kbite in `$GMCC_CKFS_ROOT/kbites/`:
-   - Read `KBITE_TRIGGERS.md`
+2. **Check available kbites**: For each kbite in `$GMCC_KBITE_DIGESTED/`:
+   - Read `$GMCC_KBITE_DIGESTED/{name}/KBITE_TRIGGERS.md`
    - Check for keyword matches with confidence > 70
 3. **Load relevant knowledge**: If triggers match:
-   - Read `KBITE_TRIGGER_MAP.md` to find relevant resources
+   - Read `$GMCC_KBITE_DIGESTED/{name}/KBITE_TRIGGER_MAP.md` to find relevant resources
    - Load the mapped `*_chewed.md` files
    - Include this knowledge in your working context
 4. **Cite sources**: When using kbite knowledge, cite the source:

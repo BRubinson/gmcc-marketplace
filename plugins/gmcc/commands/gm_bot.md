@@ -10,11 +10,6 @@ allowed-tools: Read, Write, Edit, Grep, Glob, Bash, Task, AskUserQuestion
 
 You are executing a lightweight development workflow entirely in the primary context.
 
-## Status Bar
-```
-[GMB] MODE: GM-CDE | BRANCH: {ACTIVE_BRANCH} | TASK: bot | STATE: initializing
-```
-
 ---
 
 ## Pre-Flight
@@ -112,9 +107,7 @@ Write to `$GMCC_FAM_PATH/thoughts/mem_{index}_{mem_name}/session_meta.md`:
 
 **Skip this phase if resuming an existing memory set.**
 
-**Write state:** `{"task": "bot", "state": "initializing"}` to `.claude/GMB_STATE.json`
-
-1. List available kbites from `$GMCC_CKFS_ROOT/kbites/`:
+1. List available kbites from `$GMCC_KBITE_DIGESTED/`:
    - For each kbite directory, read `KBITE_PURPOSE.md` for a one-line summary
 
 2. Use AskUserQuestion (multiSelect: true):
@@ -138,12 +131,6 @@ Available kbites:
 
 ## Phase 2: Implementation Overview
 
-**Write state:** `{"task": "bot", "state": "exploring"}` to `.claude/GMB_STATE.json`
-
-```
-[GMB] MODE: GM-CDE | BRANCH: {ACTIVE_BRANCH} | TASK: bot | STATE: exploring
-```
-
 With the kbite knowledge loaded, explore the codebase to build context:
 
 1. Use Glob, Grep, and Read to find files relevant to the prompt
@@ -156,12 +143,6 @@ This is a mid-effort exploration done entirely in primary context. Focus on the 
 ---
 
 ## Phase 3: Clarify
-
-**Write state:** `{"task": "bot", "state": "clarifying"}` to `.claude/GMB_STATE.json`
-
-```
-[GMB] MODE: GM-CDE | BRANCH: {ACTIVE_BRANCH} | TASK: bot | STATE: clarifying
-```
 
 1. Based on exploration findings, identify underspecified aspects:
    - Edge cases and error handling
@@ -206,12 +187,6 @@ This is the single source of truth for what needs to be built.}
 
 ## Phase 4: Plan
 
-**Write state:** `{"task": "bot", "state": "planning"}` to `.claude/GMB_STATE.json`
-
-```
-[GMB] MODE: GM-CDE | BRANCH: {ACTIVE_BRANCH} | TASK: bot | STATE: planning
-```
-
 <!-- [FIX #11] /gm_bot uses native EnterPlanMode for user approval.
      This is intentional: lightweight workflow benefits from Claude's built-in plan/approval flow.
      In contrast, /gm_bot_rpi and /gm_bot_team use AskUserQuestion for approval because
@@ -232,12 +207,6 @@ This is the single source of truth for what needs to be built.}
 
 ## Phase 5: Implement
 
-**Write state:** `{"task": "bot", "state": "implementing"}` to `.claude/GMB_STATE.json`
-
-```
-[GMB] MODE: GM-CDE | BRANCH: {ACTIVE_BRANCH} | TASK: bot | STATE: implementing
-```
-
 1. Execute the approved plan
 2. Write code changes
 3. Update `session_meta.md` phase history as implementation progresses
@@ -245,12 +214,6 @@ This is the single source of truth for what needs to be built.}
 ---
 
 ## Phase 6: Feedback Integration
-
-**Write state:** `{"task": "bot", "state": "reviewing"}` to `.claude/GMB_STATE.json`
-
-```
-[GMB] MODE: GM-CDE | BRANCH: {ACTIVE_BRANCH} | TASK: bot | STATE: reviewing
-```
 
 1. Present a summary of what was implemented:
    - Files created/modified
@@ -263,15 +226,11 @@ This is the single source of truth for what needs to be built.}
 
 4. On completion:
 
-**Write state:** `{"task": "none", "state": "idle"}` to `.claude/GMB_STATE.json`
-
 Update `session_meta.md`:
 - Set Status to `completed`
 - Add final phase history entry
 
 ```
-[GMB] MODE: GM-CDE | BRANCH: {ACTIVE_BRANCH} | TASK: none | STATE: idle
-
 Bot Complete: {mem_name}
 
 **Memory**: thoughts/mem_{index}_{mem_name}/

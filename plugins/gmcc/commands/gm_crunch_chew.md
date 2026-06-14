@@ -10,13 +10,6 @@ allowed-tools: Read, Write, Bash, Glob, Grep, Task
 
 Processes all crunchable resources in the maw, generating analysis ("chewed") files for each one.
 
-## Status Bar
-```
-[GMB] MODE: GM-CDE | BRANCH: {ACTIVE_BRANCH} | TASK: crunch-chew | STATE: indexing
-```
-
-**Write state:** `{"task": "crunch-chew", "state": "indexing"}` to `.claude/GMB_STATE.json`
-
 ---
 
 ## Pre-Flight Checks
@@ -30,10 +23,10 @@ To fix: Restart Claude Code from within a git repository.
 ```
 Exit without proceeding.
 
-1. Verify GM-CDE is initialized (`$GMCC_CKFS_ROOT` exists)
-2. Verify maw exists at `$GMCC_FAM_PATH/maw/{kbite_name}/`
+1. Verify GM-CDE is initialized (`$GMCC_KBITE` is set)
+2. Verify maw exists at `$GMCC_KBITE_OPEN/{kbite_name}/`
 3. Read MAW_INDEX.md for current state
-4. Read KBITE_PURPOSE.md from parent kbite (if exists) for context
+4. Read `$GMCC_KBITE_DIGESTED/{kbite_name}/KBITE_PURPOSE.md` (if exists) for context
 
 ### If Maw Missing
 ```
@@ -58,15 +51,13 @@ Per the **gmcc_kbite** skill:
 
 ### Step 1: Index Untracked Crunchables
 
-**Update state:** `{"task": "crunch-chew", "state": "indexing"}`
-
 Scan all axis1/axis2 directories for new crunchable folders:
 
 ```bash
 # Find all directories that could be crunchables
 for axis1 in primary secondary; do
     for axis2 in documentation example_project api_reference blogs all_others; do
-        path="$GMCC_FAM_PATH/maw/{kbite_name}/$axis1/$axis2"
+        path="$GMCC_KBITE_OPEN/{kbite_name}/$axis1/$axis2"
         if [ -d "$path" ]; then
             # List directories (crunchables) in this path
             for dir in "$path"/*/; do
@@ -93,8 +84,6 @@ Also check for crunchables that have a folder but no corresponding `_chewed.md` 
 
 ### Step 3: Update MAW_INDEX Status
 
-**Update state:** `{"task": "crunch-chew", "state": "chewing"}`
-
 Update MAW_INDEX.md to show overall status as "chewing".
 
 ### Step 4: Spawn Chew Agents
@@ -113,8 +102,8 @@ Task tool:
     **Crunchable**: {crunchable_name}
     **Axis1**: {primary|secondary}
     **Axis2**: {documentation|example_project|api_reference|blogs|all_others}
-    **Location**: $GMCC_FAM_PATH/maw/{kbite_name}/{axis1}/{axis2}/{crunchable_name}/
-    **Output**: $GMCC_FAM_PATH/maw/{kbite_name}/{axis1}/{axis2}/{crunchable_name}_chewed.md
+    **Location**: $GMCC_KBITE_OPEN/{kbite_name}/{axis1}/{axis2}/{crunchable_name}/
+    **Output**: $GMCC_KBITE_OPEN/{kbite_name}/{axis1}/{axis2}/{crunchable_name}_chewed.md
 
     **KBite Purpose** (if available):
     {Contents of KBITE_PURPOSE.md}
@@ -130,7 +119,7 @@ Task tool:
 Each agent returns the chewed content. Write to the correct location:
 
 ```
-$GMCC_FAM_PATH/maw/{kbite_name}/{axis1}/{axis2}/{crunchable_name}_chewed.md
+$GMCC_KBITE_OPEN/{kbite_name}/{axis1}/{axis2}/{crunchable_name}_chewed.md
 ```
 
 ### Step 6: Update MAW_INDEX
@@ -165,14 +154,10 @@ Per the **gmcc_kbite** skill:
 
 ## Final Report
 
-**Write state:** `{"task": "none", "state": "idle"}` to `.claude/GMB_STATE.json`
-
 ```
-[GMB] MODE: GM-CDE | BRANCH: {ACTIVE_BRANCH} | TASK: none | STATE: idle
-
 Chew Complete: {kbite_name}
 
-**Maw Location**: $GMCC_FAM_PATH/maw/{kbite_name}/
+**Maw Location**: $GMCC_KBITE_OPEN/{kbite_name}/
 
 ## Processing Summary
 

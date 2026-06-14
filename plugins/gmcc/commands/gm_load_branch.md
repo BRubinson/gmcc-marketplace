@@ -10,13 +10,6 @@ allowed-tools: Bash, Read, Write, Glob, AskUserQuestion
 
 You are loading or creating a FAM (Feature Access Memory) for a branch.
 
-## Status Bar
-```
-[GMB] MODE: GM-CDE | BRANCH: loading... | TASK: branch-load | STATE: in_progress
-```
-
-**Write state:** `{"task": "branch-load", "state": "in_progress"}` to `.claude/GMB_STATE.json`
-
 ## Environment Variables
 
 The following should be set by the SessionStart hook:
@@ -79,12 +72,8 @@ Check if `$GMCC_REPO_PATH/fam/{branch_name}/` exists.
 
 2. Update ACTIVE_BRANCH property
 
-3. **Write state:** `{"task": "none", "state": "idle"}` to `.claude/GMB_STATE.json`
-
-4. Report status:
+3. Report status:
 ```
-[GMB] MODE: GM-CDE | BRANCH: {branch} | TASK: none | STATE: idle
-
 Loaded FAM for branch: {branch}
 
 Purpose: {first 2 lines of Purpose.md}
@@ -227,12 +216,8 @@ Save to `$GMCC_REPO_PATH/fam/{branch}/thoughts/{timestamp}_branch_created.md`:
 - Or add quick tasks with /gm_bot
 ```
 
-7. **Write state:** `{"task": "none", "state": "idle"}` to `.claude/GMB_STATE.json`
-
-8. Report success:
+7. Report success:
 ```
-[GMB] MODE: GM-CDE | BRANCH: {branch} | TASK: none | STATE: idle
-
 Created FAM for branch: {branch}
 
 Purpose: {summary}

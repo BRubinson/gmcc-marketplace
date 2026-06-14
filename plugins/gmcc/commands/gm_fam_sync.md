@@ -10,13 +10,6 @@ allowed-tools: Bash, Read, Write, Glob
 
 You are synchronizing the current FAM with the actual git state.
 
-## Status Bar
-```
-[GMB] MODE: GM-CDE | BRANCH: {ACTIVE_BRANCH} | TASK: fam-sync | STATE: in_progress
-```
-
-**Write state:** `{"task": "fam-sync", "state": "in_progress"}` to `.claude/GMB_STATE.json`
-
 ## Pre-Flight
 
 **Boot Validation**: If `$GMCC_BOOTED` is not set, output:
@@ -103,8 +96,6 @@ If `$ARGUMENTS` contains `--full`:
 
 ### No changes from main
 ```
-[GMB] MODE: GM-CDE | BRANCH: {ACTIVE_BRANCH} | TASK: none | STATE: idle
-
 FAM Sync: No changes detected
 
 This branch is identical to main. Nothing to sync.
@@ -128,11 +119,7 @@ git log main..HEAD --oneline
 
 ## Sync Complete
 
-**Write state:** `{"task": "none", "state": "idle"}` to `.claude/GMB_STATE.json`
-
 ```
-[GMB] MODE: GM-CDE | BRANCH: {ACTIVE_BRANCH} | TASK: none | STATE: idle
-
 FAM Sync Complete
 
 **Changes from main:**

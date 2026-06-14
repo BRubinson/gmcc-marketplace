@@ -10,11 +10,6 @@ allowed-tools: Read, Write, Edit, Grep, Glob, Bash, Task, AskUserQuestion
 
 You are reviewing and executing remaining tasks from the current FAM.
 
-## Status Bar
-```
-[GMB] MODE: GM-CDE | BRANCH: {ACTIVE_BRANCH} | TASK: execute-remaining | STATE: planning
-```
-
 ## Pre-Flight
 
 **Boot Validation**: If `$GMCC_BOOTED` is not set, output:
@@ -150,8 +145,6 @@ Save plan to `$GMCC_FAM_PATH/thoughts/{timestamp}_execution_plan.md`:
 
 Report and exit:
 ```
-[GMB] MODE: GM-CDE | BRANCH: {ACTIVE_BRANCH} | TASK: none | STATE: idle
-
 Execution plan created for {n} tasks.
 
 Plan saved to: $GMCC_FAM_PATH/thoughts/{timestamp}_execution_plan.md
@@ -160,13 +153,6 @@ Run /gm_execute_remaining (without --plan-only) to execute.
 ```
 
 ## Execute Tasks
-
-### Update Status
-```
-[GMB] MODE: GM-CDE | BRANCH: {ACTIVE_BRANCH} | TASK: {current-task} | STATE: implementing
-```
-
-**Write state:** `{"task": "execute-remaining", "state": "implementing", "taskName": "{current-task}"}` to `.claude/GMB_STATE.json`
 
 ### For Each Task
 
@@ -193,7 +179,7 @@ How should I proceed?
 
 After each task:
 ```
-[GMB] Progress: {completed}/{total} tasks
+Progress: {completed}/{total} tasks
 
 Completed: {task name}
 Next: {next task name}
@@ -201,11 +187,7 @@ Next: {next task name}
 
 ## Execution Complete
 
-**Write state:** `{"task": "none", "state": "idle"}` to `.claude/GMB_STATE.json`
-
 ```
-[GMB] MODE: GM-CDE | BRANCH: {ACTIVE_BRANCH} | TASK: none | STATE: idle
-
 Execution Complete
 
 **Completed ({n}/{total}):**
@@ -228,8 +210,6 @@ Execution Complete
 
 If no incomplete tasks:
 ```
-[GMB] MODE: GM-CDE | BRANCH: {ACTIVE_BRANCH} | TASK: none | STATE: idle
-
 All tasks complete!
 
 No remaining tasks in Tasks.md.
