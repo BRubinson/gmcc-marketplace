@@ -63,7 +63,6 @@ If `$GMCC_BOOTED` is set: Continue with remaining pre-flight checks.
 
 The following commands should NOT check `GMCC_BOOTED`:
 - `/gm_init` - Initializes the system (runs before boot is possible)
-- `/gm_repo_init` - Initializes a repository (may run in partially-booted state)
 
 These commands have their own validation logic.
 
@@ -125,13 +124,6 @@ Issue: GMCC system not initialized.
 Run /gm_init to create the system-level ~/gmcc_ckfs/ directory.
 ```
 
-**If GMCC_BOOTED is SET but repo not initialized**:
-```
-Issue: This repository is not initialized for GM-CDE.
-
-Run /gm_repo_init to initialize this repository.
-```
-
 **If all checks pass**:
 ```
 GMCC boot status: READY
@@ -170,7 +162,6 @@ This usually means the SessionStart hook ran but there was a problem:
 
 ### Boot works but FAM missing
 
-Boot only sets environment variables - it doesn't create CKFS structure:
+Boot only sets environment variables — it doesn't create CKFS structure:
 1. Run `/gm_init` (once per machine)
-2. Run `/gm_repo_init` (once per repository)
-3. Run `/gm_load_branch` (to create FAM for current branch)
+2. Per-repo CKFS and per-branch FAM are auto-created by `/gm_bot*` on first use.

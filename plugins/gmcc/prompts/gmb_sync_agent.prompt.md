@@ -59,13 +59,7 @@ Write to `$GMCC_FAM_PATH/ChangedFiles.md`:
 *Last sync: {timestamp}*
 ```
 
-### 3. Quick Task Verification
-
-If Tasks.md contains file-specific tasks, verify:
-- Files mentioned in tasks exist
-- Completed tasks have corresponding file changes
-
-### 4. Report
+### 3. Report
 
 Return summary:
 ```

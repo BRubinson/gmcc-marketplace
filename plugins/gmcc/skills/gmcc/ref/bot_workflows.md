@@ -49,16 +49,9 @@ Agents are specialized personas defined in `$GMCC_PLUGIN_ROOT/prompts/`:
 | Command | Purpose |
 |---------|---------|
 | `/gm_init` | Initialize GM-CDE system (creates ~/gmcc_ckfs/) |
-| `/gm_repo_init` | Initialize GM-CDE for current repository |
-| `/gm_load_branch` | Load/create FAM for current branch |
-| `/gm_fam_sync` | Sync FAM with current changes |
-| `/gm_fam_fmt` | Format FAM Purpose.md |
-| `/gm_merge_branch` | Prepare merge and update indexes |
 | `/gm_bot` | Lightweight bot workflow (primary context) |
 | `/gm_bot_rpi` | Subagent Research/Plan/Implement workflow |
 | `/gm_bot_team` | Agent team workflow (requires agent teams enabled) |
-| `/gm_execute_remaining` | Execute pending tasks |
-| `/gm_famalogue` | Compile thoughts to famalouge |
 | `/gm_crunch_open_maw` | Create maw for collecting kbite crunchables |
 | `/gm_crunch_chew` | Process crunchables into analyzed knowledge |
 | `/gm_crunch_digest` | Finalize kbite from chewed resources |
@@ -71,9 +64,9 @@ If ckfs is missing or corrupted:
 2. Do not proceed with GM-CDE commands until initialized
 
 If FAM is missing for branch:
-1. Automatically trigger FAM creation
-2. Prompt user for Purpose.md content
+1. Automatically create `$GMCC_FAM_PATH/{thoughts/,ChangedFiles.md}`
+2. Proceed with the task
 
 If ACTIVE_BRANCH is stale:
 1. Detect git branch mismatch
-2. Prompt user to run `/gm_load_branch`
+2. Recompute `$GMCC_FAM_PATH` from the current branch and proceed

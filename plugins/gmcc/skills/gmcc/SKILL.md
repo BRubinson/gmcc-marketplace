@@ -47,18 +47,15 @@ For detailed structures, read: `$GMCC_PLUGIN_ROOT/skills/gmcc/ref/ckfs_details.m
 
 ### Always Do
 1. Check ACTIVE_BRANCH matches actual git branch
-2. Load FAM context before starting work
-3. Update Tasks.md checkboxes as work completes
-4. Write thoughts for significant decisions
-5. Maintain ChangedFiles.md during development
-6. Reference GREATER_PURPOSE for direction alignment
-7. Check kbite triggers on every prompt (read `ref/kbite_awareness.md` for protocol)
+2. Load FAM context (ChangedFiles.md + relevant `thoughts/mem_*/`) before starting work
+3. Write thoughts for significant decisions
+4. Maintain ChangedFiles.md during development
+5. Check kbite triggers on every prompt (read `ref/kbite_awareness.md` for protocol)
 
 ### Never Do
-1. Edit GREATER_PURPOSE.md (human only)
-2. Modify thoughts after creation
-3. Skip FAM initialization for new branches
-4. Ignore ckfs maintenance
+1. Modify thoughts after creation
+2. Skip FAM initialization for new branches
+3. Ignore ckfs maintenance
 
 ---
 
@@ -66,8 +63,8 @@ For detailed structures, read: `$GMCC_PLUGIN_ROOT/skills/gmcc/ref/ckfs_details.m
 
 When context is compacted, immediately:
 1. Read `$GMCC_FAM_PATH/compact_recovery.md` (written by PreCompact hook)
-2. Re-read current FAM files (Purpose.md, Tasks.md)
-3. Re-read Famalouge for context
+2. Re-read ChangedFiles.md
+3. Re-read relevant `thoughts/mem_*/` for context
 4. Restore awareness of current task state
 5. Check for relevant kbite triggers
 

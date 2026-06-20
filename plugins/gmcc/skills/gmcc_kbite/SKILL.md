@@ -377,7 +377,7 @@ Tracks relationships between kbites:
 
 ### 1. Open Maw (`/gm_crunch_open_maw {kbite_name}`)
 
-Creates the maw structure in FAM for collecting crunchables.
+Creates the maw structure at `$GMCC_KBITE_OPEN/{kbite_name}/` for collecting crunchables.
 
 ### 2. Add Crunchables (Manual)
 

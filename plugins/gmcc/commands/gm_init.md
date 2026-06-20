@@ -1,6 +1,6 @@
 ---
 name: gm_init
-description: Initialize the GM-CDE system at the user level. Creates ~/gmcc_ckfs/ root structure including shared plugin template. Run once per machine, then use /gm_repo_init for each repository.
+description: Initialize the GM-CDE system at the user level. Creates ~/gmcc_ckfs/ root structure including shared plugin template. Run once per machine; per-repo CKFS is created automatically on first bot run.
 argument-hint: [--force]
 disable-model-invocation: true
 allowed-tools: Bash, Read, Write, Glob, AskUserQuestion
@@ -10,7 +10,7 @@ allowed-tools: Bash, Read, Write, Glob, AskUserQuestion
 
 You are initializing the GM-CDE system at the user level.
 
-**IMPORTANT**: This command creates the system-level `~/gmcc_ckfs/` directory AND the shared plugin template. After running this, use `/gm_repo_init` in each repository you want to use with GM-CDE.
+**IMPORTANT**: This command creates the system-level `~/gmcc_ckfs/` directory AND the shared plugin template. Per-repository CKFS directories are auto-created on first `/gm_bot*` run.
 
 ## Pre-Flight Checks
 
@@ -25,7 +25,6 @@ GM-CDE system already initialized at ~/gmcc_ckfs/
 What would you like to do?
 - Reinitialize (wipe ALL repositories) - WARNING: This will delete ALL CKFS data
 - Keep existing (exit without changes)
-- Initialize a repository instead (run /gm_repo_init)
 ```
 
 ## Directory Structure Creation
@@ -88,19 +87,9 @@ This directory contains GM-CDE runtime data for all repositories.
 │   ├── hooks/
 │   └── scripts/
 └── {repo_name}/                 # Per-repository CKFS
-    ├── REPOSITORY_INDEX.md      # Cross-repo relationships
-    ├── GREATER_PURPOSE.md       # Project vision
-    ├── SRC_INDEX.md             # Source file index
-    ├── FAM_INDEX.md             # Branch index
-    ├── CHANGELOG.md             # Change history
-    ├── EVOLUTION_LOG.md         # Evolution history
-    ├── resource/                # Reference materials
     └── fam/                     # Feature Access Memory
         └── {branch}/            # Per-branch context
-            ├── Purpose.md
-            ├── Tasks.md
             ├── ChangedFiles.md
-            ├── Famalouge.md
             └── thoughts/
                 └── mem_{index}_{name}/  # Bot workflow memory sets
 ```
@@ -114,8 +103,7 @@ The `gmcc_plugin_template/` directory is a reference copy of the plugin:
 ## Usage
 
 1. Run `/gm_init` once to create this directory (already done)
-2. Run `/gm_repo_init` in each repository to initialize its CKFS
-3. Run `/gm_load_branch` or `/gm_bot` to start working
+2. Run `/gm_bot` in any repository — per-repo CKFS is auto-created on first use
 
 ## Environment Variables
 
@@ -177,8 +165,8 @@ Plugin source: {source path used}
 
 Next steps:
 1. Navigate to a git repository
-2. Run /gm_repo_init to initialize that repository
-3. Start development with /gm_bot_team, /gm_bot_rpi, or /gm_bot
+2. Start development with /gm_bot_team, /gm_bot_rpi, or /gm_bot
+   (per-repo CKFS and branch FAM are auto-created on first use)
 
 Note: The SessionStart hook will automatically detect git repositories
 and set GMCC_* environment variables when you open Claude Code.

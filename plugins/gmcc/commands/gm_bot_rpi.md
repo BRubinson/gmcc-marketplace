@@ -26,8 +26,8 @@ Exit without proceeding.
 1. Verify GM-CDE is initialized (`$GMCC_REPO_PATH` exists)
 2. Get current git branch -> `{ACTIVE_BRANCH}`
 3. Load current FAM context from `$GMCC_FAM_PATH/`:
-   - Read Purpose.md
-   - Read Tasks.md
+   - Read ChangedFiles.md (if non-empty)
+   - Skim `thoughts/` for recent mem sets relevant to the prompt
 
 If ckfs missing:
 ```
@@ -391,7 +391,7 @@ Bot RPI Complete: {mem_name}
 **Files Modified**: {count}
 **Review Status**: {pass/pass with issues}
 
-**Next**: Run /gm_fam_sync to update FAM, or continue with more tasks.
+**Next**: Continue with more tasks or commit your work.
 ```
 
 ---
