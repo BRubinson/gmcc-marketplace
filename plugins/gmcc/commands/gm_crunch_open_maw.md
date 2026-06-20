@@ -65,13 +65,13 @@ If maw exists, ask user:
 - **Continue**: Use existing maw (report current status)
 - **Reset**: Delete and recreate maw
 
-### Step 2: Check for Parent KBite
+### Step 2: Check for Parent KBite Purpose
 
-Check if the target kbite already has a digested index at `$GMCC_KBITE_DIGESTED/{kbite_name}/`:
+Check if the target kbite already has a purpose file at `$GMCC_KBITE/{kbite_name}/KBITE_PURPOSE.md`:
 
 ```bash
-if [ ! -d "$GMCC_KBITE_DIGESTED/{kbite_name}" ]; then
-    # No digested index yet - need to create KBITE_PURPOSE
+if [ ! -f "$GMCC_KBITE/{kbite_name}/KBITE_PURPOSE.md" ]; then
+    # New kbite — need to create KBITE_PURPOSE
 fi
 ```
 
@@ -120,12 +120,12 @@ Per the **gmcc_kbite** skill MAW_INDEX format:
 3. Run `/gm_crunch_digest {kbite_name}` to finalize the kbite
 ```
 
-### Step 5: Create KBITE_PURPOSE.md (If Parent Missing)
+### Step 5: Create KBITE_PURPOSE.md (If New KBite)
 
-If the target kbite doesn't yet have a digested index at `$GMCC_KBITE_DIGESTED/{kbite_name}/`, create it with KBITE_PURPOSE.md inside:
+If the target kbite doesn't yet have a purpose file at `$GMCC_KBITE/{kbite_name}/KBITE_PURPOSE.md`, create it at the kbite root (above the digested/open lifecycle split):
 
 ```bash
-mkdir -p "$GMCC_KBITE_DIGESTED/{kbite_name}"
+mkdir -p "$GMCC_KBITE/{kbite_name}"
 ```
 
 Per the **gmcc_kbite** skill KBITE_PURPOSE format, use AskUserQuestion to gather:
@@ -133,7 +133,7 @@ Per the **gmcc_kbite** skill KBITE_PURPOSE format, use AskUserQuestion to gather
 - What's in scope / out of scope
 - Target use cases
 
-Then create `$GMCC_KBITE_DIGESTED/{kbite_name}/KBITE_PURPOSE.md`:
+Then create `$GMCC_KBITE/{kbite_name}/KBITE_PURPOSE.md`:
 
 ```markdown
 # KBite Purpose: {kbite_name}
@@ -168,7 +168,8 @@ Then create `$GMCC_KBITE_DIGESTED/{kbite_name}/KBITE_PURPOSE.md`:
 Maw Opened: {kbite_name}
 
 **Location**: $GMCC_KBITE_OPEN/{kbite_name}/
-**Digested Index**: $GMCC_KBITE_DIGESTED/{kbite_name}/
+**KBite Root** (purpose): $GMCC_KBITE/{kbite_name}/
+**Digested Index** (created on first digest): $GMCC_KBITE_DIGESTED/{kbite_name}/
 
 ## Directory Structure Created
 
@@ -185,7 +186,7 @@ Maw Opened: {kbite_name}
     └── (same structure)
 ```
 
-{If KBITE_PURPOSE created: "Created digested/KBITE_PURPOSE.md for new kbite"}
+{If KBITE_PURPOSE created: "Created $GMCC_KBITE/{kbite_name}/KBITE_PURPOSE.md for new kbite"}
 
 ## Next Steps
 

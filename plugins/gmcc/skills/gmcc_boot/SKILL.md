@@ -17,14 +17,8 @@ When Claude Code starts a session:
 2. **detect_repo.sh executes**
    - Detects if in a git repository
    - If not in git repo: exits silently (no GMCC vars set)
-   - If in git repo: sets all GMCC environment variables
-3. **Environment variables written to `$CLAUDE_ENV_FILE`**:
-   - `GMCC_CKFS_ROOT` - Base path for CKFS data (`~/gmcc_ckfs`)
-   - `GMCC_REPO_ID` - Repository identifier (directory name)
-   - `GMCC_ACTIVE_BRANCH` - Current git branch
-   - `GMCC_FAM_PATH` - Active branch FAM directory
-   - `GMCC_REPO_PATH` - Repo-level CKFS directory
-   - `GMCC_BOOTED=1` - **Boot completion signal**
+   - If in git repo: resolves project / instance / session for the current repo + branch, **lazily creates** any missing directories from `templates/projects/`, idempotently registers the project in `project_index.yaml`, and sets all GMCC environment variables (including the boot signal `GMCC_BOOTED=1`)
+3. **Environment variables written to `$CLAUDE_ENV_FILE`** — `detect_repo.sh` is the single source of truth for the full set. Read `${CLAUDE_PLUGIN_ROOT}/scripts/detect_repo.sh` directly for the authoritative export list. The diagnostics in this skill echo whatever is actually set at runtime.
 
 ## Boot Validation for Commands
 
@@ -80,12 +74,8 @@ echo ""
 echo "Boot Status:"
 echo "  GMCC_BOOTED: ${GMCC_BOOTED:-NOT SET}"
 echo ""
-echo "Environment Variables:"
-echo "  GMCC_CKFS_ROOT: ${GMCC_CKFS_ROOT:-NOT SET}"
-echo "  GMCC_REPO_ID: ${GMCC_REPO_ID:-NOT SET}"
-echo "  GMCC_ACTIVE_BRANCH: ${GMCC_ACTIVE_BRANCH:-NOT SET}"
-echo "  GMCC_FAM_PATH: ${GMCC_FAM_PATH:-NOT SET}"
-echo "  GMCC_REPO_PATH: ${GMCC_REPO_PATH:-NOT SET}"
+echo "Environment Variables (all GMCC_* + CLAUDE_PLUGIN_ROOT):"
+env | grep -E '^GMCC_' | sort | sed 's/^/  /'
 echo "  CLAUDE_PLUGIN_ROOT: ${CLAUDE_PLUGIN_ROOT:-NOT SET}"
 echo ""
 ```
@@ -96,8 +86,11 @@ echo ""
 echo "Prerequisites:"
 echo "  Git repository: $(git rev-parse --git-dir > /dev/null 2>&1 && echo 'YES' || echo 'NO')"
 echo "  System initialized: $([ -d "$HOME/gmcc_ckfs" ] && echo 'YES' || echo 'NO')"
-echo "  Repo initialized: $([ -d "$GMCC_REPO_PATH" ] && echo 'YES - '$GMCC_REPO_PATH || echo 'NO')"
-echo "  FAM exists: $([ -d "$GMCC_FAM_PATH" ] && echo 'YES' || echo 'NO')"
+echo "  Projects root: $([ -d "$GMCC_PROJECTS" ] && echo 'YES - '$GMCC_PROJECTS || echo 'NO')"
+echo "  Projects registry: $([ -f "$GMCC_PROJECTS_INDEX" ] && echo 'YES' || echo 'NO')"
+echo "  Project provisioned: $([ -f "$GMCC_PROJECT_PATH/Project_Data.yaml" ] && echo 'YES - '$GMCC_PROJECT_PATH || echo 'NO')"
+echo "  Instance provisioned: $([ -f "$GMCC_INSTANCE_PATH/instance_data.yaml" ] && echo 'YES - '$GMCC_INSTANCE_PATH || echo 'NO')"
+echo "  Session provisioned: $([ -f "$GMCC_SESSION_PATH/session_data.yaml" ] && echo 'YES - '$GMCC_SESSION_PATH || echo 'NO')"
 echo ""
 ```
 
@@ -117,11 +110,11 @@ Most likely causes:
 To fix: Restart Claude Code from within a git repository.
 ```
 
-**If GMCC_BOOTED is SET but system not initialized**:
+**If GMCC_BOOTED is SET but projects root not initialized**:
 ```
-Issue: GMCC system not initialized.
+Issue: GMCC projects root not initialized.
 
-Run /gm_init to create the system-level ~/gmcc_ckfs/ directory.
+Run /gm_init to create ~/gmcc_ckfs/projects/ and the project registry.
 ```
 
 **If all checks pass**:
@@ -160,8 +153,9 @@ This usually means the SessionStart hook ran but there was a problem:
 - Verify git repository is accessible
 - Run `/gmcc_boot` for full diagnostics
 
-### Boot works but FAM missing
+### Boot works but project/session paths point at nonexistent dirs
 
-Boot only sets environment variables — it doesn't create CKFS structure:
-1. Run `/gm_init` (once per machine)
-2. Per-repo CKFS and per-branch FAM are auto-created by `/gm_bot*` on first use.
+`detect_repo.sh` should lazily create project / instance / session dirs on every SessionStart. If they're missing, the templates dir (`$GMCC_PLUGIN_ROOT/templates/projects/`) is likely missing too:
+1. Verify the plugin install includes `templates/projects/PROJECT_TEMPLATE/...`
+2. Run `/gm_init` to recreate the projects root + registry
+3. Restart Claude Code so the SessionStart hook runs again

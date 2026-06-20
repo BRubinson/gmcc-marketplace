@@ -26,7 +26,7 @@ Exit without proceeding.
 1. Verify GM-CDE is initialized (`$GMCC_KBITE` is set)
 2. Verify maw exists at `$GMCC_KBITE_OPEN/{kbite_name}/`
 3. Read MAW_INDEX.md - verify status is "ready_to_digest" or has chewed resources
-4. Verify KBITE_PURPOSE.md exists at `$GMCC_KBITE_DIGESTED/{kbite_name}/KBITE_PURPOSE.md`
+4. Verify KBITE_PURPOSE.md exists at `$GMCC_KBITE/{kbite_name}/KBITE_PURPOSE.md`
 
 ### If Maw Missing
 ```
@@ -49,7 +49,7 @@ Exit without changes.
 [GMB] Error: KBITE_PURPOSE.md not found
 
 The kbite purpose file is required at:
-$GMCC_KBITE_DIGESTED/{kbite_name}/KBITE_PURPOSE.md
+$GMCC_KBITE/{kbite_name}/KBITE_PURPOSE.md
 
 Run /gm_crunch_open_maw {kbite_name} to create it.
 ```
@@ -71,8 +71,8 @@ $GMCC_KBITE_OPEN/{kbite_name}/
 
 **Destination (digested index):**
 ```
+$GMCC_KBITE/{kbite_name}/KBITE_PURPOSE.md       # identity-level (created at open-maw time)
 $GMCC_KBITE_DIGESTED/{kbite_name}/
-├── KBITE_PURPOSE.md
 ├── KBITE_INDEX.md
 ├── KBITE_TRIGGERS.md
 ├── KBITE_TRIGGER_MAP.md
@@ -161,7 +161,7 @@ Per the **gmcc_kbite** skill KBITE_INDEX format:
 ```markdown
 # KBite Index: {kbite_name}
 
-**Purpose**: See [KBITE_PURPOSE.md](./KBITE_PURPOSE.md)
+**Purpose**: See [KBITE_PURPOSE.md](../{kbite_name}/KBITE_PURPOSE.md) (at the kbite root)
 **Last Updated**: {ISO timestamp}
 **Total Resources**: {count}
 

@@ -4,10 +4,7 @@ description: Green Mountain Compiler Collection - Core rules and behaviors for t
 user-invocable: false
 ---
 
-<!-- [FIX #2] Slimmed from ~480 lines to ~130 lines. Detailed specs moved to ref/ files.
-     This reduces auto-loaded context by ~70%, reclaiming ~2,500 tokens per message. -->
-
-# GMCC - Green Mountain Compiler Collection
+# GMCC - Green Mountain Compiler Collection (v6.0.0)
 
 You are the **Green Mountain Bot (GMB)** in the **GM-CDE** environment.
 
@@ -15,29 +12,22 @@ You are the **Green Mountain Bot (GMB)** in the **GM-CDE** environment.
 
 When `CLAUDE_MODE = GM-CDE`, you MUST:
 1. Follow all GMCC rules
-2. Maintain the ckfs (Context Knowledge File System)
+2. Maintain the ckfs (Context Knowledge File System) — projects / instances / sessions hierarchy
 3. Check kbite triggers on every prompt
 
 ---
 
 ## Environment Variables (Set by SessionStart Hook)
 
-| Variable | Purpose |
-|----------|---------|
-| `GMCC_CKFS_ROOT` | Base path for all CKFS data (`~/gmcc_ckfs`) |
-| `GMCC_REPO_ID` | Repository identifier (dirname) |
-| `GMCC_ACTIVE_BRANCH` | Current git branch |
-| `GMCC_FAM_PATH` | Active branch FAM directory |
-| `GMCC_REPO_PATH` | Repo-level CKFS directory |
-| `GMCC_PLUGIN_ROOT` | Plugin installation path (resolved from script location) |
+All GMCC env vars are exported by `${CLAUDE_PLUGIN_ROOT}/scripts/detect_repo.sh` on every session start. That script is the single source of truth — read it directly for the authoritative list. The vars commonly referenced by skills and commands include `GMCC_CKFS_ROOT`, `GMCC_PROJECTS`, `GMCC_PROJECTS_INDEX`, `GMCC_PROJECT_PATH`, `GMCC_INSTANCE_PATH`, `GMCC_SESSION_PATH`, `GMCC_KBITE`, `GMCC_KBITE_DIGESTED`, `GMCC_KBITE_OPEN`, and `GMCC_PLUGIN_ROOT`.
 
 ---
 
 ## GM-CDE Three-Tier Architecture
 
-1. **Plugin (static)**: `$GMCC_PLUGIN_ROOT/` - Skills, commands, prompts, hooks, scripts
-2. **Per-Repo CKFS**: `$GMCC_REPO_PATH/` - FAM branches, indexes, changelog, thoughts
-3. **System KBites**: `$GMCC_KBITE/` (=`$GMCC_CKFS_ROOT/kbites/`) - Shared knowledge across repos, split into `$GMCC_KBITE_DIGESTED/` (active indexes) and `$GMCC_KBITE_OPEN/` (in-progress maws)
+1. **Plugin (static)**: `$GMCC_PLUGIN_ROOT/` — Skills, commands, prompts, hooks, scripts, templates.
+2. **Per-Project CKFS**: `$GMCC_PROJECTS/{project_name}/` — Project_Data.yaml + instances. Each instance is a unique filesystem path to a checkout of that project's repo; each instance holds sessions (one per git branch).
+3. **System KBites**: `$GMCC_KBITE/` (= `$GMCC_CKFS_ROOT/kbites/`) — Shared knowledge across projects, split into `$GMCC_KBITE_DIGESTED/` (active indexes) and `$GMCC_KBITE_OPEN/` (in-progress maws). KBITE_PURPOSE.md lives at the kbite root, above the lifecycle split.
 
 For detailed structures, read: `$GMCC_PLUGIN_ROOT/skills/gmcc/ref/ckfs_details.md`
 
@@ -46,27 +36,26 @@ For detailed structures, read: `$GMCC_PLUGIN_ROOT/skills/gmcc/ref/ckfs_details.m
 ## Core Behavioral Rules
 
 ### Always Do
-1. Check ACTIVE_BRANCH matches actual git branch
-2. Load FAM context (ChangedFiles.md + relevant `thoughts/mem_*/`) before starting work
-3. Write thoughts for significant decisions
-4. Maintain ChangedFiles.md during development
-5. Check kbite triggers on every prompt (read `ref/kbite_awareness.md` for protocol)
+1. Trust the SessionStart hook for project / instance / session resolution — never recompute the paths yourself
+2. Load current session context (`$GMCC_SESSION_PATH/session_data.yaml` + relevant `prompts/`) before starting work
+3. Record significant prompts to `$GMCC_SESSION_PATH/prompts/` and update `session_data.yaml`'s `prompts:` and `changed_files:` sections
+4. Check kbite triggers on every prompt (read `ref/kbite_awareness.md` for protocol)
 
 ### Never Do
-1. Modify thoughts after creation
-2. Skip FAM initialization for new branches
+1. Modify a clarified prompt file after creation — author a new prompt instead
+2. Skip session_data.yaml updates when changing tracked state
 3. Ignore ckfs maintenance
+4. Reach for the old `GMCC_FAM_PATH` / `GMCC_REPO_PATH` variable names — they were removed in v6.0.0
 
 ---
 
 ## On Context Compaction
 
 When context is compacted, immediately:
-1. Read `$GMCC_FAM_PATH/compact_recovery.md` (written by PreCompact hook)
-2. Re-read ChangedFiles.md
-3. Re-read relevant `thoughts/mem_*/` for context
-4. Restore awareness of current task state
-5. Check for relevant kbite triggers
+1. Re-read `$GMCC_SESSION_PATH/session_data.yaml` for the prompt + changed-files summary
+2. Re-read the most recent clarified prompts under `$GMCC_SESSION_PATH/prompts/`
+3. Restore awareness of current task state
+4. Check for relevant kbite triggers
 
 ---
 
@@ -87,9 +76,9 @@ These files contain detailed specifications. Read when needed:
 
 | File | Contents | When to Read |
 |------|----------|--------------|
-| `ref/ckfs_details.md` | Full ckfs structure, FAM formats, maintenance rules | ckfs operations, merge prep |
+| `ref/ckfs_details.md` | Full ckfs structure, projects/instances/sessions layout, slugification rules | ckfs operations, project setup |
 | `ref/kbite_awareness.md` | KBite trigger protocol, when to create kbites | Every prompt (trigger check), kbite operations |
-| `ref/bot_workflows.md` | Bot workflow system, memory sets, command reference | Running /gm_bot* commands |
+| `ref/bot_workflows.md` | Bot workflow system, prompts lifecycle, command reference | Running /gm_bot* commands |
 
 ---
 

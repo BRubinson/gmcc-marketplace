@@ -26,7 +26,7 @@ Exit without proceeding.
 1. Verify GM-CDE is initialized (`$GMCC_KBITE` is set)
 2. Verify maw exists at `$GMCC_KBITE_OPEN/{kbite_name}/`
 3. Read MAW_INDEX.md for current state
-4. Read `$GMCC_KBITE_DIGESTED/{kbite_name}/KBITE_PURPOSE.md` (if exists) for context
+4. Read `$GMCC_KBITE/{kbite_name}/KBITE_PURPOSE.md` (if exists) for context
 
 ### If Maw Missing
 ```

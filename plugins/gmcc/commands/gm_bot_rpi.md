@@ -1,14 +1,14 @@
 ---
 name: gm_bot_rpi
-description: Subagent-based Research/Plan/Implement workflow. Spawns specialized GMCC agents for exploration, architecture, and code review while keeping clarification and implementation in primary context.
-argument-hint: <mem-name|index> <task/target/prompt>
+description: Subagent-based Research/Plan/Implement workflow. Spawns specialized GMCC subagents for exploration, architecture, and code review while keeping clarification and implementation in primary context. Authors prompts into the current session.
+argument-hint: <prompt-name|id> <task/prompt content>
 disable-model-invocation: true
 allowed-tools: Read, Write, Edit, Grep, Glob, Bash, Task, AskUserQuestion
 ---
 
-# GM-CDE Bot RPI (Subagent Research/Plan/Implement)
+# GM-CDE Bot RPI (Subagent Research/Plan/Implement, v6.0.0)
 
-You are executing an enhanced development workflow that leverages GMCC subagents for Research, Planning, and Review phases.
+You are executing an enhanced development workflow that leverages GMCC subagents for Research, Planning, and Review phases. Same prompt-into-session model as `/gm_bot`, with subagents added to Phases 2, 4, and 6.
 
 ---
 
@@ -23,131 +23,54 @@ To fix: Restart Claude Code from within a git repository.
 ```
 Exit without proceeding.
 
-1. Verify GM-CDE is initialized (`$GMCC_REPO_PATH` exists)
-2. Get current git branch -> `{ACTIVE_BRANCH}`
-3. Load current FAM context from `$GMCC_FAM_PATH/`:
-   - Read ChangedFiles.md (if non-empty)
-   - Skim `thoughts/` for recent mem sets relevant to the prompt
+The SessionStart hook auto-creates `$GMCC_SESSION_PATH/{session_data.yaml, prompts/}`. If `$GMCC_SESSION_PATH/session_data.yaml` is missing, instruct the user to restart Claude Code.
 
-If ckfs missing:
-```
-[GMB] GM-CDE not initialized. Run /gm_init first.
-```
+1. Read `$GMCC_SESSION_PATH/session_data.yaml` for current session state.
+2. Skim recent clarified prompts under `$GMCC_SESSION_PATH/prompts/*_clarified.yaml` for context.
 
 ---
 
 ## Argument Parsing
 
-Parse `$ARGUMENTS`:
+Identical to `/gm_bot`. See `${CLAUDE_PLUGIN_ROOT}/commands/gm_bot.md` for full detail. Quick summary:
 
-### Case 1: First token is numeric (RESUME mode)
-```
-/gm_bot_rpi 3 continue with the login endpoint
-              ^index    ^prompt
-```
-1. Find `$GMCC_FAM_PATH/thoughts/mem_3_*/` directory
-2. If not found: error "No memory set found with index 3"
-3. Read `session_meta.md` to restore context
-4. Determine resume phase from existing files:
-   - Has `review_report.md` → resume at Phase 7 (Feedback)
-   - Has `architecture_document.md` → resume at Phase 5 (Implement)
-   - Has `fully_clarified_prompt.md` → resume at Phase 4 (Plan)
-   - Has `exploration_report.md` → resume at Phase 3 (Clarify)
-   - Otherwise → resume at Phase 2 (Implementation Overview)
-5. The remaining arguments become the continuation prompt
+- **Resume** (`/gm_bot_rpi 3 ...`): find prompt with `id: 3` in session_data; resume at Phase 4 if clarified, Phase 3 if draft.
+- **New** (`/gm_bot_rpi auth-refactor ...`): assign next id, write draft yaml, append session_data entry, proceed.
+- **No args**: AskUserQuestion for name + content.
 
-### Case 2: First token is non-numeric (NEW mode)
-```
-/gm_bot_rpi auth-refactor implement OAuth2 flow
-              ^mem_name    ^prompt
-```
-1. Scan `$GMCC_FAM_PATH/thoughts/` for existing `mem_*` directories
-2. Find the highest numeric index (default 0 if none exist)
-3. Create `$GMCC_FAM_PATH/thoughts/mem_{index+1}_{mem_name}/`
-4. Write initial `session_meta.md`
+---
 
-### Case 3: No arguments
-Use AskUserQuestion:
-```
-What would you like to work on?
+## Draft Prompt File Template
 
-Provide a short name for this memory set and describe the task.
-Example: auth-refactor implement OAuth2 flow
+Write to `$GMCC_SESSION_PATH/prompts/{id}_{name}.yaml`:
 
-- Enter description - Type your task
+```yaml
+version: 1
+id: {id}
+name: {name}
+status: draft
+command: /gm_bot_rpi
+created_at: {ISO 8601}
+content: |
+  {raw user prompt}
+kbites_loaded: []
+kbite_context_summary: ""    # filled in Phase 1 for subagent passing
 ```
 
 ---
 
-## Memory Folder
+## Phase 1: KBite Loading (New Prompt Only)
 
-### session_meta.md Template
-
-Write to `$GMCC_FAM_PATH/thoughts/mem_{index}_{mem_name}/session_meta.md`:
-
-```markdown
-# Memory Session: {mem_name}
-
-**Index**: {index}
-**Command**: /gm_bot_rpi
-**Created**: {ISO timestamp}
-**Branch**: {ACTIVE_BRANCH}
-**Status**: active
-
-## Initial Prompt
-{raw user prompt}
-
-## KBites Loaded
-{list of kbite names, or "none"}
-
-## KBite Content Summary
-{Brief summary of loaded kbite content for agent context passing}
-
-## Phase History
-- {timestamp}: Session created
-```
+1. List available kbites: `ls $GMCC_KBITE_DIGESTED/`. For each, read `$GMCC_KBITE/{name}/KBITE_PURPOSE.md`.
+2. AskUserQuestion (multiSelect) to pick relevant kbites.
+3. For each selected kbite: read `KBITE_INDEX.md` + `KBITE_TRIGGER_MAP.md`, load top 3-5 chewed files, compile a **kbite context summary** (key learnings, takeaways, patterns).
+4. Update the draft prompt yaml's `kbites_loaded:` list and `kbite_context_summary:` field — this summary is passed to every subagent spawn.
 
 ---
 
-## Phase 1: KBite Index Loading (New Memory Only)
+## Phase 2: Implementation Overview (Explore Subagent)
 
-**Skip this phase if resuming an existing memory set.**
-
-1. List available kbites from `$GMCC_KBITE_DIGESTED/`:
-   - For each kbite directory, read `KBITE_PURPOSE.md` for a one-line summary
-
-2. Use AskUserQuestion (multiSelect: true):
-```
-Which kbites are relevant to this task?
-
-Available kbites:
-- {kbite_1}: {purpose summary}
-- {kbite_2}: {purpose summary}
-- None - proceed without kbite context
-```
-
-3. For each selected kbite:
-   - Read `KBITE_INDEX.md` for the resource list
-   - Read `KBITE_TRIGGER_MAP.md` for relevant resource mapping
-   - Load the top 3-5 highest-relevance chewed files
-   - Compile a **kbite context summary** (key learnings, takeaways, patterns)
-
-4. Store kbite summary in `session_meta.md` under "KBite Content Summary"
-   - This summary will be passed into ALL subsequent agent prompts
-
----
-
-## Phase 2: Implementation Overview (Explore Agent)
-
-Spawn 1 explore subagent using the Task tool:
-
-### Agent: gmcc:agent:code_explorer
-
-<!-- [FIX #7] Agent reads its own prompt file instead of loading it into primary context.
-     [FIX #6] Moved verbose output template to the agent's responsibility.
-     This prevents ~200 lines of agent prompt from polluting the primary context window. -->
-
-Spawn a general-purpose subagent (model: sonnet) with this Task prompt:
+Spawn 1 explore subagent via Task tool. The subagent does its work in its own context window; it returns a structured report as its final message. The primary context receives the report content but does NOT persist it to disk (v6.0.0 deliberately drops intermediate-artifact persistence — see `skills/gmcc/ref/bot_workflows.md`).
 
 ```
 Task tool:
@@ -157,88 +80,69 @@ Task tool:
     Read and follow your agent identity from: $GMCC_PLUGIN_ROOT/prompts/gmcc_agent_code_explorer.prompt.md
 
     ## Task Context
-    **Exploration Target**: {initial prompt}
+    **Exploration Target**: {raw prompt content}
     **Repository**: Explore from the current working directory
-    **Branch**: {ACTIVE_BRANCH}
+    **Branch**: $(basename $GMCC_SESSION_PATH)
 
     ## KBite Knowledge
-    {kbite context summary from session_meta.md}
+    {kbite_context_summary from prompt yaml}
 
     ## Exploration Approach
     Apply all 4 methodologies sequentially:
-    1. **Conservative**: Find existing patterns that can be reused directly
-    2. **Aggressive**: Identify areas that might need significant changes
-    3. **Pragmatic**: Balance effort/value in exploration scope
-    4. **Alternative**: Look for unconventional integration points
+    1. Conservative: existing patterns to reuse
+    2. Aggressive: areas that might need significant changes
+    3. Pragmatic: balance effort/value
+    4. Alternative: unconventional integration points
 
     ## Output
-    Write your complete exploration report to: {mem_folder_path}/exploration_report.md
+    Return your complete exploration report as your final message.
     Use the Code Explorer Report format from your prompt file.
-    Include sections for: Target, Key Files, Patterns, Integration Points, Dependencies, Uncertainties, and Methodology Insights.
+    Include: Target, Key Files, Patterns, Integration Points, Dependencies, Uncertainties, Methodology Insights.
 ```
 
-After the agent completes, verify `exploration_report.md` was written. Read it into context.
-
-Update `session_meta.md` phase history.
+Read the returned report into the primary context. Use it to inform Clarify.
 
 ---
 
 ## Phase 3: Clarify
 
-1. Review the exploration report for uncertainties and ambiguities
+1. Review the exploration report for uncertainties and ambiguities.
+2. AskUserQuestion to resolve all identified issues (uncertainties, edge cases, integration preferences, scope boundaries).
+3. Write `$GMCC_SESSION_PATH/prompts/{id}_{name}_clarified.yaml`:
 
-2. Use AskUserQuestion to resolve all identified issues:
-   - Uncertainties from the exploration report
-   - Edge cases and error handling
-   - Integration preferences
-   - Scope boundaries
-
-3. Write `fully_clarified_prompt.md` to the mem folder:
-
-```markdown
-# Fully Clarified Prompt
-
-**Original Prompt**: {raw user prompt}
-**Clarified**: {ISO timestamp}
-
-## Clarifications
-
-### Q: {question 1}
-**A**: {answer 1}
-
-### Q: {question 2}
-**A**: {answer 2}
-
-## Refined Task Description
-{The original prompt rewritten with all clarifications and exploration findings
-integrated inline. This is the single source of truth for what needs to be built.}
-
-## Key Files (from exploration)
-- {file1}: {relevance}
-- {file2}: {relevance}
-
-## Patterns to Follow
-- {pattern 1 from exploration}
-- {pattern 2}
-
-## Constraints
-- {constraint 1}
-- {constraint 2}
+```yaml
+version: 1
+id: {id}
+name: {name}
+status: clarified
+command: /gm_bot_rpi
+clarified_at: {ISO 8601}
+original_content: |
+  {raw user prompt}
+clarifications:
+  - q: {question 1}
+    a: {answer 1}
+refined_content: |
+  {Refined task description integrating clarifications + exploration findings.
+   Single source of truth from here on.}
+key_files:
+  - path: {file}
+    relevance: {why}
+patterns_to_follow:
+  - {pattern from exploration}
+constraints:
+  - {constraint}
+kbites_loaded:
+  - {kbite name}
 ```
+
+4. Update `session_data.yaml`: flip prompt entry to `status: clarified`, set `clarified_file: prompts/{id}_{name}_clarified.yaml`.
 
 ---
 
-## Phase 4: Plan (Architecture Agent)
+## Phase 4: Plan (Architect Subagent)
 
-Spawn 1 architecture subagent using the Task tool:
-
-### Agent: gmcc:agent:code_architect
-
-<!-- [FIX #7] Agent reads its own prompt file instead of loading into primary context.
-     [FIX #6] Moved verbose output template to the agent's responsibility.
-     [FIX #16] Architecture uses opus model for complex reasoning (opusplan pattern). -->
-
-Spawn a general-purpose subagent (model: opus) with this Task prompt:
+Spawn 1 architect subagent. Same in-conversation pattern — no disk persistence of the architecture doc.
 
 ```
 Task tool:
@@ -248,40 +152,30 @@ Task tool:
     Read and follow your agent identity from: $GMCC_PLUGIN_ROOT/prompts/gmcc_agent_code_architect.prompt.md
 
     ## Architecture Context
-    **Goal**: {refined task description from fully_clarified_prompt.md}
+    **Goal**: {refined_content from clarified prompt yaml}
 
-    ## Fully Clarified Prompt
-    {Contents of fully_clarified_prompt.md}
+    ## Clarified Prompt
+    {full clarified yaml contents}
 
-    ## Exploration Report
-    {Contents of exploration_report.md}
+    ## Exploration Findings
+    {exploration report from Phase 2, in primary context}
 
     ## KBite Knowledge
-    {kbite context summary}
+    {kbite_context_summary}
 
     ## Architecture Approach
-    Apply all 4 methodologies and synthesize:
-    1. **Conservative**: Minimal changes, proven patterns
-    2. **Aggressive**: Consider rewrites and new patterns
-    3. **Pragmatic**: Balance effort and value
-    4. **Alternative**: Unconventional but valuable approaches
-    Then synthesize the best elements into a unified architecture.
+    Apply all 4 methodologies and synthesize the best elements.
 
     ## Output
-    Write your architecture document to: {mem_folder_path}/architecture_document.md
-    Use the Code Architect Report format from your prompt file.
-    Include: Goal, Approach Summary, Components, Files to Modify/Create, Build Sequence, Acceptance Criteria, Trade-offs, Methodology Analysis with Synthesis Rationale.
+    Return your architecture document as your final message.
+    Format: Goal, Approach Summary, Components, Files to Modify/Create, Build Sequence, Acceptance Criteria, Trade-offs.
 ```
 
-After the agent completes, verify `architecture_document.md` was written.
-
-Present the architecture to the user for approval before proceeding:
-
-Use AskUserQuestion:
+Present the architecture to the user via AskUserQuestion:
 ```
 Architecture design complete. Review the plan:
 
-{Brief summary of the architecture from architecture_document.md}
+{brief summary}
 
 How would you like to proceed?
 - Approve and implement - Start building
@@ -289,29 +183,25 @@ How would you like to proceed?
 - Reject and redesign - Start architecture over
 ```
 
-Update `session_meta.md` phase history.
-
 ---
 
 ## Phase 5: Implement
 
-1. Read `architecture_document.md` for the implementation plan
-2. Follow the build sequence
-3. Write code changes
-4. Track progress in `session_meta.md` phase history
+1. Follow the approved architecture's build sequence.
+2. Make edits with Read/Edit/Write.
+3. After each file write, append to `session_data.yaml`'s `changed_files:` list:
+   ```yaml
+   - file: {path relative to instance}
+     timestamp: {ISO 8601}
+     lines: [[start, end], ...]
+     commit: {short sha or "uncommitted"}
+   ```
 
 ---
 
-## Phase 6: Review (Code Review Agent)
+## Phase 6: Review (Code Review Subagent)
 
-Spawn 1 review subagent using the Task tool:
-
-### Agent: gmcc:agent:code_quality_reviewer
-
-<!-- [FIX #7] Agent reads its own prompt file instead of loading into primary context.
-     [FIX #6] Slimmed spawn template. [FIX #16] Review uses sonnet (cost-effective). -->
-
-Spawn a general-purpose subagent (model: sonnet) with this Task prompt:
+Spawn 1 review subagent.
 
 ```
 Task tool:
@@ -321,86 +211,66 @@ Task tool:
     Read and follow your agent identity from: $GMCC_PLUGIN_ROOT/prompts/gmcc_agent_code_quality_reviewer.prompt.md
 
     ## Review Context
-    **Task**: {refined task description}
+    **Task**: {refined_content from clarified prompt}
 
-    ## Fully Clarified Prompt
-    {Contents of fully_clarified_prompt.md}
+    ## Clarified Prompt
+    {clarified yaml contents}
 
-    ## Architecture Document
-    {Contents of architecture_document.md}
+    ## Architecture
+    {architecture doc from Phase 4}
 
     ## Files Changed
-    {List of files that were created or modified during implementation}
-
-    ## Review Instructions
-    1. Read each changed file
-    2. Validate against the architecture document and acceptance criteria
-    3. Check for bugs, security issues, and quality problems
-    4. Verify conventions are followed
+    {list from session_data.yaml changed_files}
 
     ## Output
-    Write your review report to: {mem_folder_path}/review_report.md
-    Use the Code Quality Review Report format from your prompt file.
+    Return your review report as your final message.
+    Format per the Code Quality Review Report in your prompt file.
 ```
 
-After the agent completes, read `review_report.md`.
-
-Present findings to the user:
-Use AskUserQuestion:
+Present findings via AskUserQuestion:
 ```
-Code review complete. {summary of findings}
+Code review complete. {summary}
 
-How would you like to handle the review findings?
-- Fix all issues - Address everything the reviewer found
-- Fix critical only - Only fix critical and high-priority issues
-- Proceed as-is - Accept the current implementation
+How would you like to handle the findings?
+- Fix all issues
+- Fix critical only
+- Proceed as-is
 ```
 
-Implement requested fixes.
+Implement requested fixes (back to Phase 5 for the fix subset).
 
 ---
 
 ## Phase 7: Feedback Integration
 
-1. Present a complete summary:
-   - What was built (from architecture_document.md)
-   - Files created/modified
-   - Review findings addressed
-   - Any known limitations
-
-2. Wait for user feedback
-
-3. Iterate on feedback until satisfied
-
-4. On completion:
-
-Update `session_meta.md`:
-- Set Status to `completed`
-- Add final phase history entry
+1. Present a complete summary: what was built, files modified, review findings addressed, known limitations.
+2. Wait for user feedback. Iterate until satisfied.
+3. On completion, append to `session_data.yaml`:
+   ```yaml
+   phase_history:
+     - prompt_id: {id}
+       command: /gm_bot_rpi
+       completed_at: {ISO 8601}
+       review_status: {pass | pass_with_issues}
+   ```
 
 ```
-Bot RPI Complete: {mem_name}
+Bot RPI Complete: prompt {id} ({name})
 
-**Memory**: thoughts/mem_{index}_{mem_name}/
-**Artifacts**:
-- exploration_report.md
-- fully_clarified_prompt.md
-- architecture_document.md
-- review_report.md
-
+**Session**: {GMCC_SESSION_PATH relative to GMCC_PROJECTS}
 **Files Modified**: {count}
-**Review Status**: {pass/pass with issues}
+**Review Status**: {pass / pass_with_issues}
 
-**Next**: Continue with more tasks or commit your work.
+**Next**: continue with more prompts in this session, or start a new prompt with `/gm_bot_rpi {next_id} ...`.
 ```
 
 ---
 
 ## Error Handling
 
-**Agent spawn failure:**
+**Subagent spawn failure:**
 ```
-[GMB] Agent spawn failed for {phase}
+[GMB] Subagent spawn failed for {phase}
 
 Falling back to primary context for this phase.
 ```
@@ -408,17 +278,15 @@ Continue the phase in primary context as a fallback.
 
 **Session paused:**
 ```
-Session state preserved at: $GMCC_FAM_PATH/thoughts/mem_{index}_{mem_name}/
+State preserved at: $GMCC_SESSION_PATH/prompts/{id}_{name}{_clarified}.yaml
 
-To resume: /gm_bot_rpi {index} <continuation prompt>
+To resume: /gm_bot_rpi {id} <continuation prompt>
 ```
 
 **Task grows in scope:**
-Use AskUserQuestion:
 ```
 This task may benefit from full agent team treatment.
 
-Would you like to upgrade?
-- Continue as /gm_bot_rpi - Keep subagent workflow
-- Switch to /gm_bot_team - Full agent team treatment
+- Continue as /gm_bot_rpi
+- Switch to /gm_bot_team
 ```

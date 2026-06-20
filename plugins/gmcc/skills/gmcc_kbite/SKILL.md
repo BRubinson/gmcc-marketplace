@@ -28,17 +28,19 @@ KBites transform raw reference materials (documentation, examples, APIs) into st
 
 ## KBite Storage Location
 
-KBites are stored at the **system level**, shared across all repositories. The kbites root has exactly two top-level subfolders — `digested/` for persisted indexes and `open/` for in-progress maws — each containing one entry per kbite:
+KBites are stored at the **system level**, shared across all repositories. The kbites root has two top-level lifecycle subfolders — `digested/` for persisted indexes and `open/` for in-progress maws — plus one identity-level file (`KBITE_PURPOSE.md`) per kbite that lives at the kbite root, above the lifecycle split:
 
 ```
 $GMCC_KBITE/                                # = $GMCC_CKFS_ROOT/kbites/
+├── {kbite_name}/
+│   └── KBITE_PURPOSE.md                    # identity-level — defined once, lives above digested/open
 ├── digested/                               # = $GMCC_KBITE_DIGESTED — canonical active indexes
 │   └── {kbite_name}/...
 └── open/                                   # = $GMCC_KBITE_OPEN — in-progress maws
     └── {kbite_name}/...
 ```
 
-Example: `~/gmcc_ckfs/kbites/digested/claude_code_sdk/`
+Example: `~/gmcc_ckfs/kbites/claude_code_sdk/KBITE_PURPOSE.md` (purpose), `~/gmcc_ckfs/kbites/digested/claude_code_sdk/` (digested index).
 
 ### Env vars
 
@@ -56,9 +58,10 @@ The list of known kbites is `ls $GMCC_KBITE_DIGESTED/`.
 
 ### Digested KBite Structure (Persisted, Active Index)
 
+`KBITE_PURPOSE.md` lives at `$GMCC_KBITE/{kbite_name}/KBITE_PURPOSE.md` (above the lifecycle split). The digested folder holds only generated indexes and the resource tree:
+
 ```
 $GMCC_KBITE_DIGESTED/{kbite_name}/
-├── KBITE_PURPOSE.md                    # Why this kbite exists
 ├── KBITE_INDEX.md                      # Master index of all digested resources
 ├── KBITE_TRIGGERS.md                   # Trigger words that activate this kbite
 ├── KBITE_TRIGGER_MAP.md                # Trigger → Index entry mappings
@@ -314,7 +317,7 @@ Quick lookup from trigger word to relevant resources.
 
 ## KBITE_PURPOSE.md
 
-Defines the purpose and scope of a kbite:
+Defines the purpose and scope of a kbite. Lives at `$GMCC_KBITE/{kbite_name}/KBITE_PURPOSE.md` (above the digested/open lifecycle split — purpose is identity-level, not lifecycle-level):
 
 ```markdown
 # KBite Purpose: {kbite_name}

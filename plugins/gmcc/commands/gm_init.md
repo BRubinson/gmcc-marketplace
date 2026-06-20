@@ -1,21 +1,22 @@
 ---
 name: gm_init
-description: Initialize the GM-CDE system at the user level. Creates ~/gmcc_ckfs/ root structure including shared plugin template. Run once per machine; per-repo CKFS is created automatically on first bot run.
+description: Initialize the GM-CDE system at the user level. Creates ~/gmcc_ckfs/ with the projects root + empty registry. Run once per machine; per-project / per-instance / per-session directories are auto-created by the SessionStart hook on first encounter.
 argument-hint: [--force]
 disable-model-invocation: true
 allowed-tools: Bash, Read, Write, Glob, AskUserQuestion
 ---
 
-# Initialize GM-CDE System
+# Initialize GM-CDE System (v6.0.0)
 
 You are initializing the GM-CDE system at the user level.
 
-**IMPORTANT**: This command creates the system-level `~/gmcc_ckfs/` directory AND the shared plugin template. Per-repository CKFS directories are auto-created on first `/gm_bot*` run.
+**IMPORTANT**: This command creates the system-level `~/gmcc_ckfs/` directory plus the `projects/` root and its empty `project_index.yaml` registry. Per-project / per-instance / per-session directories are auto-created lazily by `scripts/detect_repo.sh` on every SessionStart.
+
+---
 
 ## Pre-Flight Checks
 
-First, verify:
-1. `~/gmcc_ckfs/` does NOT already exist (unless `--force` in $ARGUMENTS)
+1. `~/gmcc_ckfs/` does NOT already exist (unless `--force` in `$ARGUMENTS`).
 
 ### If Already Initialized (Without --force)
 Use AskUserQuestion:
@@ -23,9 +24,11 @@ Use AskUserQuestion:
 GM-CDE system already initialized at ~/gmcc_ckfs/
 
 What would you like to do?
-- Reinitialize (wipe ALL repositories) - WARNING: This will delete ALL CKFS data
+- Reinitialize (wipe ALL projects + kbites) - WARNING: This will delete ALL CKFS data
 - Keep existing (exit without changes)
 ```
+
+---
 
 ## Directory Structure Creation
 
@@ -34,43 +37,33 @@ Create the system-level structure:
 ```
 ~/gmcc_ckfs/
 ├── README.md
-└── gmcc_plugin_template/    # Shared evolution target (copied from live plugin)
-    ├── agents/
-    ├── commands/
-    ├── skills/
-    ├── ckfs_templates/
-    ├── hooks/
-    └── scripts/
+└── projects/
+    └── project_index.yaml          # empty registry, copied from plugin template
 ```
 
-### Copy Plugin Template
+The `kbites/` subtree is created lazily by `/gm_crunch_open_maw` on first kbite work. Per-project directories under `projects/{project_name}/` are created lazily by `detect_repo.sh` on first SessionStart in a git repo.
 
-The plugin template is stored at the SYSTEM level (not per-repo) for shared evolution across all repositories.
-
-**Determine plugin source path:**
-1. Check if `${CLAUDE_PLUGIN_ROOT}` environment variable is set (preferred - Claude sets this for marketplace plugins)
-2. If not set, search common locations:
-   - `~/.claude/plugins/cache/gmcc-marketplace/gmcc/*/` (marketplace install)
-   - `~/.claude/plugins/gmcc/` (manual install)
+### Create the projects root + registry
 
 ```bash
-# Find the plugin source
-if [ -n "${CLAUDE_PLUGIN_ROOT}" ]; then
-    PLUGIN_SRC="${CLAUDE_PLUGIN_ROOT}"
-elif [ -d "$HOME/.claude/plugins/cache/gmcc-marketplace/gmcc" ]; then
-    # Find latest version in marketplace cache
-    PLUGIN_SRC=$(ls -d "$HOME/.claude/plugins/cache/gmcc-marketplace/gmcc"/*/ 2>/dev/null | sort -V | tail -1)
-elif [ -d "$HOME/.claude/plugins/gmcc" ]; then
-    PLUGIN_SRC="$HOME/.claude/plugins/gmcc"
-fi
+mkdir -p "$HOME/gmcc_ckfs/projects"
 
-# Copy to template location
-cp -r "$PLUGIN_SRC"/* ~/gmcc_ckfs/gmcc_plugin_template/
+# Copy the empty registry from the plugin template.
+TEMPLATES_DIR="${CLAUDE_PLUGIN_ROOT}/templates/projects"
+if [ -f "$TEMPLATES_DIR/project_index.yaml" ]; then
+    cp "$TEMPLATES_DIR/project_index.yaml" "$HOME/gmcc_ckfs/projects/project_index.yaml"
+else
+    echo "[GMB] Warning: template not found at $TEMPLATES_DIR/project_index.yaml — writing inline fallback"
+    cat > "$HOME/gmcc_ckfs/projects/project_index.yaml" <<'EOF'
+version: 1
+projects: []
+EOF
+fi
 ```
 
 ### README.md
 ```markdown
-# GMCC CKFS (Context Knowledge File System)
+# GMCC CKFS (Context Knowledge File System) — v6.0.0
 
 This directory contains GM-CDE runtime data for all repositories.
 
@@ -78,109 +71,120 @@ This directory contains GM-CDE runtime data for all repositories.
 
 ```
 ~/gmcc_ckfs/
-├── README.md                    # This file
-├── gmcc_plugin_template/        # SHARED plugin template
-│   ├── agents/
-│   ├── commands/
-│   ├── skills/
-│   ├── ckfs_templates/
-│   ├── hooks/
-│   └── scripts/
-└── {repo_name}/                 # Per-repository CKFS
-    └── fam/                     # Feature Access Memory
-        └── {branch}/            # Per-branch context
-            ├── ChangedFiles.md
-            └── thoughts/
-                └── mem_{index}_{name}/  # Bot workflow memory sets
+├── README.md                                  # This file
+├── projects/                                  # All tracked projects
+│   ├── project_index.yaml                     # Project registry
+│   └── {project_name}/                        # One per git repo (auto-detected)
+│       ├── Project_Data.yaml
+│       └── instances/
+│           └── {slug_of_abs_path}/            # One per physical checkout
+│               ├── instance_data.yaml
+│               └── sessions/
+│                   └── {sanitized_branch}/    # One per branch
+│                       ├── session_data.yaml
+│                       └── prompts/
+│                           ├── {id}_{name}.yaml             # draft
+│                           └── {id}_{name}_clarified.yaml   # clarified
+└── kbites/                                    # System-wide kbites (created on first kbite op)
+    ├── {kbite_name}/KBITE_PURPOSE.md          # identity-level
+    ├── digested/{kbite_name}/...              # persisted indexes
+    └── open/{kbite_name}/...                  # in-progress maws
 ```
-
-## Plugin Template
-
-The `gmcc_plugin_template/` directory is a reference copy of the plugin:
-- Shared across ALL repositories (not per-repo)
-- Used as a reference for plugin structure
 
 ## Usage
 
 1. Run `/gm_init` once to create this directory (already done)
-2. Run `/gm_bot` in any repository — per-repo CKFS is auto-created on first use
+2. Open Claude Code from any git repository — the SessionStart hook
+   automatically provisions the project / instance / session directories
+3. Run `/gm_bot` to start a workflow
 
 ## Environment Variables
 
-Set automatically by SessionStart hook:
-- `GMCC_CKFS_ROOT` - This directory (~/gmcc_ckfs)
-- `GMCC_REPO_ID` - Current repository name
-- `GMCC_REPO_PATH` - Current repo's CKFS path
-- `GMCC_FAM_PATH` - Current branch's FAM path
-- `GMCC_PLUGIN_ROOT` - Live plugin installation path (set by Claude for marketplace plugins)
+See `${CLAUDE_PLUGIN_ROOT}/scripts/detect_repo.sh` for the authoritative list of `GMCC_*` variables set on SessionStart.
 
 ---
-*Generated by GM-CDE*
+*Generated by GM-CDE v6.0.0*
 ```
 
-## Persist GMCC_CKFS_ROOT in ~/.zshrc
+---
 
-Export `GMCC_CKFS_ROOT` from `~/.zshrc` so it is available in every shell (not just Claude Code sessions). This is idempotent — skip if the marker is already present.
+## Persist GMCC env block in ~/.zshrc
+
+Export the stable GMCC paths from `~/.zshrc` so they are available in every shell (not just Claude Code sessions). The block contains:
+
+- `GMCC_CKFS_ROOT` — base CKFS path
+- `GMCC_PROJECTS` — projects root
+- `GMCC_PROJECTS_INDEX` — projects registry file
+- `GMCC_KBITE` — kbites root
+- `GMCC_KBITE_DIGESTED` — digested-kbites root
+- `GMCC_KBITE_OPEN` — open-maw root
+
+Per-session resolved paths (`GMCC_PROJECT_PATH`, `GMCC_INSTANCE_PATH`, `GMCC_SESSION_PATH`) are NOT persisted here — they are set dynamically by `detect_repo.sh` on SessionStart based on the current repo + branch.
+
+### Current-state check before writing
 
 ```bash
 ZSHRC="$HOME/.zshrc"
-MARKER="# >>> gmcc env >>>"
+MARKER_OPEN="# >>> gmcc env >>>"
+MARKER_CLOSE="# <<< gmcc env <<<"
 
-if [ -f "$ZSHRC" ] && grep -qF "$MARKER" "$ZSHRC"; then
-    echo "[GMB] GMCC env block already present in ~/.zshrc — skipping"
-else
-    cat >> "$ZSHRC" <<'EOF'
-
+read -r -d '' EXPECTED_BLOCK <<'EOF'
 # >>> gmcc env >>>
 export GMCC_CKFS_ROOT="$HOME/gmcc_ckfs"
+export GMCC_PROJECTS="$GMCC_CKFS_ROOT/projects"
+export GMCC_PROJECTS_INDEX="$GMCC_PROJECTS/project_index.yaml"
+export GMCC_KBITE="$GMCC_CKFS_ROOT/kbites"
+export GMCC_KBITE_DIGESTED="$GMCC_CKFS_ROOT/kbites/digested"
+export GMCC_KBITE_OPEN="$GMCC_CKFS_ROOT/kbites/open"
 # <<< gmcc env <<<
 EOF
-    echo "[GMB] Appended GMCC_CKFS_ROOT export to ~/.zshrc"
+
+if [ -f "$ZSHRC" ] && grep -qF "$MARKER_OPEN" "$ZSHRC"; then
+    CURRENT_BLOCK=$(awk "/$MARKER_OPEN/,/$MARKER_CLOSE/" "$ZSHRC")
+    if [ "$CURRENT_BLOCK" = "$EXPECTED_BLOCK" ]; then
+        echo "[GMB] GMCC env block in ~/.zshrc is up to date — skipping"
+    else
+        echo "[GMB] WARNING: existing GMCC env block in ~/.zshrc differs from expected"
+        echo "       Leaving in place. Inspect manually:"
+        echo "       sed -n \"/$MARKER_OPEN/,/$MARKER_CLOSE/p\" ~/.zshrc"
+        echo "       Expected block:"
+        printf '%s\n' "$EXPECTED_BLOCK" | sed 's/^/         /'
+    fi
+else
+    printf '\n%s\n' "$EXPECTED_BLOCK" >> "$ZSHRC"
+    echo "[GMB] Appended GMCC env block to ~/.zshrc"
 fi
 ```
 
-Only `GMCC_CKFS_ROOT` is persisted here. The other GMCC_* vars (`GMCC_REPO_ID`, `GMCC_ACTIVE_BRANCH`, `GMCC_FAM_PATH`, `GMCC_REPO_PATH`) are per-repo/per-branch and continue to be set dynamically by the `detect_repo.sh` SessionStart hook.
+The check is conservative: if a non-matching block is already present, gm_init does not overwrite it. The user is shown the expected contents and decides whether to update.
+
+---
 
 ## Post-Initialization
 
-After creating the structure:
-
 1. **Verify Creation**:
    - Check that `~/gmcc_ckfs/` exists
-   - Check that `~/gmcc_ckfs/README.md` was created
-   - Check that `~/gmcc_ckfs/gmcc_plugin_template/` was populated
+   - Check that `~/gmcc_ckfs/projects/` exists
+   - Check that `~/gmcc_ckfs/projects/project_index.yaml` exists
+   - Check that `~/gmcc_ckfs/README.md` exists
    - Check that `~/.zshrc` contains the `# >>> gmcc env >>>` marker
 
 2. **Report Success**:
 ```
-[GMB] GM-CDE system initialized!
+[GMB] GM-CDE v6.0.0 system initialized!
 
 Created:
 - ~/gmcc_ckfs/
 - ~/gmcc_ckfs/README.md
-- ~/gmcc_ckfs/gmcc_plugin_template/ (copied from live plugin)
-- ~/.zshrc: appended GMCC_CKFS_ROOT export (run `source ~/.zshrc` or open a new terminal)
-
-Plugin source: {source path used}
+- ~/gmcc_ckfs/projects/
+- ~/gmcc_ckfs/projects/project_index.yaml
+- ~/.zshrc: GMCC env block (run `source ~/.zshrc` or open a new terminal)
 
 Next steps:
 1. Navigate to a git repository
-2. Start development with /gm_bot_team, /gm_bot_rpi, or /gm_bot
-   (per-repo CKFS and branch FAM are auto-created on first use)
+2. Restart Claude Code — the SessionStart hook will create the project,
+   instance, and session directories for that repo automatically
+3. Run /gm_bot, /gm_bot_rpi, or /gm_bot_team to start a workflow
 
-Note: The SessionStart hook will automatically detect git repositories
-and set GMCC_* environment variables when you open Claude Code.
-```
-
-### If Plugin Copy Fails
-```
-[GMB] Warning: Could not copy plugin template
-
-Searched locations:
-- ${CLAUDE_PLUGIN_ROOT} (not set)
-- ~/.claude/plugins/cache/gmcc-marketplace/gmcc/*/ (not found)
-- ~/.claude/plugins/gmcc/ (not found)
-
-The system is initialized but the plugin template is not populated.
-You can manually copy: cp -r <plugin_path>/* ~/gmcc_ckfs/gmcc_plugin_template/
+Migrating from v5.x? Run /gm_cleanup to audit your CKFS for legacy state.
 ```

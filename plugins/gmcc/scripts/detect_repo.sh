@@ -1,59 +1,143 @@
 #!/bin/bash
 
-# GM-CDE Repository Detection Script
-# Runs on SessionStart to detect git repository and set environment variables
-# These variables are used by all GMCC commands for path resolution
+# GM-CDE Repository Detection Script — v6.0.0
 #
-# [FIX #14] This intentionally runs on SessionStart (not Setup) because
-# the active git branch can change between sessions in the same project.
-# SessionStart ensures env vars always reflect current git state.
+# Runs on SessionStart. When inside a git repository, this script:
+#   1. Resolves the active project (= git repo dir basename)
+#   2. Resolves the active instance (= unique filesystem path to this checkout)
+#   3. Resolves the active session (= current git branch)
+#   4. Lazily creates the project / instance / session directories from templates
+#      under $GMCC_PLUGIN_ROOT/templates/projects/ if any are missing
+#   5. Registers the project in $GMCC_PROJECTS_INDEX (idempotent)
+#   6. Exports all GMCC_* env vars via $CLAUDE_ENV_FILE
+#
+# Anything outside a git repo: silent exit with no GMCC vars set.
 
-# Only proceed if we're in a git repository
+# --- 0. Git-repo guard ------------------------------------------------------
 if ! git rev-parse --git-dir > /dev/null 2>&1; then
-    # Not in a git repo - no GMCC env vars to set
     exit 0
 fi
 
-# [FIX #1] Resolve plugin root from this script's location
-# ${CLAUDE_PLUGIN_ROOT} is resolved by Claude Code in hook command strings
-# but is NOT available as a persistent session env var. We derive it from
-# this script's path: plugins/gmcc/scripts/detect_repo.sh -> parent of scripts/
+# --- 1. Resolve plugin root from this script's location ---------------------
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 GMCC_PLUGIN_DIR="$(dirname "$SCRIPT_DIR")"
+TEMPLATES_DIR="$GMCC_PLUGIN_DIR/templates/projects"
 
-# Get repository information
+# --- 2. Stable paths --------------------------------------------------------
+GMCC_CKFS_ROOT="$HOME/gmcc_ckfs"
+GMCC_PROJECTS="$GMCC_CKFS_ROOT/projects"
+GMCC_PROJECTS_INDEX="$GMCC_PROJECTS/project_index.yaml"
+
+# --- 3. Per-session identifiers ---------------------------------------------
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
-REPO_ID=$(basename "$REPO_ROOT")
+PROJECT_NAME=$(basename "$REPO_ROOT")
 BRANCH=$(git branch --show-current 2>/dev/null || echo "main")
 
-# Sanitize branch name for filesystem (replace / with __)
-SANITIZED_BRANCH=$(echo "$BRANCH" | tr '/' '__')
+# Slugify: replace each / with __ (matches branch sanitization convention).
+# Use sed (not tr) — tr is char-to-char and would collapse / into a single _.
+slugify() { echo "$1" | sed 's|/|__|g'; }
 
-# Define GMCC paths
-GMCC_CKFS_ROOT="$HOME/gmcc_ckfs"
-GMCC_REPO_PATH="$GMCC_CKFS_ROOT/$REPO_ID"
-GMCC_FAM_PATH="$GMCC_REPO_PATH/fam/$SANITIZED_BRANCH"
+# Strip the leading __ that comes from the leading / in absolute paths.
+INSTANCE_ID=$(slugify "$REPO_ROOT" | sed 's|^__||')
+SESSION_BRANCH=$(slugify "$BRANCH")
 
-# Export environment variables via CLAUDE_ENV_FILE
-# This is the required mechanism for SessionStart hooks to set env vars
+# --- 4. Resolved paths ------------------------------------------------------
+GMCC_PROJECT_PATH="$GMCC_PROJECTS/$PROJECT_NAME"
+GMCC_INSTANCE_PATH="$GMCC_PROJECT_PATH/instances/$INSTANCE_ID"
+GMCC_SESSION_PATH="$GMCC_INSTANCE_PATH/sessions/$SESSION_BRANCH"
+
+# --- 5. Lazy create ---------------------------------------------------------
+ISO_NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+# 5a. Projects root + registry (created by /gm_init normally; safety net here).
+if [ ! -d "$GMCC_PROJECTS" ]; then
+    mkdir -p "$GMCC_PROJECTS"
+fi
+if [ ! -f "$GMCC_PROJECTS_INDEX" ] && [ -f "$TEMPLATES_DIR/project_index.yaml" ]; then
+    cp "$TEMPLATES_DIR/project_index.yaml" "$GMCC_PROJECTS_INDEX"
+fi
+
+# 5b. Project dir + Project_Data.yaml
+if [ ! -d "$GMCC_PROJECT_PATH" ]; then
+    mkdir -p "$GMCC_PROJECT_PATH/instances"
+fi
+if [ ! -f "$GMCC_PROJECT_PATH/Project_Data.yaml" ] \
+   && [ -f "$TEMPLATES_DIR/PROJECT_TEMPLATE/Project_Data.yaml" ]; then
+    sed -e "s|PROJECT_TEMPLATE_NAME|$PROJECT_NAME|g" \
+        -e "s|PROJECT_TEMPLATE_CREATED_AT|$ISO_NOW|g" \
+        "$TEMPLATES_DIR/PROJECT_TEMPLATE/Project_Data.yaml" \
+        > "$GMCC_PROJECT_PATH/Project_Data.yaml"
+fi
+
+# 5c. Instance dir + instance_data.yaml
+if [ ! -d "$GMCC_INSTANCE_PATH" ]; then
+    mkdir -p "$GMCC_INSTANCE_PATH/sessions"
+fi
+if [ ! -f "$GMCC_INSTANCE_PATH/instance_data.yaml" ] \
+   && [ -f "$TEMPLATES_DIR/PROJECT_TEMPLATE/instances/INSTANCE_TEMPLATE/instance_data.yaml" ]; then
+    sed -e "s|INSTANCE_TEMPLATE_ID|$INSTANCE_ID|g" \
+        -e "s|INSTANCE_TEMPLATE_ABS_PATH|$REPO_ROOT|g" \
+        -e "s|INSTANCE_TEMPLATE_PROJECT_NAME|$PROJECT_NAME|g" \
+        -e "s|INSTANCE_TEMPLATE_CREATED_AT|$ISO_NOW|g" \
+        "$TEMPLATES_DIR/PROJECT_TEMPLATE/instances/INSTANCE_TEMPLATE/instance_data.yaml" \
+        > "$GMCC_INSTANCE_PATH/instance_data.yaml"
+fi
+
+# 5d. Session dir + session_data.yaml + prompts/
+if [ ! -d "$GMCC_SESSION_PATH" ]; then
+    mkdir -p "$GMCC_SESSION_PATH/prompts"
+fi
+if [ ! -f "$GMCC_SESSION_PATH/session_data.yaml" ] \
+   && [ -f "$TEMPLATES_DIR/PROJECT_TEMPLATE/instances/INSTANCE_TEMPLATE/sessions/SESSION_TEMPLATE/session_data.yaml" ]; then
+    sed -e "s|SESSION_TEMPLATE_BRANCH|$SESSION_BRANCH|g" \
+        -e "s|SESSION_TEMPLATE_INSTANCE_ID|$INSTANCE_ID|g" \
+        -e "s|SESSION_TEMPLATE_PROJECT_NAME|$PROJECT_NAME|g" \
+        -e "s|SESSION_TEMPLATE_CREATED_AT|$ISO_NOW|g" \
+        "$TEMPLATES_DIR/PROJECT_TEMPLATE/instances/INSTANCE_TEMPLATE/sessions/SESSION_TEMPLATE/session_data.yaml" \
+        > "$GMCC_SESSION_PATH/session_data.yaml"
+fi
+
+# 5e. Register project + instance in $GMCC_PROJECTS_INDEX if not already present.
+# Idempotent grep-then-append. Full yaml-aware updates are a follow-up.
+if [ -f "$GMCC_PROJECTS_INDEX" ]; then
+    if ! grep -qE "^- name: $PROJECT_NAME$" "$GMCC_PROJECTS_INDEX" 2>/dev/null; then
+        # New project — append minimal stub. Keeps the file valid yaml.
+        if grep -qE "^projects: \[\]$" "$GMCC_PROJECTS_INDEX"; then
+            # Convert empty list to populated list with the first entry.
+            sed -i.bak "s|^projects: \[\]$|projects:|" "$GMCC_PROJECTS_INDEX"
+            rm -f "$GMCC_PROJECTS_INDEX.bak"
+        fi
+        {
+            echo "- name: $PROJECT_NAME"
+            echo "  path: $GMCC_PROJECT_PATH"
+            echo "  registered_at: $ISO_NOW"
+            echo "  instances:"
+            echo "    - id: $INSTANCE_ID"
+            echo "      abs_path: $REPO_ROOT"
+            echo "      registered_at: $ISO_NOW"
+        } >> "$GMCC_PROJECTS_INDEX"
+    fi
+    # Note: instance-level registration when project already exists is left to
+    # /gm_cleanup or a follow-up — minimal yaml editing in bash gets fragile fast.
+fi
+
+# --- 6. Export to $CLAUDE_ENV_FILE -----------------------------------------
 if [ -n "$CLAUDE_ENV_FILE" ]; then
     {
         echo "GMCC_CKFS_ROOT=$GMCC_CKFS_ROOT"
-        echo "GMCC_REPO_ID=$REPO_ID"
-        echo "GMCC_ACTIVE_BRANCH=$BRANCH"
-        echo "GMCC_FAM_PATH=$GMCC_FAM_PATH"
-        echo "GMCC_REPO_PATH=$GMCC_REPO_PATH"
-        # Signal successful GMCC boot - commands check this to validate environment
-        echo "GMCC_BOOTED=1"
-        # [FIX #1] Export resolved plugin root for use by commands and agents
-        echo "GMCC_PLUGIN_ROOT=$GMCC_PLUGIN_DIR"
-        # KBite layout vars (v5.3.0).
-        # Layout: $GMCC_KBITE/{digested,open}/{kbite_name}/...
-        # Each kbite's persisted index lives under $GMCC_KBITE_DIGESTED/{name}/
-        # and its in-progress maw lives under $GMCC_KBITE_OPEN/{name}/.
+        echo "GMCC_PROJECTS=$GMCC_PROJECTS"
+        echo "GMCC_PROJECTS_INDEX=$GMCC_PROJECTS_INDEX"
+        echo "GMCC_PROJECT_PATH=$GMCC_PROJECT_PATH"
+        echo "GMCC_INSTANCE_PATH=$GMCC_INSTANCE_PATH"
+        echo "GMCC_SESSION_PATH=$GMCC_SESSION_PATH"
+        # KBite layout (unchanged from v5.5).
         echo "GMCC_KBITE=$GMCC_CKFS_ROOT/kbites"
         echo "GMCC_KBITE_DIGESTED=$GMCC_CKFS_ROOT/kbites/digested"
         echo "GMCC_KBITE_OPEN=$GMCC_CKFS_ROOT/kbites/open"
+        # Plugin root, derived from this script's location.
+        echo "GMCC_PLUGIN_ROOT=$GMCC_PLUGIN_DIR"
+        # Boot completion signal.
+        echo "GMCC_BOOTED=1"
     } >> "$CLAUDE_ENV_FILE"
 fi
 
