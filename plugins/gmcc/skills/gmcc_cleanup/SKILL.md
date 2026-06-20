@@ -41,6 +41,41 @@ The skill is also useful steady-state: catching orphan registry entries, missing
 | Malformed yaml | file fails to parse as yaml | LLM-driven repair (default — uses template + parseable fragments as context), or backup + recreate, or manual fix |
 | Cruft at unexpected level | `projects/{name}/foo.txt` not matching the schema | Keep (default) or archive |
 | Legacy `gmcc_plugin_template/` | `~/gmcc_ckfs/gmcc_plugin_template/` (removed in v5.5.0) | Delete (default) |
+| Legacy `gmcc_user_workspace/` | Any path named `gmcc_user_workspace` (see deprecated concepts below) | Archive (default) or delete |
+| Stale chewed provenance path | Inside `kbites/digested/{name}/.../*_chewed.md`, a `**Source**:` or `**Location**:` line points at an absolute path that no longer exists (typically a legacy maw under `~/gmcc_ckfs/{anything}/fam/.../maw/`) | Rewrite the line to strip the dead absolute prefix and prepend `(retired maw source) `, preserving the relative slug for provenance (default), or leave the line unchanged |
+
+---
+
+## Legacy Deprecated — No Longer Supported Concepts
+
+This section is the **only** place in the live plugin that mentions these concepts. They are not part of the v6.0.0+ runtime and exist solely as cleanup targets when `/gm_cleanup` encounters them on a user's disk.
+
+| Concept | What it was | Where it can appear | Detection signature |
+|---------|-------------|---------------------|---------------------|
+| `gmcc_user_workspace` (external) | A pre-CKFS scratch dir at `~/gmcc_user_workspace/`, used before v6 unified everything under `$GMCC_CKFS_ROOT`. Often git-initialized with assorted `.md`, `.swift`, `.excalidraw` files and ad-hoc sub-projects. | `~/gmcc_user_workspace/` (outside the CKFS) | Any directory at `$HOME/gmcc_user_workspace` is legacy by definition. Default action: **Archive** to `~/gmcc_ckfs/_archive/cold_storage/gmcc_user_workspace_external/`. |
+| `gmcc_user_workspace` (CKFS-internal) | A v5.x-era copy that lived as a v5 repo root inside the CKFS, with its own `fam/`, `resource/`, `REPOSITORY_INDEX.md`, etc. | `~/gmcc_ckfs/gmcc_user_workspace/` | Falls under the generic "Legacy v5.x repo root" rule above. Default action: **Archive** to `~/gmcc_ckfs/_archive/cold_storage/gmcc_user_workspace/`. |
+| `$GMCC_FAM_PATH` and friends | The v5.x env vars `GMCC_FAM_PATH`, `GMCC_REPO_PATH`, `GMCC_REPO_ID`, `GMCC_ACTIVE_BRANCH` pointed at the per-branch FAM directory structure. The runtime no longer exports them; if a shell still has them set, it's a stale shell. | `~/.zshrc`, `~/.bashrc`, exported in a long-running shell session | Grep user rc files for `GMCC_FAM_PATH=` / `GMCC_REPO_PATH=` exports. Default action: **flag for user** — do not auto-edit shell rc files. |
+| FAM hierarchy | `~/gmcc_ckfs/{repo}/fam/{branch}/{ChangedFiles,Famalouge,Purpose,Tasks}.md` + `thoughts/mem_*` dirs. Replaced by `sessions/{branch}/session_data.yaml` + `prompts/`. | Anywhere under `~/gmcc_ckfs/{anything}/fam/` | Covered by the "Legacy v5.x FAM" rule above. |
+| `gmcc_plugin_template/` at CKFS root | A scaffolding dir for authoring sibling plugins; removed in v5.5.0. | `~/gmcc_ckfs/gmcc_plugin_template/` | Covered by the "Legacy `gmcc_plugin_template/`" rule above. |
+| `ckfs_templates/` inside the plugin | Pre-v6 template location for FAM/CKFS scaffolding. Moved to `plugins/gmcc/templates/projects/`. | `plugins/gmcc/ckfs_templates/` inside any installed plugin checkout | Not normally on the user's CKFS — flag only if encountered. |
+| `thoughts/mem_{N}_{name}/` dirs | v5.x equivalent of today's `prompts/{id}_{name}.yaml` + `_clarified.yaml`. | Inside any legacy `fam/{branch}/` tree | Captured by FAM hierarchy detection. |
+| `REPOSITORY_INDEX.md`, `GREATER_PURPOSE.md`, `EVOLUTION_LOG.md`, `SRC_INDEX.md`, `FAM_INDEX.md`, `CHANGELOG.md` at a legacy repo root | The v5.x per-repo top-level docs. | Inside a legacy v5.x repo root in the CKFS | Captured by "Legacy v5.x repo root" detection. |
+
+**Rule of thumb for additions:** when a concept is fully removed from the v6.0.0+ runtime, all live references should be deleted everywhere in the plugin and a single row added to this table. This file is the canonical graveyard.
+
+### Stale Chewed Provenance Paths
+
+A separate-but-related artifact: `*_chewed.md` files under `$GMCC_KBITE_DIGESTED/{name}/...` were produced by the chew agent from a maw source file, and they record where that source lived via a `**Source**:` or `**Location**:` line at the top of the file. When the underlying maw is retired (digested + deleted, or archived to cold storage), those absolute paths go stale — the chewed file remains the canonical artifact but the line is misleading.
+
+Canonical rewrite (applied by `/gm_cleanup` and by hand here):
+
+- Strip the dead absolute prefix (typically `/Users/.../gmcc_ckfs/{anything}/fam/{branch}/maw/`).
+- Prepend `(retired maw source) ` to the remaining slug-relative path.
+- Result: `**Source**: (retired maw source) {kbite}/{axis1}/{axis2}/{slug}/{file}.md`.
+
+This preserves the slug for human provenance ("yes, this came from `swift_ui/primary/documentation/layout_fundamentals`") without lying about file existence.
+
+Detection: any `*_chewed.md` under `kbites/digested/` whose `**Source**:` / `**Location**:` line starts with `/` and references a path that doesn't exist on disk. The chew prompt template should be updated separately to emit slug-relative paths in new chewed files.
 
 ---
 

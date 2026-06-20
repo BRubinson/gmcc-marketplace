@@ -45,7 +45,6 @@ For detailed structures, read: `$GMCC_PLUGIN_ROOT/skills/gmcc/ref/ckfs_details.m
 1. Modify a clarified prompt file after creation — author a new prompt instead
 2. Skip session_data.yaml updates when changing tracked state
 3. Ignore ckfs maintenance
-4. Reach for the old `GMCC_FAM_PATH` / `GMCC_REPO_PATH` variable names — they were removed in v6.0.0
 
 ---
 

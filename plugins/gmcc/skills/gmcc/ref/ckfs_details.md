@@ -120,18 +120,4 @@ Bot workflows author prompts in two stages:
 1. **Draft** — `/gm_bot*` writes `$GMCC_SESSION_PATH/prompts/{id}_{name}.yaml` with the user's raw input. session_data.yaml entry status = `draft`.
 2. **Clarified** — After the Clarify phase, write `$GMCC_SESSION_PATH/prompts/{id}_{name}_clarified.yaml` with the refined prompt + Q/A pairs. session_data.yaml entry status = `clarified`. The draft file is **not** modified — the clarified file is the new source of truth from this point on.
 
-Workflow intermediate artifacts (exploration reports, architecture docs, review reports) are **not persisted to disk in v6.0.0**. They live in conversation context only. Resume across sessions relies on session_data.yaml prompt statuses and clarified prompt files.
-
-## Removed in v6.0.0 (no migration)
-
-| Removed | What replaced it |
-|---------|------------------|
-| `$GMCC_FAM_PATH` | `$GMCC_SESSION_PATH` |
-| `$GMCC_REPO_PATH` | `$GMCC_PROJECT_PATH` (note: per-project, not per-repo-checkout) |
-| `$GMCC_REPO_ID` | `basename $GMCC_PROJECT_PATH` if needed |
-| `$GMCC_ACTIVE_BRANCH` | `basename $GMCC_SESSION_PATH` if needed |
-| `ChangedFiles.md` | `changed_files:` section in `session_data.yaml` |
-| `thoughts/mem_{N}_{name}/` | `prompts/{id}_{name}.yaml` + clarified variant |
-| `plugins/gmcc/ckfs_templates/` | `plugins/gmcc/templates/projects/` |
-
-Old data on disk is left untouched. Use `/gm_cleanup` to audit and resolve it.
+Workflow intermediate artifacts (exploration reports, architecture docs, review reports) are **not persisted to disk**. They live in conversation context only. Resume across sessions relies on session_data.yaml prompt statuses and clarified prompt files.

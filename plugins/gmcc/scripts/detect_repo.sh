@@ -130,7 +130,6 @@ if [ -n "$CLAUDE_ENV_FILE" ]; then
         echo "GMCC_PROJECT_PATH=$GMCC_PROJECT_PATH"
         echo "GMCC_INSTANCE_PATH=$GMCC_INSTANCE_PATH"
         echo "GMCC_SESSION_PATH=$GMCC_SESSION_PATH"
-        # KBite layout (unchanged from v5.5).
         echo "GMCC_KBITE=$GMCC_CKFS_ROOT/kbites"
         echo "GMCC_KBITE_DIGESTED=$GMCC_CKFS_ROOT/kbites/digested"
         echo "GMCC_KBITE_OPEN=$GMCC_CKFS_ROOT/kbites/open"

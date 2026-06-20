@@ -90,7 +90,7 @@ Update MAW_INDEX.md to show overall status as "chewing".
 
 For each pending crunchable, spawn a kbite crunch chew agent via Task tool.
 
-**v4.0.0 Task Invocation** (uses prompts/ directory with model: opus):
+**Task Invocation** (uses prompts/ directory with model: opus):
 
 ```
 Task tool:
