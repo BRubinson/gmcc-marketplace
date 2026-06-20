@@ -1,5 +1,26 @@
 # GMCC Migration Guide
 
+## v6.0.0 to v6.0.1 — YEETS scaffolding
+
+Adds the YEETS (YAML Expositional Estimated Typing System) language to GMCC.
+
+### New
+
+- `## YEETS` section inline in `skills/gmcc/SKILL.md` — primary types, parametric collections (`Map`/`List`/`Set`), nullability (`?` type suffix), `Enum<T>` / `Struct<T>`, inline `<YEET>...</YEET>` blocks, `.yeet.md` file format (Name / UUID / Package frontmatter; mandatory `DEFAULT` section with `Enums` + `Structs` subsections), and the dual import contract (`import {pkg}` between `.yeet.md` files; top-level `yeet: [pkgs]` list inside `.yaml` files).
+- `plugins/gmcc/gmcc.yeet.md` — core type package (`Package: gmcc`). Ships as a **TODO stub**; real type population deferred to v6.1.
+- `/gm_compile <project> <instance> <session>` — read-only validation pass over `.yeet.md` files, importing yamls, and inline `<YEET>` blocks. Surface-level checks in v6.0.x; deep nested-generic validation lands in v6.1.
+
+### Not changed
+
+- `plugin.json` version is unchanged. No env vars added. No hook changes. No retrofit of existing yaml schemas (deferred to v6.1).
+
+### Migration steps
+
+1. Update the plugin to v6.0.x.
+2. No restart required. `/gm_compile` is available immediately on next session.
+
+---
+
 ## v5.5.0 to v6.0.0 — Projects / Instances / Sessions (HARD CUT)
 
 **This release replaces the per-branch FAM (`fam/{branch}/`) with a three-tier `projects/instances/sessions` hierarchy. There is no migration tool — v5.5.0 FAM data is left untouched on disk and ignored by v6.** Use the new `/gm_cleanup` command to audit your `$GMCC_CKFS_ROOT` for legacy state and choose what to do with it.
@@ -16,7 +37,7 @@
 └── projects/                                # NEW
     ├── project_index.yaml                   # registry of all projects
     └── {project_name}/                      # project name = git repo dir basename
-        ├── Project_Data.yaml
+        ├── project_data.yaml
         └── instances/
             └── {slug_of_abs_path}/          # one entry per physical checkout of this repo
                 ├── instance_data.yaml
@@ -58,7 +79,7 @@
 
 ### Deferred schemas
 
-`Project_Data.yaml`, `instance_data.yaml`, `session_data.yaml`, and `project_index.yaml` ship with **minimal placeholder fields**. Full schema design lands in a follow-up release.
+`project_data.yaml`, `instance_data.yaml`, `session_data.yaml`, and `project_index.yaml` ship with **minimal placeholder fields**. Full schema design lands in a follow-up release.
 
 ---
 
@@ -85,7 +106,7 @@ This release is a set of focused cleanups in preparation for the upcoming FAM re
 
 ### What's coming next (v6.0.0)
 
-The FAM (`$GMCC_FAM_PATH`) format is being rewritten end-to-end. New top-level concept: `_PROJECTS` env var → `ckfs/projects/{name}/Project_Data.yaml` → instances (`instance_data.yaml`) → sessions (`session_data.yaml`). Templates will live under `plugins/gmcc/templates/projects/`. That work is gated on a separate RPI session; v5.5.0 is the last release of the current FAM format.
+The FAM (`$GMCC_FAM_PATH`) format is being rewritten end-to-end. New top-level concept: `_PROJECTS` env var → `ckfs/projects/{name}/project_data.yaml` → instances (`instance_data.yaml`) → sessions (`session_data.yaml`). Templates will live under `plugins/gmcc/templates/projects/`. That work is gated on a separate RPI session; v5.5.0 is the last release of the current FAM format.
 
 ---
 

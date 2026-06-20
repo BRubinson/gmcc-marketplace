@@ -29,7 +29,7 @@ Read this file on-demand when performing ckfs operations.
 ├── projects/                                            # $GMCC_PROJECTS
 │   ├── project_index.yaml                               # $GMCC_PROJECTS_INDEX
 │   └── {project_name}/                                  # $GMCC_PROJECT_PATH
-│       ├── Project_Data.yaml
+│       ├── project_data.yaml
 │       └── instances/
 │           └── {slug_of_abs_path}/                      # $GMCC_INSTANCE_PATH
 │               ├── instance_data.yaml
@@ -68,7 +68,7 @@ On every SessionStart, the hook ensures the following exist for the current git 
 
 1. `$GMCC_PROJECTS/` (created if missing — `/gm_init` does this normally; the hook is a safety net)
 2. `$GMCC_PROJECTS_INDEX` (copied from `templates/projects/project_index.yaml`)
-3. `$GMCC_PROJECT_PATH/{Project_Data.yaml, instances/}` (filled from `templates/projects/PROJECT_TEMPLATE/Project_Data.yaml` with placeholder substitution)
+3. `$GMCC_PROJECT_PATH/{project_data.yaml, instances/}` (filled from `templates/projects/PROJECT_TEMPLATE/project_data.yaml` with placeholder substitution)
 4. `$GMCC_INSTANCE_PATH/{instance_data.yaml, sessions/}` (filled from `templates/projects/PROJECT_TEMPLATE/instances/INSTANCE_TEMPLATE/instance_data.yaml`)
 5. `$GMCC_SESSION_PATH/{session_data.yaml, prompts/}` (filled from `templates/projects/PROJECT_TEMPLATE/instances/INSTANCE_TEMPLATE/sessions/SESSION_TEMPLATE/session_data.yaml`)
 6. Append a project entry to `$GMCC_PROJECTS_INDEX` if new (idempotent grep-then-append)
@@ -108,7 +108,7 @@ changed_files:
 | File | Purpose | Maintained by |
 |------|---------|---------------|
 | `project_index.yaml` | Registry of every project + instance | `detect_repo.sh` (registers); `/gm_cleanup` (prunes) |
-| `Project_Data.yaml` | Per-project identity, metadata | `detect_repo.sh` (creates); user or future commands (edits) |
+| `project_data.yaml` | Per-project identity, metadata | `detect_repo.sh` (creates); user or future commands (edits) |
 | `instance_data.yaml` | Per-instance identity, abs path | `detect_repo.sh` (creates); rarely edited |
 | `session_data.yaml` | Per-branch session state (prompts, changed files) | Bot workflows (continuous updates) |
 | `prompts/*.yaml` | Per-prompt content (draft + clarified) | Bot workflows (immutable once clarified) |

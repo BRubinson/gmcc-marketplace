@@ -57,16 +57,16 @@ if [ ! -f "$GMCC_PROJECTS_INDEX" ] && [ -f "$TEMPLATES_DIR/project_index.yaml" ]
     cp "$TEMPLATES_DIR/project_index.yaml" "$GMCC_PROJECTS_INDEX"
 fi
 
-# 5b. Project dir + Project_Data.yaml
+# 5b. Project dir + project_data.yaml
 if [ ! -d "$GMCC_PROJECT_PATH" ]; then
     mkdir -p "$GMCC_PROJECT_PATH/instances"
 fi
-if [ ! -f "$GMCC_PROJECT_PATH/Project_Data.yaml" ] \
-   && [ -f "$TEMPLATES_DIR/PROJECT_TEMPLATE/Project_Data.yaml" ]; then
+if [ ! -f "$GMCC_PROJECT_PATH/project_data.yaml" ] \
+   && [ -f "$TEMPLATES_DIR/PROJECT_TEMPLATE/project_data.yaml" ]; then
     sed -e "s|PROJECT_TEMPLATE_NAME|$PROJECT_NAME|g" \
         -e "s|PROJECT_TEMPLATE_CREATED_AT|$ISO_NOW|g" \
-        "$TEMPLATES_DIR/PROJECT_TEMPLATE/Project_Data.yaml" \
-        > "$GMCC_PROJECT_PATH/Project_Data.yaml"
+        "$TEMPLATES_DIR/PROJECT_TEMPLATE/project_data.yaml" \
+        > "$GMCC_PROJECT_PATH/project_data.yaml"
 fi
 
 # 5c. Instance dir + instance_data.yaml

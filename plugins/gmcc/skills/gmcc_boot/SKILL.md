@@ -88,7 +88,7 @@ echo "  Git repository: $(git rev-parse --git-dir > /dev/null 2>&1 && echo 'YES'
 echo "  System initialized: $([ -d "$HOME/gmcc_ckfs" ] && echo 'YES' || echo 'NO')"
 echo "  Projects root: $([ -d "$GMCC_PROJECTS" ] && echo 'YES - '$GMCC_PROJECTS || echo 'NO')"
 echo "  Projects registry: $([ -f "$GMCC_PROJECTS_INDEX" ] && echo 'YES' || echo 'NO')"
-echo "  Project provisioned: $([ -f "$GMCC_PROJECT_PATH/Project_Data.yaml" ] && echo 'YES - '$GMCC_PROJECT_PATH || echo 'NO')"
+echo "  Project provisioned: $([ -f "$GMCC_PROJECT_PATH/project_data.yaml" ] && echo 'YES - '$GMCC_PROJECT_PATH || echo 'NO')"
 echo "  Instance provisioned: $([ -f "$GMCC_INSTANCE_PATH/instance_data.yaml" ] && echo 'YES - '$GMCC_INSTANCE_PATH || echo 'NO')"
 echo "  Session provisioned: $([ -f "$GMCC_SESSION_PATH/session_data.yaml" ] && echo 'YES - '$GMCC_SESSION_PATH || echo 'NO')"
 echo ""

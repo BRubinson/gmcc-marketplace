@@ -75,7 +75,7 @@ This directory contains GM-CDE runtime data for all repositories.
 ├── projects/                                  # All tracked projects
 │   ├── project_index.yaml                     # Project registry
 │   └── {project_name}/                        # One per git repo (auto-detected)
-│       ├── Project_Data.yaml
+│       ├── project_data.yaml
 │       └── instances/
 │           └── {slug_of_abs_path}/            # One per physical checkout
 │               ├── instance_data.yaml

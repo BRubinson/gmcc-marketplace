@@ -34,7 +34,7 @@ The skill is also useful steady-state: catching orphan registry entries, missing
 | Orphan project registry entry | `project_index.yaml` lists `foo` but `projects/foo/` doesn't exist | Remove from registry (default) or recreate empty project dir |
 | Orphan project dir | `projects/foo/` exists but `foo` is not in `project_index.yaml` | Re-register (default) or archive |
 | Orphan instance registry entry | `project_index.yaml` lists an instance `abs_path` that no longer exists on disk | Remove from registry (default) or keep (user moved the checkout temporarily) |
-| Missing `Project_Data.yaml` | `projects/{name}/instances/` exists but `Project_Data.yaml` doesn't | Recreate from template (default) |
+| Missing `project_data.yaml` | `projects/{name}/instances/` exists but `project_data.yaml` doesn't | Recreate from template (default) |
 | Missing `instance_data.yaml` | `projects/{p}/instances/{i}/sessions/` exists but `instance_data.yaml` doesn't | Recreate from template (default) |
 | Missing `session_data.yaml` | `sessions/{branch}/prompts/` has files but `session_data.yaml` doesn't | Recreate from template (default), rebuild `prompts:` list from filenames |
 | **Outdated schema** | yaml `version:` field is lower than the template's `version:` for the same file type | **LLM-driven migration** (default — see "Schema Migration" section below), or skip, or backup+recreate |
@@ -86,7 +86,7 @@ Each templated yaml file carries a top-level `version:` integer. The cleanup ski
 | File type | Template path (current-version source) |
 |-----------|----------------------------------------|
 | `project_index.yaml` | `templates/projects/project_index.yaml` |
-| `Project_Data.yaml` | `templates/projects/PROJECT_TEMPLATE/Project_Data.yaml` |
+| `project_data.yaml` | `templates/projects/PROJECT_TEMPLATE/project_data.yaml` |
 | `instance_data.yaml` | `templates/projects/PROJECT_TEMPLATE/instances/INSTANCE_TEMPLATE/instance_data.yaml` |
 | `session_data.yaml` | `templates/projects/PROJECT_TEMPLATE/instances/INSTANCE_TEMPLATE/sessions/SESSION_TEMPLATE/session_data.yaml` |
 | `prompts/{id}_{name}.yaml`, `{id}_{name}_clarified.yaml` | No templates ship — current version is hardcoded in this skill (currently 1). Bump this constant when the prompt-file schema changes. |
@@ -187,7 +187,7 @@ The walk is bounded — never recurses into git repos, kbite resource trees, or 
 
 1. **Top-level of `$GMCC_CKFS_ROOT`** — anything other than `README.md`, `projects/`, `kbites/`, `_archive/` is a finding.
 2. **`projects/`** — anything other than `project_index.yaml` and per-project dirs is a finding.
-3. **Per-project dir** — must have `Project_Data.yaml` + `instances/`. Anything else is a finding.
+3. **Per-project dir** — must have `project_data.yaml` + `instances/`. Anything else is a finding.
 4. **Per-instance dir** — must have `instance_data.yaml` + `sessions/`. Anything else is a finding.
 5. **Per-session dir** — must have `session_data.yaml` + `prompts/`. Anything else is a finding.
 6. **`prompts/`** — only `{id}_{name}.yaml` and `{id}_{name}_clarified.yaml` files; nothing else.
