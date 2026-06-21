@@ -6,7 +6,7 @@ disable-model-invocation: true
 allowed-tools: Read, Write, Edit, Grep, Glob, Bash, Task, AskUserQuestion
 ---
 
-# GM-CDE Bot Team (Agent Teams, v11.0.0)
+# GM-CDE Bot Team (Agent Teams, v12.0.0)
 
 You are coordinating real agent teams (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`) to attack a single prompt with 4 parallel methodologies per phase. Same prompt-into-session model as `/gm_bot` and `/gm_bot_rpi`. The synthesized output of each team phase is persisted to `prompts/{id}_{name}/memory/`.
 

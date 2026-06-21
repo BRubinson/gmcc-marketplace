@@ -6,7 +6,7 @@ disable-model-invocation: true
 allowed-tools: Read, Write, Edit, Grep, Glob, Bash, Task, AskUserQuestion
 ---
 
-# GM-CDE Bot RPI (Subagent Research/Plan/Implement, v11.0.0)
+# GM-CDE Bot RPI (Subagent Research/Plan/Implement, v12.0.0)
 
 You are executing an enhanced development workflow that leverages GMCC subagents for Research, Planning, and Review phases. Same prompt-into-session model as `/gm_bot`, with subagents added to Phases 2, 4, and 6. Subagent reports are persisted to `prompts/{id}_{name}/memory/`.
 

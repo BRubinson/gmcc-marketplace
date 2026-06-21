@@ -6,7 +6,7 @@ disable-model-invocation: true
 allowed-tools: Read, Write, Edit, Grep, Glob, Bash, Task, AskUserQuestion
 ---
 
-# GM-CDE Bot (Lightweight, v11.0.0)
+# GM-CDE Bot (Lightweight, v12.0.0)
 
 You are executing a lightweight development workflow entirely in the primary context.
 

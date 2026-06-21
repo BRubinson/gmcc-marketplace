@@ -1,11 +1,11 @@
-# CKFS Detailed Structure Reference (v11.0.0)
+# CKFS Detailed Structure Reference (v12.0.0)
 
 Read this file on-demand when performing ckfs operations.
 
 ## Static Plugin Files (Installed to ~/.claude/plugins/gmcc/)
 ```
 ~/.claude/plugins/gmcc/
-├── .claude-plugin/plugin.json     # Plugin manifest (currently v11.0.0)
+├── .claude-plugin/plugin.json     # Plugin manifest (currently v12.0.0)
 ├── skills/
 │   ├── gmcc/SKILL.md              # Core rules (slim)
 │   ├── gmcc/ref/                  # Reference files (read on-demand)

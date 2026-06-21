@@ -1,5 +1,34 @@
 # GMCC Migration Guide
 
+## v11.0.0 to v12.0.0 — `/gm_task` command + kbite trigger system fully retired
+
+Two changes, both behavioral rather than schema-level — no on-disk data migration
+is required.
+
+### New `/gm_task` command
+
+Adds `/gm_task <request>` — a context-loaded, **read-only** sibling to `/gm_bot`.
+It boots the full GMCC session context and then just does the work, **without** the
+prompt-authoring ceremony (no draft folder, no initial/clarified prompt files, no
+`changed_files`/`phase_history` bookkeeping). It writes nothing to the ckfs
+(`$GMCC_CKFS_ROOT`) unless the user explicitly asks for a retroactive write-back
+later in the conversation. Editing the user's *repository* files is still expected —
+"read-only" refers to the ckfs only. Use it when you want GMCC context applied to a
+task but don't want the prompt pipeline.
+
+### KBite trigger system removed from the kbite skill
+
+The trigger-activation paradigm was retired at the inheritance level in v11; v12
+removes its last remnants from the kbite skill and templates. `KBITE_TRIGGERS.md`
+and `KBITE_TRIGGER_MAP.md` are no longer part of the kbite layout, and the
+"Suggested Triggers" / "Anti-Triggers" sections are dropped from the chewed-resource
+template (the "Keywords and Triggers" section is now just "Keywords"). KBites are
+discovered and loaded via `kbite:` inheritance registries, not trigger matching.
+
+**Existing kbites:** any `KBITE_TRIGGERS.md` / `KBITE_TRIGGER_MAP.md` files left in
+already-digested kbites are simply ignored — nothing reads them anymore. They can be
+deleted at leisure; no action is required.
+
 ## v10.0.0 to v11.0.0 — Prompt style (typed initial/clarified files, backstory/goal/detail split, YEET-type detection)
 
 Introduces the structured "prompt style": prompt content is split into named
