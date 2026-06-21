@@ -116,10 +116,21 @@ kbite_context_summary: ""    # filled in Phase 1 for subagent passing
 
 ## Phase 1: KBite Loading (New Prompt Only)
 
-1. List available kbites: `ls $GMCC_KBITE_DIGESTED/`. For each, read `$GMCC_KBITE/{name}/KBITE_PURPOSE.md`.
-2. AskUserQuestion (multiSelect) to pick relevant kbites.
-3. For each selected kbite: read `KBITE_INDEX.md` + `KBITE_TRIGGER_MAP.md`, load top 3-5 chewed files, compile a **kbite context summary** (key learnings, takeaways, patterns).
-4. Update `{id}_{name}_initial.yaml`'s `kbites_loaded:` list and `kbite_context_summary:` field — this summary is passed to every subagent spawn. Merge selections into `{id}_{name}_data.gmcc.yaml`'s `kbite:` list.
+KBites are **inherited, not auto-detected** — already declared up the chain
+(project → instance → session → prompt) and seeded into this prompt's `kbite:`
+list. No trigger matching, no kbite picker.
+
+1. Read the inherited kbite list from `{id}_{name}_data.gmcc.yaml`'s `kbite:`
+   field (seeded from `session_data.gmcc.yaml`'s `kbite:`).
+2. **Explicit add only.** If the user's prompt text explicitly asks to add a
+   kbite, append it to the prompt's `kbite:` list. Never add one on your own.
+3. For each inherited/added kbite: read `$GMCC_KBITE/{name}/KBITE_PURPOSE.md` +
+   `KBITE_INDEX.md`, load top 3-5 chewed files, compile a **kbite context
+   summary** (key learnings, takeaways, patterns). Explore freely with Bash
+   (`find`, `cat`, `rg`) — read-only run of the ckfs tree.
+4. Update `{id}_{name}_initial.yaml`'s `kbites_loaded:` list and
+   `kbite_context_summary:` field — this summary is passed to every subagent
+   spawn. Keep `{id}_{name}_data.gmcc.yaml`'s `kbite:` list in sync.
 
 ---
 

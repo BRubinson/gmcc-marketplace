@@ -158,12 +158,25 @@ Append a lightweight stub conforming to `gmcc_session_data_file_prompt_files_ent
 
 Skip if resuming a draft or clarified prompt that already has `kbites_loaded`.
 
-1. List available kbites: `ls $GMCC_KBITE_DIGESTED/` and for each, read `$GMCC_KBITE/{name}/KBITE_PURPOSE.md` for a one-line summary.
-2. Use AskUserQuestion (multiSelect: true) to let the user pick relevant kbites.
-3. For each selected kbite:
-   - Read `KBITE_INDEX.md` and `KBITE_TRIGGER_MAP.md`
-   - Load the top 3-5 highest-relevance chewed files
-4. Update `{id}_{name}_initial.yaml`'s `kbites_loaded:` list and merge selections into `{id}_{name}_data.gmcc.yaml`'s `kbite:` list.
+KBites are **inherited, not auto-detected**. The relevant kbites are already
+declared up the chain — project → instance → session → prompt — and were seeded
+into this prompt's `kbite:` list at draft-create time. There is no trigger
+matching and no kbite picker.
+
+1. Read the inherited kbite list from `{id}_{name}_data.gmcc.yaml`'s `kbite:`
+   field (seeded from `session_data.gmcc.yaml`'s `kbite:`).
+2. **Explicit add only.** If the user's prompt text explicitly asks to add a
+   kbite (e.g. "add the swift_ui kbite", "use the spatial kbite"), append it to
+   the prompt's `kbite:` list. Never add a kbite on your own initiative.
+3. For each inherited/added kbite, load context from `$GMCC_KBITE_DIGESTED/{name}/`:
+   read `$GMCC_KBITE/{name}/KBITE_PURPOSE.md` and `KBITE_INDEX.md`, then load the
+   top 3-5 highest-relevance chewed files. Explore freely with Bash (`find`,
+   `cat`, `rg`) — you have read-only run of the ckfs tree.
+4. Update `{id}_{name}_initial.yaml`'s `kbites_loaded:` list to reflect what you
+   loaded, and keep `{id}_{name}_data.gmcc.yaml`'s `kbite:` list in sync.
+
+If the inherited `kbite:` list is empty and the prompt names no kbite, load
+nothing and proceed to Phase 2.
 
 ---
 

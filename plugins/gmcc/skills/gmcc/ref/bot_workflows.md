@@ -148,6 +148,7 @@ Agents are specialized personas defined in `$GMCC_PLUGIN_ROOT/prompts/`:
 | `/gm_bot` | Lightweight bot workflow (primary context) |
 | `/gm_bot_rpi` | Subagent Research/Plan/Implement workflow |
 | `/gm_bot_team` | Agent team workflow (requires agent teams enabled) |
+| `/gm_task` | Load session context and just do the task; read-only — no ckfs writes unless you explicitly ask for a retroactive write-back |
 | `/gm_cleanup` | Audit CKFS for non-compliant structure, interactively resolve |
 | `/gm_crunch_open_maw` | Create maw for collecting kbite crunchables |
 | `/gm_crunch_chew` | Process crunchables into analyzed knowledge |
