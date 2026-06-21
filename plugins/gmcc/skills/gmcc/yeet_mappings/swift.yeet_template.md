@@ -3,7 +3,7 @@
 **Target language**: Swift 5.9+
 **Target null model**: native `Optional<T>` (sugar: `T?`)
 **Identifier casing**: YEETS is `snake_case` everywhere; Swift is `lowerCamelCase` for fields and `UpperCamelCase` for types. The mapping converts at the boundary — see [Naming](#naming) below.
-**File layout**: one YEETS package = one Swift module (or one `.swift` file when a module is overkill). Each section under `## DEFAULT` / `## Other` becomes either a nested `enum` namespace or a separate file inside the module — pick per package.
+**File layout**: one YEETS package = one Swift module (or one `.swift` file when a module is overkill). Each section under `sections.default` / `sections.{other}` in the `.yeet.yaml` file becomes either a nested `enum` namespace or a separate file inside the module — pick per package.
 
 The YEETS grammar lives in `skills/gmcc/SKILL.md ## YEETS`. This file is mapping-only; if a rule conflicts with the grammar, the grammar wins.
 

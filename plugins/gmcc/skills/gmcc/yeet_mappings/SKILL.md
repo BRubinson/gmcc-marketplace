@@ -1,6 +1,6 @@
 ---
 name: yeet_mappings
-description: YEETS-to-language compilation mappings. Defines how YEETS primary types, parametric collections, nullability, enums, and structs lower into idiomatic constructs in concrete target languages (Swift today; Kotlin, TypeScript, and Python+mypy planned). Activate when generating, reviewing, or hand-translating code from a `.yeet.md` package or inline `<YEET>` block into a target language, or when extending YEETS with a new compilation target.
+description: YEETS-to-language compilation mappings. Defines how YEETS primary types, parametric collections, nullability, enums, and structs lower into idiomatic constructs in concrete target languages (Swift today; Kotlin, TypeScript, and Python+mypy planned). Activate when generating, reviewing, or hand-translating code from a `.yeet.yaml` package or inline `<YEET>` block into a target language, or when extending YEETS with a new compilation target.
 user-invocable: false
 ---
 

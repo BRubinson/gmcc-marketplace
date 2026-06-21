@@ -1,12 +1,12 @@
 ---
 name: gm_compile
-description: Run a YEETS pass over a project / instance / session. Validates `.yeet.md` files, inline `<YEET>` blocks in markdown, and any `.yaml` file with a top-level `yeet:` imports list. Reports pass/fail per file. Read-only.
+description: Run a YEETS pass over a project / instance / session. Validates `.yeet.yaml` files, inline `<YEET>` blocks in markdown, and any `.yaml` file with a top-level `yeet:` imports list. Reports pass/fail per file. Read-only.
 argument-hint: <project> <instance> <session>
 disable-model-invocation: true
 allowed-tools: Read, Glob, Grep, Bash, AskUserQuestion
 ---
 
-# GM-CDE Compile — YEETS Validation Pass (v6.0.1)
+# GM-CDE Compile — YEETS Validation Pass (v6.2.0)
 
 You are running a YEETS type-check over a specific session of a specific instance of a specific project. The full YEETS grammar lives in `$GMCC_PLUGIN_ROOT/skills/gmcc/SKILL.md` under `## YEETS`. Read that section if it is not already in context — it is the authoritative spec, and this command must agree with it.
 
@@ -52,7 +52,7 @@ Resolved paths (use these throughout):
 
 For every Glob/Grep across the four roots, exclude:
 - `.git/`, `node_modules/`, `dist/`, `build/`, `_archive/`
-- `$GMCC_PLUGIN_ROOT/templates/` (template tree may carry stub `.yeet.md` files in the future; not live packages)
+- `$GMCC_PLUGIN_ROOT/templates/` (template tree may carry stub `.yeet.yaml` files in the future; not live packages)
 
 For Phase 4 only, additionally exclude the YEETS spec docs themselves so prose mentions of `<YEET>` don't false-fail:
 - `$GMCC_PLUGIN_ROOT/skills/gmcc/SKILL.md`
@@ -61,20 +61,33 @@ For Phase 4 only, additionally exclude the YEETS spec docs themselves so prose m
 
 ---
 
-## Phase 1: Discover `.yeet.md` Files
+## Phase 1: Discover `.yeet.yaml` Files
 
 Glob the union of:
-- `$GMCC_PLUGIN_ROOT/*.yeet.md` (plugin-shipped packages live flat at plugin root, not nested)
-- `$TARGET_PROJECT_PATH/**/*.yeet.md`
-- `$TARGET_INSTANCE_PATH/**/*.yeet.md`
-- `$TARGET_SESSION_PATH/**/*.yeet.md`
+- `$GMCC_PLUGIN_ROOT/*.yeet.yaml` (plugin-shipped packages live flat at plugin root, not nested)
+- `$TARGET_PROJECT_PATH/**/*.yeet.yaml`
+- `$TARGET_INSTANCE_PATH/**/*.yeet.yaml`
+- `$TARGET_SESSION_PATH/**/*.yeet.yaml`
 
-For each, parse:
-- **Header block** (`**Name**`, `**UUID**`, `**Package**`) — all three required. Note this is NOT YAML frontmatter; `.yeet.md` deliberately omits `---` delimiters.
-- `import {dotted.package}` lines — anywhere between the header block and the first `# Description` heading. Absence of imports is legal.
-- `# Types` body — every section must include both an `enums:` and a `structs:` map (use `{}` for empty). A `## DEFAULT` section is mandatory; additional `##` sections are permitted and must follow the same shape.
+For each, parse as pure YAML. Read the following keys:
 
-Record violations: missing header field, nil UUID that ISN'T the canonical `gmcc` package stub (warning only), duplicate UUID across files (error), missing `## DEFAULT` section, missing `enums:` or `structs:` map (with `{}` not provided), unresolved import (no other `.yeet.md` declares that `**Package**`), circular import chain.
+**Top-level keys:**
+- `name:` — required, string. The human-readable name of the type package.
+- `uuid:` — required, uuid. A v4 UUID unique to this package.
+- `package:` — required, string. The dotted package identifier (e.g. `gmcc`, `payments`, `ui.graphs.line`).
+- `yeet_version:` — optional, string. The YEETS grammar version this file targets. Defaults to the current version when absent.
+- `yeet:` — optional, list of dotted-package strings. Declares package-level imports. Defaults to `[]` when absent.
+- `description:` — optional, string (YAML literal block). Free-text description of the package.
+- `sections:` — required, map. Keyed by section name (snake_case). The `default:` section (lowercase) is mandatory.
+
+**Per-section value:**
+- `description:` — optional, string.
+- `enums:` — required, default `{}`.
+- `structs:` — required, default `{}`.
+
+Note: the v6.1.x `.yeet.md` format is removed — `.yeet.yaml` is the only type package format.
+
+Record violations: missing required top-level key (`name:`, `uuid:`, `package:`, `sections:`), nil UUID that isn't the canonical `gmcc` bootstrap package (warning only), duplicate UUID across files (error), missing `default:` section, missing `enums:` or `structs:` inside any section, unresolved import (no other `.yeet.yaml` declares that `package:`), circular import chain.
 
 ---
 
@@ -150,6 +163,6 @@ If no failures, conclude with `YEETS pass: clean`. Otherwise surface the failure
 ```
 [GM_COMPILE] Nothing to compile.
 
-No `.yeet.md`, no yaml with `yeet:` imports, and no `<YEET>` blocks found
+No `.yeet.yaml`, no yaml with `yeet:` imports, and no `<YEET>` blocks found
 under the target paths. Nothing to do.
 ```

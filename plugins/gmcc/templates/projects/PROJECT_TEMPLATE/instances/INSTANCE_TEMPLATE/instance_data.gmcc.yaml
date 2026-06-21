@@ -4,7 +4,7 @@
 # project's repository. INSTANCE_TEMPLATE_* placeholders are rewritten
 # at copy time.
 #
-# Conforms to gmcc.gmcc_instance_data_file (see $GMCC_PLUGIN_ROOT/gmcc.yeet.md).
+# Conforms to gmcc.gmcc_instance_data_file (see $GMCC_PLUGIN_ROOT/gmcc.yeet.yaml).
 
 yeet:
   - gmcc

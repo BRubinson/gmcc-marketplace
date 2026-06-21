@@ -1,6 +1,107 @@
 # GMCC Migration Guide
 
+## v6.1.0 to v6.2.0 — `.yeet.md` → `.yeet.yaml` (pure YAML package format)
+
+The YEETS type package file format is replaced end-to-end. The old `.yeet.md`
+format (a markdown file with an embedded YAML body) is removed entirely — there
+is no transition or dual-read period. All package files are now `.yeet.yaml`
+(pure YAML, no markdown wrapper).
+
+### Format changes
+
+**Header / identity fields** — the old bolded-prose frontmatter block:
+
+```
+**Name**: Green Mountain Compiler Collection
+**UUID**: 00000000-0000-0000-0000-000000000000
+**Package**: gmcc
+```
+
+becomes top-level YAML keys:
+
+```yaml
+name: Green Mountain Compiler Collection
+uuid: 00000000-0000-0000-0000-000000000000
+package: gmcc
+```
+
+**Description** — the old `# Description` markdown heading + prose body becomes
+a top-level `description: |` literal block scalar.
+
+**Sections / types** — the old `# Types` / `## DEFAULT` / `### Enums` /
+`### Structs` markdown heading hierarchy becomes a `sections:` YAML map keyed
+by section name. `default:` (lowercase snake_case) is the required section.
+Each section entry is a map with `description:`, `enums:`, and `structs:` keys:
+
+```yaml
+sections:
+  default:
+    description: ...
+    enums: {}
+    structs:
+      my_struct:
+        ...
+```
+
+**Imports** — bare `import {pkg}` markdown lines between the header and types
+body become a top-level `yeet:` list:
+
+```yaml
+yeet: [other_pkg]
+```
+
+This unifies vocabulary with the existing `.gmcc.yaml` data-file convention
+(which already used `yeet: [pkgs]`).
+
+**New `yeet_version:` field** — an optional top-level key that selects the
+grammar dialect. The current value is `"6.2"`. Omitting it falls back to the
+latest known version.
+
+**File marker** — every `.yeet.yaml` file begins with the comment:
+`# YEETED — YEETS Type Package.`
+
+### What did NOT change
+
+Data structure is unchanged. Every struct, enum, field type, `Unwrap<T>`
+composition keyword, nullability `?` suffix, `Enum<T>` / `Struct<T>` / `List<T>`
+parametrics, nil-UUID bootstrap semantics for the `gmcc` package, and the
+dual-import contract (`yeet:` in package files, `yeet:` in runtime yamls) all
+carry over verbatim.
+
+### Migration steps
+
+1. Update the plugin to v6.2.0.
+2. Rename `gmcc.yeet.md` → `gmcc.yeet.yaml` (and any other `.yeet.md` files in
+   your CKFS or plugin tree). The content is the same data — only the container
+   format changes.
+3. `/gm_compile` now reads `.yeet.yaml` only; it will not find `.yeet.md` files.
+
+### In-flight CKFS yaml state (recommended, not required)
+
+Live `*.gmcc.yaml` files in user CKFS trees (`project_data`, `instance_data`,
+`session_data`) copied from pre-v6.2 templates may carry stale comment headers
+referencing `gmcc.yeet.md` instead of `gmcc.yeet.yaml`. These files still parse
+correctly — the mismatch is documentation-stale only, not broken.
+
+Recommended path when running `/gm_init` after updating to v6.2.0:
+
+1. Identify any CKFS yamls whose top comment block references `gmcc.yeet.md`.
+2. Move them to `_archive/cold_storage/` per the universal archive bucket
+   convention (one bucket, no sub-sorting).
+3. Reconstruct them from the current v6.2 templates, copying the live data
+   fields verbatim: `id`, `uuid`, `code`, `name`, `description`,
+   `created_time`, `updated_time`, path fields, and the
+   `prompts`/`changed_files`/`sessions`/`instances` lists.
+
+The reconstructed files inherit up-to-date headers and any v6.2 schema
+additions automatically. This avoids surgical in-place comment edits across
+every live CKFS yaml and makes `/gm_init` the single update path.
+
+---
+
 ## v6.0.1 to v6.1.0 — Base YEETS types + `.gmcc.yaml` rename
+
+> Note: `.yeet.md` (referenced throughout this entry) was superseded by `.yeet.yaml` in v6.2.0.
 
 Populates `gmcc.yeet.md` with the core type definitions and migrates the
 four runtime yaml files to YEETS-validated `.gmcc.yaml` form.
@@ -57,6 +158,8 @@ fields.
 ---
 
 ## v6.0.0 to v6.0.1 — YEETS scaffolding
+
+> Note: `.yeet.md` (referenced throughout this entry) was superseded by `.yeet.yaml` in v6.2.0.
 
 Adds the YEETS (YAML Expositional Estimated Typing System) language to GMCC.
 

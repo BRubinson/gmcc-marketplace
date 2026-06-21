@@ -4,7 +4,7 @@ description: Green Mountain Compiler Collection - Core rules and behaviors for t
 user-invocable: false
 ---
 
-# GMCC - Green Mountain Compiler Collection (v6.1.0)
+# GMCC - Green Mountain Compiler Collection (v6.2.0)
 
 You are the **Green Mountain Bot (GMB)** in the **GM-CDE** environment.
 
@@ -138,7 +138,7 @@ struct payee
 
 This says: `payee` has every field of `account_details`, accessible directly: if `account_details` has `routing_number`, then `payee_instance.routing_number` is valid. The `payee` struct is the implementer; `account_details` provides the value implementations.
 
-Canonical `.yeet.md` form (the longer grammar `/gm_compile` validates) uses `Unwrap<other_struct>` as a typed field whose name conventionally starts with `unwrap_`:
+Canonical `.yeet.yaml` form (the longer grammar `/gm_compile` validates) uses `Unwrap<other_struct>` as a typed field whose name conventionally starts with `unwrap_`:
 
 ```yaml
 structs:
@@ -160,11 +160,11 @@ Semantics:
 - **Name collisions** — two unwraps that both expose a field of the same name are a compile error. Qualify by removing one of the unwraps or by adding the field explicitly to break the tie.
 - **Multiple unwraps** — a struct may unwrap any number of other structs. There is no diamond rule beyond the collision check above.
 
-The base mixins in `gmcc.yeet.md` (e.g. `has_serial_id`, `has_uuid`, `has_name`, `has_ckfs_paths`) are designed to be unwrapped into larger types — this is how GMCC composes identity, timing, and path bundles without repeating fields.
+The base mixins in `gmcc.yeet.yaml` (e.g. `has_serial_id`, `has_uuid`, `has_name`, `has_ckfs_paths`) are designed to be unwrapped into larger types — this is how GMCC composes identity, timing, and path bundles without repeating fields.
 
 ### Canonical grammar
 
-ONE grammar applies everywhere — `.yeet.md` files, inline `<YEET>` blocks, and `/gm_compile` output. Two parent maps: `enums:` and `structs:`. Each is REQUIRED in every section even if the value is `{}` (an empty map).
+ONE grammar applies everywhere — `.yeet.yaml` files, inline `<YEET>` blocks, and `/gm_compile` output. Two parent maps: `enums:` and `structs:`. Each is REQUIRED in every section even if the value is `{}` (an empty map).
 
 Enums:
 
@@ -233,68 +233,66 @@ structs:
 
 `/gm_compile` discovers `<YEET>` tags case-insensitively and flags any opening tag that is not exactly `<YEET>` as a violation. Matches inside fenced code blocks (```...```) are ignored — that is how this very SKILL.md and MIGRATION.md can describe the tag without triggering the validator.
 
-### Standalone `.yeet.md` files
+### Standalone `.yeet.yaml` files
 
-A `.yeet.md` file is markdown with a header block (deliberately NOT YAML frontmatter — `.yeet.md` does not use `---` delimiters) and a fixed body shape.
+A `.yeet.yaml` file is a pure-YAML document. No markdown wrapper, no front-matter — the file IS the YAML.
 
-```
-**Name** {type file name}
-**UUID** {uuid v4 — see UUID rule below}
-**Package** {dotted package, e.g. gmcc, payments, ui.graphs.line}
+```yaml
+# YEETED — YEETS Type Package.
+# Grammar: $GMCC_PLUGIN_ROOT/skills/gmcc/SKILL.md (## YEETS section).
+# Validator: /gm_compile.
 
-import {package}
-import {package}
+name: Payments
+uuid: 7508e7eb-8106-4675-a9d4-e9d649c9e2d2
+package: payments
+yeet_version: "6.2"
+yeet:
+  - gmcc
 
-# Description
+description: |
+  Payment type definitions for the GMCC marketplace.
+  Imports the base `gmcc` package for shared mixins.
 
-Why this file exists. Loose prose.
+sections:
 
-# Types
+  default:
+    description: Default exports for the `payments` package.
 
-## DEFAULT
-**section description** (may be empty)
-
-Every file must contain a section named `DEFAULT` — it is the symbol exported by the
-package when no section is named. Additional sections are permitted; each must include
-both an `enums:` and a `structs:` map even if `{}`.
-
-### Enums
-
-enums:
-  payment_status:
-    description: |
-      Current status of a payment.
-    type: string
-    values:
-      - draft | DRAFT
-      - pending | PENDING
-      - disbursed | DISBURSED
-      - cashed | CASHED
-
-### Structs
-
-structs:
-  payee:
-    description: |
-      A payment recipient.
-    fields:
-      id: string
-      display_name: string?
-  payment:
-    description: |
-      A payment record.
-    fields:
-      status:
-        type: Enum<payment_status>
+    enums:
+      payment_status:
         description: |
-          Lifecycle status of the payment.
-      amount: decimal
-      payee: Struct<payee>
-      created_at: timestamp
-      disbursed_at: timestamp?
-      cashed_at: timestamp?
-      reconciled_at: timestamp?
+          Current status of a payment.
+        type: string
+        values:
+          - draft | DRAFT
+          - pending | PENDING
+          - disbursed | DISBURSED
+          - cashed | CASHED
+
+    structs:
+      payee:
+        description: |
+          A payment recipient.
+        fields:
+          id: string
+          display_name: string?
+      payment:
+        description: |
+          A payment record.
+        fields:
+          status:
+            type: Enum<payment_status>
+            description: |
+              Lifecycle status of the payment.
+          amount: decimal
+          payee: Struct<payee>
+          created_at: timestamp
+          disbursed_at: timestamp?
+          cashed_at: timestamp?
+          reconciled_at: timestamp?
 ```
+
+Every section requires both `enums:` and `structs:` keys; use `{}` for empty. `default` (lowercase) is the mandatory section name — every package must define it. Additional sections may use any snake_case identifier.
 
 ### UUID rule
 
@@ -304,17 +302,18 @@ structs:
 
 Two distinct import contracts:
 
-1. **Between `.yeet.md` files** — `import {dotted.package}` lines appear after the header block and before the `# Description` heading. Imports are NON-transitive: every yeet file lists every package whose types it references. Circular imports are an error. Duplicate symbol names across imports must be qualified (`gmcc.session_data` vs `payments.session_data`).
+1. **Between `.yeet.yaml` files** — imports are declared via the top-level `yeet:` list (the same key used by `.gmcc.yaml` data files — unified vocabulary). Imports are NON-transitive: every yeet file lists every package whose types it references. Circular imports are an error. Duplicate symbol names across imports must be qualified (`gmcc.session_data` vs `payments.session_data`).
 
-   ```
-   import gmcc
-   import payments
-   import ui.graphs.line
+   ```yaml
+   yeet:
+     - gmcc
+     - payments
+     - ui.graphs.line
    ```
 
 2. **Inside `.gmcc.yaml` files** — the `.gmcc.yaml` suffix declares a yaml as YEETS-enabled. Two top-level keys cooperate. `yeet:` lists imported packages; `yeet_type:` names the dotted struct path this yaml's body conforms to. `/gm_compile` reads both to drive validation. Plain `.yaml` files are unvalidated; the suffix is the opt-in signal.
 
-   The four core GMCC runtime yamls all use this suffix: `project_index.gmcc.yaml`, `project_data.gmcc.yaml`, `instance_data.gmcc.yaml`, `session_data.gmcc.yaml`. Their canonical types live in `gmcc.yeet.md`.
+   The four core GMCC runtime yamls all use this suffix: `project_index.gmcc.yaml`, `project_data.gmcc.yaml`, `instance_data.gmcc.yaml`, `session_data.gmcc.yaml`. Their canonical types live in `gmcc.yeet.yaml`.
 
    ```yaml
    yeet:
@@ -328,11 +327,11 @@ Two distinct import contracts:
 
 ### Core type file
 
-The GMCC base package `gmcc` lives at `$GMCC_PLUGIN_ROOT/gmcc.yeet.md`. It uses the reserved nil UUID (`00000000-0000-0000-0000-000000000000`) as the canonical bootstrap-package marker. The package exports the base `has_*` mixins (composed via `unwrap`) and the four runtime file types (`gmcc_project_index_file`, `gmcc_project_data_file`, `gmcc_instance_data_file`, `gmcc_session_data_file`). Author additional packages as sibling `.yeet.md` files; package paths follow a dotted hierarchy like Java packages.
+The GMCC base package `gmcc` lives at `$GMCC_PLUGIN_ROOT/gmcc.yeet.yaml`. It uses the reserved nil UUID (`00000000-0000-0000-0000-000000000000`) as the canonical bootstrap-package marker. The package exports the base `has_*` mixins (composed via `unwrap`) and the four runtime file types (`gmcc_project_index_file`, `gmcc_project_data_file`, `gmcc_instance_data_file`, `gmcc_session_data_file`). Author additional packages as sibling `.yeet.yaml` files; package paths follow a dotted hierarchy like Java packages.
 
 ### Compilation
 
-`/gm_compile <project> <instance> <session>` walks the session, validates every `.yeet.md` file, every `<YEET>` block in markdown, and every `.yaml` file with top-level `yeet:` / `yeet_type:` keys, and emits a pass/fail report. Read-only by contract — never mutates files.
+`/gm_compile <project> <instance> <session>` walks the session, validates every `.yeet.yaml` file, every `<YEET>` block in markdown, and every `.yaml` file with top-level `yeet:` / `yeet_type:` keys, and emits a pass/fail report. Read-only by contract — never mutates files.
 
 ---
 

@@ -3,7 +3,7 @@
 # Copied by detect_repo.sh on first detection of a new project. The
 # PROJECT_TEMPLATE_* placeholders are rewritten at copy time.
 #
-# Conforms to gmcc.gmcc_project_data_file (see $GMCC_PLUGIN_ROOT/gmcc.yeet.md).
+# Conforms to gmcc.gmcc_project_data_file (see $GMCC_PLUGIN_ROOT/gmcc.yeet.yaml).
 
 yeet:
   - gmcc

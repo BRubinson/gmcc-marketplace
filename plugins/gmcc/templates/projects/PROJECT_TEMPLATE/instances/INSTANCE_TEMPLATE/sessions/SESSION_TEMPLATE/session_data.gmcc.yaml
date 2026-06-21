@@ -3,7 +3,7 @@
 # A session corresponds to a git branch within an instance.
 # SESSION_TEMPLATE_* placeholders are rewritten at copy time.
 #
-# Conforms to gmcc.gmcc_session_data_file (see $GMCC_PLUGIN_ROOT/gmcc.yeet.md).
+# Conforms to gmcc.gmcc_session_data_file (see $GMCC_PLUGIN_ROOT/gmcc.yeet.yaml).
 
 yeet:
   - gmcc

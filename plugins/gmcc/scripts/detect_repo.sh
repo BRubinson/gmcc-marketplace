@@ -12,7 +12,7 @@
 #   6. Exports all GMCC_* env vars via $CLAUDE_ENV_FILE
 #
 # As of v6.1.0 the four runtime yamls use the .gmcc.yaml suffix and
-# carry yeet:/yeet_type: headers — they conform to types in gmcc.yeet.md.
+# carry yeet:/yeet_type: headers — they conform to types in gmcc.yeet.yaml.
 # Anything outside a git repo: silent exit with no GMCC vars set.
 
 # --- 0. Git-repo guard ------------------------------------------------------

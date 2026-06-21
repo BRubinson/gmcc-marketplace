@@ -6,7 +6,7 @@
 #
 # Maintained by detect_repo.sh (lazy registration on SessionStart) and /gm_cleanup.
 #
-# Conforms to gmcc.gmcc_project_index_file (see $GMCC_PLUGIN_ROOT/gmcc.yeet.md).
+# Conforms to gmcc.gmcc_project_index_file (see $GMCC_PLUGIN_ROOT/gmcc.yeet.yaml).
 
 yeet:
   - gmcc
