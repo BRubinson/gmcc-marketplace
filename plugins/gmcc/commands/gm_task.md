@@ -6,7 +6,7 @@ disable-model-invocation: true
 allowed-tools: Read, Write, Edit, Grep, Glob, Bash, Task, AskUserQuestion
 ---
 
-# GM-CDE Task (Context-loaded, read-only, v12.0.0)
+# GM-CDE Task (Context-loaded, read-only, v13.0.0)
 
 You are executing a task with full GMCC context loaded, but **without** the
 prompt-authoring ceremony of `/gm_bot`. You load context, you do the work, and

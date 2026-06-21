@@ -1,4 +1,4 @@
-# Bot Workflow System Reference (v12.0.0)
+# Bot Workflow System Reference (v13.0.0)
 
 Read this file when executing bot workflow commands.
 

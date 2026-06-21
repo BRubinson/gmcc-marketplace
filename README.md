@@ -1,7 +1,7 @@
 # GMCC Marketplace
 
 Green Mountain Compiler Collection — a Claude Code plugin marketplace for **contextual
-development**. The `gmcc` plugin (v12.0.0) turns Claude Code into the GM-CDE (Green
+development**. The `gmcc` plugin (v14.0.0) turns Claude Code into the GM-CDE (Green
 Mountain Contextual Development Environment): a workflow system that authors, clarifies,
 and implements prompts against a persistent per-repo/per-branch knowledge store (the
 **ckfs**), backed by reusable knowledge bites (**kbites**).
@@ -29,7 +29,7 @@ and implements prompts against a persistent per-repo/per-branch knowledge store 
 
 | Plugin | Version | Description |
 |--------|---------|-------------|
-| gmcc | 12.0.0 | GM-CDE plugin for contextual development |
+| gmcc | 14.0.0 | GM-CDE plugin for contextual development |
 
 ## Setup (Quickstart)
 
@@ -72,6 +72,11 @@ If `$GMCC_BOOTED` ever looks wrong, run `/gmcc_boot` for diagnostics.
 
 …or `/gm_task <request>` for a read-only, context-loaded one-off. See **Workflows** below.
 
+To **run an already-drafted prompt** (e.g. one authored in the GMVibes editor), pass its
+numeric id with no description: `/gm_bot {id}` (or `/gm_bot_rpi {id}` / `/gm_bot_team {id}`).
+The bot picks up the draft and runs it from its current status. Passing a *name* instead
+always starts a brand-new draft.
+
 > Migrating from an older layout? Run `/gm_cleanup` to audit and repair your ckfs.
 
 ## Workflows
@@ -101,6 +106,8 @@ write-back later in the conversation.
 | `/gm_crunch_chew <name>` | Analyze & summarize the maw's resources into chewed files |
 | `/gm_crunch_digest <name>` | Move chewed resources into the persistent kbite |
 | `/gm_kbite_relate <a> <b> "<reason>"` | Cross-reference two kbites |
+| `/gm_kbite_export [name…]` | Zip selected kbites (root + digested) to a portable archive on the Desktop |
+| `/gm_kbite_import <zip>` | Import a kbite archive into the current ckfs (asks per name-collision) |
 
 ### Maintenance & system
 

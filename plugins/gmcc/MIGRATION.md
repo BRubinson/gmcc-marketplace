@@ -1,5 +1,38 @@
 # GMCC Migration Guide
 
+## v12.0.0 to v13.0.0 — run-a-drafted-prompt contract + external authoring (GMVibes)
+
+One behavioral change to how the bot commands parse a numeric first argument — no
+on-disk data migration is required.
+
+### Bare-id run
+
+`/gm_bot {id}` (and `/gm_bot_rpi {id}` / `/gm_bot_team {id}`) now explicitly supports
+being called with **no continuation text**: it picks up the prompt at `id` and runs
+it from its current `prompt_status` entry point (`Draft` → Phase 2, `Clarifying` →
+Phase 3, `Clarified` → Phase 4). Previously the numeric case was framed purely as
+"resume + continuation"; the bare-id form already worked but is now the documented
+"run this prompt" path. Passing a *name* instead of an id still starts a brand-new
+draft (unchanged).
+
+### External authoring (GMVibes editor)
+
+A prompt folder may now be authored or edited entirely outside the bot — e.g. by the
+GMVibes prompt editor, which writes the `gmcc_initial_prompt_file`
+(`backstory`/`goal`/`detail`) and the `gmcc_prompt_data_file` index directly. The
+schema (`gmcc.yeet.yaml`) is unchanged — these shapes were already fully specified.
+Two clarifications were added to the bot commands:
+
+- **`command:` stamping.** Externally-authored drafts may leave `command:` empty;
+  on first run the bot stamps it with the tier that processed it (`/gm_bot` etc.)
+  and bumps `updated_time`.
+- **Editing surface.** While `prompt_status == Draft`, `{id}_{name}_initial.yaml` is
+  the external editing surface. Once `Clarified`, the source of truth moves to
+  `{id}_{name}_clarified.yaml`; editing the initial file afterward has no effect on
+  what the bot runs.
+
+**Existing prompts:** no action required — drafts authored under v12 run unchanged.
+
 ## v11.0.0 to v12.0.0 — `/gm_task` command + kbite trigger system fully retired
 
 Two changes, both behavioral rather than schema-level — no on-disk data migration

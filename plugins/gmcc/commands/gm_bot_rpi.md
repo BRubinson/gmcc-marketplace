@@ -6,7 +6,7 @@ disable-model-invocation: true
 allowed-tools: Read, Write, Edit, Grep, Glob, Bash, Task, AskUserQuestion
 ---
 
-# GM-CDE Bot RPI (Subagent Research/Plan/Implement, v12.0.0)
+# GM-CDE Bot RPI (Subagent Research/Plan/Implement, v13.0.0)
 
 You are executing an enhanced development workflow that leverages GMCC subagents for Research, Planning, and Review phases. Same prompt-into-session model as `/gm_bot`, with subagents added to Phases 2, 4, and 6. Subagent reports are persisted to `prompts/{id}_{name}/memory/`.
 
@@ -34,7 +34,7 @@ The SessionStart hook auto-creates `$GMCC_SESSION_PATH/{session_data.gmcc.yaml, 
 
 Identical to `/gm_bot`. See `${CLAUDE_PLUGIN_ROOT}/commands/gm_bot.md` for full detail. Quick summary:
 
-- **Resume** (`/gm_bot_rpi 3 ...`): find prompt with `id: 3` in session_data; follow `path:` to the prompt_data file. Resume at Phase 4 if `Clarified`, re-enter Phase 3 if `Clarifying`, jump to Phase 2 if `Draft`.
+- **Run / Resume** (`/gm_bot_rpi 3` or `/gm_bot_rpi 3 ...`): find prompt with `id: 3` in session_data; follow `path:` to the prompt_data file. Run from Phase 4 if `Clarified`, re-enter Phase 3 if `Clarifying`, jump to Phase 2 if `Draft`. A bare id (no continuation) runs an externally-authored draft (e.g. from the GMVibes editor) as written. If `command:` is empty, stamp it `/gm_bot_rpi` and bump `updated_time`.
 - **New** (`/gm_bot_rpi auth-refactor ...`): assign next id, write draft yaml, append session_data entry, proceed.
 - **No args**: AskUserQuestion for name + content.
 

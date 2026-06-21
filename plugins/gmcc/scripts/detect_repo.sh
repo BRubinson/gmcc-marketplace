@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# GM-CDE Repository Detection Script — v12.0.0
+# GM-CDE Repository Detection Script — v13.0.0
 #
 # Runs on SessionStart. When inside a git repository, this script:
 #   1. Resolves the active project (= git repo dir basename)

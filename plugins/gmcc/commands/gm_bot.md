@@ -6,7 +6,7 @@ disable-model-invocation: true
 allowed-tools: Read, Write, Edit, Grep, Glob, Bash, Task, AskUserQuestion
 ---
 
-# GM-CDE Bot (Lightweight, v12.0.0)
+# GM-CDE Bot (Lightweight, v13.0.0)
 
 You are executing a lightweight development workflow entirely in the primary context.
 
@@ -34,18 +34,29 @@ The SessionStart hook auto-creates `$GMCC_SESSION_PATH/{session_data.gmcc.yaml, 
 
 Parse `$ARGUMENTS`:
 
-### Case 1: First token is numeric (RESUME mode)
+### Case 1: First token is numeric (RUN / RESUME mode)
 ```
+/gm_bot 3                            # run prompt 3 as-is (continuation optional)
 /gm_bot 3 continue with the login endpoint
-         ^prompt id  ^continuation
+         ^prompt id  ^continuation (optional)
 ```
+A prompt folder may have been authored **externally** (e.g. by the GMVibes
+editor) and never touched by the bot, or partway-processed by a prior run.
+Either way, a bare `/gm_bot {id}` runs it through the normal pipeline from its
+current `prompt_status` entry point — no continuation text required.
+
 1. Find entry with `id: 3` in `session_data.gmcc.yaml`'s `prompts:` list. Follow `path:` to read the prompt_data file.
 2. If not found: error "No prompt with id 3 in current session".
-3. Determine resume phase from the prompt_data file's `prompt_status:`:
+3. Determine the entry point from the prompt_data file's `prompt_status:`:
    - `Clarified` → load the sibling `{id}_{name}_clarified.yaml`, jump to Phase 4 (Plan)
    - `Clarifying` → re-enter Phase 3 (Clarify) from where it stalled
    - `Draft` → load the sibling `{id}_{name}_initial.yaml`, jump to Phase 2
-4. The remaining arguments become the continuation prompt.
+4. The remaining arguments (if any) become the continuation prompt. With no
+   remaining arguments, run the drafted prompt as written — this is the
+   GMVibes "run this prompt" path.
+5. **Stamp the tier on first run.** If the prompt_data file's `command:` is
+   empty (externally-authored drafts leave it `""`), set `command: /gm_bot`
+   and bump `updated_time` so the index records which tier processed it.
 
 ### Case 2: First token is non-numeric (NEW mode)
 ```
@@ -245,6 +256,14 @@ kbites_loaded:
 7. Update `session_data.gmcc.yaml` prompts[] entry: `status: Clarified`.
 
 The `{id}_{name}_initial.yaml` file is **not modified** — the clarified file is the new source of truth.
+
+> **External authoring surface.** While `prompt_status == Draft`, `{id}_{name}_initial.yaml`
+> is the file external tools (e.g. the GMVibes editor) write to — its
+> `backstory`/`goal`/`detail` block scalars are the human authoring surface.
+> Once a prompt is `Clarified`, the source of truth moves to
+> `{id}_{name}_clarified.yaml`; editing the initial file afterward has **no
+> effect** on what the bot runs. External editors should therefore target the
+> initial file only while the prompt is still `Draft`.
 
 ---
 

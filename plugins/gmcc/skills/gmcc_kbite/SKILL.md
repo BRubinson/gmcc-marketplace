@@ -327,6 +327,61 @@ Tracks relationships between kbites:
 
 ---
 
+## Export / Import Archive Format
+
+KBites can be moved between ckfs installations as a single zip archive via
+`/gm_kbite_export` and `/gm_kbite_import`. The archive is **self-describing and
+ckfs-relocatable**: it stores no absolute source paths, so import rebuilds every
+path from the *importing* machine's `$GMCC_KBITE` / `$GMCC_KBITE_DIGESTED`.
+
+Export carries each kbite's **root** (identity files such as `KBITE_PURPOSE.md`)
+and its **digested** index. **Open maws are not exported** — only finalized
+knowledge travels.
+
+Because raw `example_project` sources and `.git` history can make a kbite many GB,
+export asks for a **payload scope** each run (default **everything_minus_git**):
+
+| Scope | Includes | Excludes |
+|-------|----------|----------|
+| `knowledge_only` | indexes, `KBITE_PURPOSE.md`, all `*_chewed.md` | raw sources, `.git` |
+| `everything_minus_git` *(default)* | raw sources + chewed analysis + indexes | `.git` |
+| `everything` | byte-for-byte | nothing |
+
+```
+~/Desktop/gmcc_kbites_{YYYYMMDD-HHMMSS}.zip
+├── MANIFEST.yaml                  # exported kbites + which components are present
+└── kbites/
+    └── {kbite_name}/
+        ├── root/...               # contents of $GMCC_KBITE/{name}/ (sans digested/ open/)
+        └── digested/...           # contents of $GMCC_KBITE_DIGESTED/{name}/
+```
+
+### MANIFEST.yaml
+
+A plain index file (like `MAW_INDEX.md` / `KBITE_INDEX.md`, it is **not** a
+registered yeet type):
+
+```yaml
+gmcc_export_version: 1
+gmcc_plugin_version: "{plugin.json version}"
+exported_at: {ISO 8601}
+source_ckfs: {basename of source ckfs, informational only}
+scope: everything_minus_git       # knowledge_only | everything_minus_git | everything
+kbites:
+  - name: {kbite_name}
+    has_root: true                # true if root/ is present in the archive
+    has_digested: true            # true if digested/ is present in the archive
+```
+
+### Import collision policy
+
+When an imported kbite's name already exists in the target ckfs, the user is
+asked **per kbite**: **overwrite** (clears destination first — no stale merge),
+**skip** (leave existing untouched), or **import as renamed** (`{name}_imported`,
+deduped with a numeric suffix). Nothing is ever overwritten silently.
+
+---
+
 ## Crunchable Workflow
 
 ### 1. Open Maw (`/gm_crunch_open_maw {kbite_name}`)
@@ -404,6 +459,8 @@ GMB should suggest creating a kbite when:
 | `/gm_crunch_chew {kbite_name}` | Process crunchables and generate analysis |
 | `/gm_crunch_digest {kbite_name}` | Move chewed resources to persistent kbite |
 | `/gm_kbite_relate {from} {to} {description}` | Define relationship between kbites |
+| `/gm_kbite_export [kbite_name ...]` | Zip selected kbites (root + digested) to a portable archive on the Desktop |
+| `/gm_kbite_import {zip_path}` | Import a kbite archive into the current ckfs (asks per name-collision) |
 
 ---
 

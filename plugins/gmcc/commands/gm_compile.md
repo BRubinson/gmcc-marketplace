@@ -6,7 +6,7 @@ disable-model-invocation: true
 allowed-tools: Read, Glob, Grep, Bash, AskUserQuestion
 ---
 
-# GM-CDE Compile — YEETS Validation Pass (v12.0.0)
+# GM-CDE Compile — YEETS Validation Pass (v13.0.0)
 
 You are running a YEETS type-check over a specific session of a specific instance of a specific project. The full YEETS grammar lives in `$GMCC_PLUGIN_ROOT/skills/gmcc/SKILL.md` under `## YEETS`. Read that section if it is not already in context — it is the authoritative spec, and this command must agree with it.
 

@@ -6,7 +6,7 @@ disable-model-invocation: true
 allowed-tools: Read, Write, Edit, Grep, Glob, Bash, Task, AskUserQuestion
 ---
 
-# GM-CDE Bot Team (Agent Teams, v12.0.0)
+# GM-CDE Bot Team (Agent Teams, v13.0.0)
 
 You are coordinating real agent teams (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`) to attack a single prompt with 4 parallel methodologies per phase. Same prompt-into-session model as `/gm_bot` and `/gm_bot_rpi`. The synthesized output of each team phase is persisted to `prompts/{id}_{name}/memory/`.
 
@@ -41,7 +41,7 @@ Exit without proceeding.
 ## Argument Parsing
 
 Identical to `/gm_bot` and `/gm_bot_rpi`. Quick summary:
-- **Resume** (`/gm_bot_team 3 ...`): find prompt id 3; resume by status.
+- **Run / Resume** (`/gm_bot_team 3` or `/gm_bot_team 3 ...`): find prompt id 3; run/resume by status. A bare id (no continuation) runs an externally-authored draft (e.g. from the GMVibes editor) as written. If `command:` is empty, stamp it `/gm_bot_team` and bump `updated_time`.
 - **New** (`/gm_bot_team auth-refactor ...`): assign next id, write draft yaml, append session_data entry.
 - **No args**: AskUserQuestion.
 
