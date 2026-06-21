@@ -1,109 +1,176 @@
 # GMCC Marketplace
 
-Green Mountain Compiler Collection - A Claude Code plugin marketplace for contextual development.
+Green Mountain Compiler Collection — a Claude Code plugin marketplace for **contextual
+development**. The `gmcc` plugin (v12.0.0) turns Claude Code into the GM-CDE (Green
+Mountain Contextual Development Environment): a workflow system that authors, clarifies,
+and implements prompts against a persistent per-repo/per-branch knowledge store (the
+**ckfs**), backed by reusable knowledge bites (**kbites**).
 
 ## Installation
 
 ### Prerequisites
 
 - [Claude Code](https://claude.ai/code) CLI installed
+- `jq` (for the `/gm_init` permission grant) and `uuidgen` — both standard on macOS
 
-### Add the Marketplace
+### Add the marketplace
 
 1. Open Claude Code
-2. Run the `/plugins` command
+2. Run `/plugins`
 3. Select **Add Marketplace**
 4. Enter: `brubinson/gmcc-marketplace`
-5. Confirm the installation
+5. Confirm
 
-### Install Plugins
-
-After adding the marketplace:
+### Install the plugin
 
 1. Run `/plugins`
 2. Select **Install Plugin**
-3. Choose from available plugins (e.g., `gmcc`)
+3. Choose `gmcc`
 
-## Available Plugins
+| Plugin | Version | Description |
+|--------|---------|-------------|
+| gmcc | 12.0.0 | GM-CDE plugin for contextual development |
 
-| Plugin | Description |
-|--------|-------------|
-| gmcc | GM-CDE plugin for contextual development |
+## Setup (Quickstart)
 
-### Installing GMCC and its CKFS
+GMCC needs a one-time, machine-level initialization. After that, every repository is
+provisioned automatically.
 
-After installing the `gmcc` plugin, you need to initialize the GM-CDE environment and its contextual knowledge file system (ckfs).
-
-#### 1. Initialize GMCC (First Time Setup)
-
-Run this once to set up GMCC globally:
+### 1. Initialize the system (once per machine)
 
 ```
 /gm_init
 ```
 
-This creates the global GMCC configuration and ckfs structure in your home directory.
+This creates `~/gmcc_ckfs/` (the Context Knowledge File System) with the `projects/`
+root and an empty registry. It also:
 
-#### 2. Initialize a Repository
+- writes a `# >>> gmcc env >>>` block to `~/.zshrc` exporting the stable `GMCC_*` paths, and
+- adds a CKFS permission grant to `~/.claude/settings.json` so the plugin can read/write
+  under `~/gmcc_ckfs/` without per-file prompts.
 
-Navigate to your project directory and run:
+Run `source ~/.zshrc` (or open a new terminal) afterward. The permission grant takes
+effect on the next Claude Code restart.
 
-```
-/gm_repo_init
-```
+### 2. Open Claude Code inside a git repository
 
-This sets up the repository-specific ckfs structure for contextual development.
-
-#### 3. Load Branch Context
-
-When starting work on a branch, load or create the branch's FAM (Feature Access Memory):
-
-```
-/gm_load_branch
-```
-
-Or specify a branch name:
+The `SessionStart` hook (`scripts/detect_repo.sh`) detects the repo and branch and
+**auto-provisions** the project / instance / session directories for you — no manual
+per-repo or per-branch command is needed:
 
 ```
-/gm_load_branch <branch-name>
+~/gmcc_ckfs/projects/{project}/instances/{checkout}/sessions/{branch}/
 ```
 
-This loads existing contextual knowledge for the branch or creates a new FAM if one doesn't exist. Once loaded, you're ready to start development with `/gm_feature_dev` or `/gm_task`.
+If `$GMCC_BOOTED` ever looks wrong, run `/gmcc_boot` for diagnostics.
 
-### KBite System (v2.2.0+)
+### 3. Run a workflow
 
-KBites are persistent knowledge directories that store pre-analyzed reference materials (documentation, examples, APIs) for efficient lookup during development.
+```
+/gm_bot <short-name> <what you want to do>
+```
 
-#### Creating a KBite
+…or `/gm_task <request>` for a read-only, context-loaded one-off. See **Workflows** below.
+
+> Migrating from an older layout? Run `/gm_cleanup` to audit and repair your ckfs.
+
+## Workflows
+
+GMCC offers four entry points. All but `/gm_task` author a prompt into the current
+session (a draft → clarified → implemented pipeline); `/gm_task` skips the ceremony.
+
+| Command | Execution model | Best for | Requires |
+|---------|-----------------|----------|----------|
+| `/gm_bot` | Lightweight — all phases in primary context, no subagents | Quick, well-scoped changes | — |
+| `/gm_bot_rpi` | Research/Plan/Implement — spawns explore, architecture & review subagents | Medium tasks needing exploration + review | — |
+| `/gm_bot_team` | Agent teams — 4 teammates per phase, each on a different methodology | Large or high-stakes tasks | `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` |
+| `/gm_task` | Context-loaded but **read-only to the ckfs** — no draft/clarified files | Applying GMCC context to a one-off without the prompt pipeline | — |
+
+`/gm_task` is "read-only" with respect to the ckfs only — it still edits your repository
+files. It writes nothing under `~/gmcc_ckfs/` unless you explicitly ask for a retroactive
+write-back later in the conversation.
+
+## Capabilities
+
+### KBite pipeline
+
+| Command | Purpose |
+|---------|---------|
+| `/gm_crunch_open_maw <name>` | Open a *maw* (temporary processing dir) to collect resources |
+| `/gm_maw_fetch <url…>` | Download web pages into a maw via headless Playwright |
+| `/gm_crunch_chew <name>` | Analyze & summarize the maw's resources into chewed files |
+| `/gm_crunch_digest <name>` | Move chewed resources into the persistent kbite |
+| `/gm_kbite_relate <a> <b> "<reason>"` | Cross-reference two kbites |
+
+### Maintenance & system
+
+| Command | Purpose |
+|---------|---------|
+| `/gm_init` | One-time machine-level system init (see Setup) |
+| `/gm_compile` | Run a YEETS validation pass over a project/instance/session (read-only) |
+| `/gm_cleanup` | Audit the ckfs for non-compliant structure and interactively repair each finding |
+| `/gm_bot_v4_migrate_kbite` | One-shot migration of legacy v4 kbites to the current layout |
+
+## KBite system
+
+KBites are persistent knowledge directories that store pre-analyzed reference material
+(documentation, examples, APIs) for efficient lookup during development.
+
+### Building a kbite
 
 1. **Open a maw** (temporary processing directory):
    ```
    /gm_crunch_open_maw claude_code_sdk
    ```
-
-2. **Add resources** manually to the maw directories:
-   - `primary/documentation/{name}/` - Official docs
-   - `primary/example_project/{name}/` - Official examples
-   - `secondary/blogs/{name}/` - Community content
-
-3. **Chew the resources** (analyze and summarize):
+2. **Add resources** — manually drop files into the maw, or fetch them:
+   ```
+   /gm_maw_fetch https://docs.claude.com/…
+   ```
+3. **Chew** — analyze and summarize:
    ```
    /gm_crunch_chew claude_code_sdk
    ```
-
-4. **Digest into persistent kbite**:
+4. **Digest** — promote into the persistent kbite:
    ```
    /gm_crunch_digest claude_code_sdk
    ```
 
-#### Relating KBites
+Relate knowledge domains to each other:
 
-Connect related knowledge domains:
 ```
-/gm_kbite_relate claude_mcp claude_code_sdk "MCP requires understanding of Claude Code plugin architecture"
+/gm_kbite_relate claude_mcp claude_code_sdk "MCP builds on Claude Code plugin architecture"
 ```
 
-KBites are stored at `~/gmcc_ckfs/kbites/` and are automatically referenced when trigger words appear in your prompts.
+### How kbites are loaded (v11+)
+
+KBites are **inherited, not trigger-matched.** Each level of the ckfs
+(project → instance → session → prompt) carries a `kbite:` registry, and a prompt
+inherits the kbites declared up its chain. A kbite is added to a context only on
+**explicit request** (e.g. "add the `swift_ui` kbite") — there is no trigger-word
+auto-activation (that paradigm was retired in v11; the old `KBITE_TRIGGERS.md` /
+`KBITE_TRIGGER_MAP.md` files no longer exist).
+
+KBites are stored under `~/gmcc_ckfs/kbites/`:
+
+```
+kbites/
+├── {name}/KBITE_PURPOSE.md      # identity / what this kbite is for
+├── digested/{name}/…            # persisted indexes + chewed analysis
+└── open/{name}/…                # in-progress maws
+```
+
+## Architecture (at a glance)
+
+- **Skills** — the core `gmcc` skill defines GM-CDE behavior; supporting skills
+  (`gmcc_agent`, `gmcc_kbite`, `gmcc_maw`, `gmcc_cleanup`) carry
+  `disable-model-invocation` so they load only during the relevant workflow, keeping
+  per-message context lean. `gmcc_boot` runs on `SessionStart`.
+- **Hook** — `SessionStart` → `scripts/detect_repo.sh` provisions the ckfs and exports
+  the `GMCC_*` environment variables.
+- **Output styles** — four GMCC personas (aggressive / alternative / conservative /
+  pragmatic) you can switch between.
+
+See `plugins/gmcc/MIGRATION.md` for version-to-version migration notes.
 
 ## Uninstalling
 
@@ -113,6 +180,9 @@ To remove the marketplace:
 2. Select **Manage Marketplaces**
 3. Remove `gmcc-marketplace`
 
+Your ckfs data under `~/gmcc_ckfs/` is left untouched; delete it manually if you want a
+clean slate.
+
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
+MIT License — see [LICENSE](LICENSE) for details.
