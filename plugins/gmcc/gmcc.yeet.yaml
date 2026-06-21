@@ -31,7 +31,15 @@ sections:
   default:
     description: Default exports for the `gmcc` package.
 
-    enums: {}
+    enums:
+
+      gmcc_prompt_status:
+        description: |
+          Lifecycle status of a prompt authored by a bot workflow.
+          Draft       — initial content written, kbite-seeded, no clarification yet.
+          Clarifying  — clarify phase running; questions being asked.
+          Clarified   — clarified yaml written, clarified_prompt_path set.
+        values: [Draft, Clarifying, Clarified]
 
     structs:
 
@@ -121,6 +129,17 @@ sections:
           unwrap_has_gmcc_ckfs_absolute_path: Unwrap<has_gmcc_ckfs_absolute_path>
           unwrap_has_gmcc_ckfs_relative_path: Unwrap<has_gmcc_ckfs_relative_path>
 
+      has_kbite_list:
+        description: |
+          File-level kbite registry. Lists the kbites that apply to this
+          file and anything it owns. Seeded from the parent file at
+          lazy-create time (detect_repo.sh for project → instance → session,
+          bot workflows for session → prompt); subsequent parent edits do
+          NOT propagate. Each file's list is fully independent once
+          written.
+        fields:
+          kbite: List<string>
+
       has_system_path:
         description: |
           Absolute path on the user's system that is NOT inside GMCC_CKFS_ROOT.
@@ -143,6 +162,7 @@ sections:
         fields:
           unwrap_has_base_fields: Unwrap<has_base_fields>
           unwrap_has_ckfs_paths: Unwrap<has_ckfs_paths>
+          unwrap_has_kbite_list: Unwrap<has_kbite_list>
           projects: List<gmcc_project_index_file_project_entry>
 
       gmcc_project_index_file_project_entry:
@@ -158,11 +178,11 @@ sections:
         description: |
           Top-level shape of {project}/project_data.gmcc.yaml. Per-project
           identity, repository metadata, and the list of instances for
-          this project. Future fields (owners, primary_language,
-          kbite_associations) land in v6.2+.
+          this project.
         fields:
           unwrap_has_base_fields: Unwrap<has_base_fields>
           unwrap_has_ckfs_paths: Unwrap<has_ckfs_paths>
+          unwrap_has_kbite_list: Unwrap<has_kbite_list>
           repository_name: string
           http_uri: http_uri?
           ssh_uri: ssh_uri?
@@ -189,6 +209,7 @@ sections:
         fields:
           unwrap_has_base_fields: Unwrap<has_base_fields>
           unwrap_has_ckfs_paths: Unwrap<has_ckfs_paths>
+          unwrap_has_kbite_list: Unwrap<has_kbite_list>
           unwrap_has_system_path: Unwrap<has_system_path>
           project_uuid: uuid
           sessions: List<gmcc_instance_data_file_session_entry>
@@ -196,25 +217,75 @@ sections:
       gmcc_instance_data_file_session_entry:
         description: |
           One session's entry inside an instance_data file. A session
-          corresponds to a git branch within the instance. Follow
+          corresponds to a git branch within the instance. The `branch:`
+          field carries the raw branch name; `code` carries the
+          slug-sanitized form used as the directory name. Follow
           gmcc_ckfs_absolute_path to that session's session_data.gmcc.yaml
           for its prompts and changed-files history.
         fields:
           unwrap_has_base_fields: Unwrap<has_base_fields>
           unwrap_has_ckfs_paths: Unwrap<has_ckfs_paths>
+          branch: string
 
       gmcc_session_data_file:
         description: |
           Top-level shape of {session}/session_data.gmcc.yaml. A session
-          corresponds to a git branch within an instance. Standalone
-          (no nested children list) — the prompts and changed_files
-          lists are intentionally untyped Lists in v6.1.x; they receive
-          proper struct types in v6.2+.
+          corresponds to a git branch within an instance. v10.0.0 promotes
+          prompts and changed_files from untyped string lists to typed
+          struct entries.
         fields:
           unwrap_has_base_fields: Unwrap<has_base_fields>
           unwrap_has_ckfs_paths: Unwrap<has_ckfs_paths>
+          unwrap_has_kbite_list: Unwrap<has_kbite_list>
           branch: string
           instance_uuid: uuid
           project_uuid: uuid
-          prompts: List<string>
-          changed_files: List<string>
+          prompts: List<gmcc_session_data_file_prompt_files_entry>
+          changed_files: List<gmcc_session_data_file_changed_files_entry>
+
+      gmcc_session_data_file_prompt_files_entry:
+        description: |
+          Lightweight scan stub for one prompt inside a session_data file.
+          Not a full has_base_fields unwrap — the prompt_data file at
+          `path` is the source of truth for identity, timestamps, and the
+          kbite list. These fields are enough to render a session
+          overview / pick a resume target without opening every
+          prompt_data file.
+        fields:
+          id: int
+          name: string
+          status: gmcc_prompt_status
+          path: file_path
+
+      gmcc_session_data_file_changed_files_entry:
+        description: |
+          Per-edit record appended to session_data.changed_files by bot
+          workflows after each Read/Edit/Write. `lines` is a list of
+          [start, end] inclusive line-range pairs. `commit` is short sha
+          or the literal string "uncommitted". `note` is an optional
+          one-liner describing the edit's intent.
+        fields:
+          file: file_path
+          timestamp: datetime
+          lines: List<List<int>>
+          commit: string
+          note: string
+
+      gmcc_prompt_data_file:
+        description: |
+          Top-level shape of {prompt_folder}/{id}_{name}_data.gmcc.yaml.
+          Identity-and-paths index for one prompt. Initial and clarified
+          prompt content live in sibling files (NOT inline) so they
+          remain human-editable. memory/ siblings store explore /
+          architecture / review artifacts from bot workflows.
+
+          clarified_prompt_path is empty-string until prompt_status
+          transitions to Clarified.
+        fields:
+          unwrap_has_base_fields: Unwrap<has_base_fields>
+          unwrap_has_ckfs_paths: Unwrap<has_ckfs_paths>
+          unwrap_has_kbite_list: Unwrap<has_kbite_list>
+          initial_prompt_path: file_path
+          clarified_prompt_path: file_path
+          prompt_status: gmcc_prompt_status
+          command: string

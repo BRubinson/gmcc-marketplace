@@ -22,11 +22,26 @@ branch: SESSION_TEMPLATE_BRANCH
 instance_uuid: SESSION_TEMPLATE_INSTANCE_UUID
 project_uuid: SESSION_TEMPLATE_PROJECT_UUID
 
-# Prompts authored by bot workflows. Files live in ./prompts/.
-# v6.1.x stores these as untyped string entries; v6.2+ promotes to
-# proper Struct<session_prompt> entries.
-# Status flow: draft -> clarified.
+# File-level kbite registry. Seeded from parent instance_data at
+# lazy-create time only; subsequent parent edits do NOT propagate.
+kbite: []
+
+# Prompts authored by bot workflows. Each prompt is a folder at
+# prompts/{id}_{name}/ containing {id}_{name}_data.gmcc.yaml (the
+# gmcc_prompt_data_file), {id}_{name}_initial.yaml, optionally
+# {id}_{name}_clarified.yaml, and a memory/ subdir for bot artifacts.
+# Each entry below conforms to gmcc_session_data_file_prompt_files_entry:
+#   - id: int
+#     name: {prompt_name}
+#     status: Draft | Clarifying | Clarified
+#     path: prompts/{id}_{name}/{id}_{name}_data.gmcc.yaml
 prompts: []
 
-# Files modified during this session. Maintained by bot workflows on each edit.
+# Files modified during this session. Maintained by bot workflows on each
+# edit. Each entry conforms to gmcc_session_data_file_changed_files_entry:
+#   - file: {path}
+#     timestamp: {ISO 8601}
+#     lines: [[start, end], ...]
+#     commit: {short sha | "uncommitted"}
+#     note: ""
 changed_files: []

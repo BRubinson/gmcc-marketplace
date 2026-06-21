@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# GM-CDE Repository Detection Script — v6.1.0
+# GM-CDE Repository Detection Script — v10.0.0
 #
 # Runs on SessionStart. When inside a git repository, this script:
 #   1. Resolves the active project (= git repo dir basename)
@@ -9,10 +9,15 @@
 #   4. Lazily creates the project / instance / session directories from templates
 #      under $GMCC_PLUGIN_ROOT/templates/projects/ if any are missing
 #   5. Registers the project in $GMCC_PROJECTS_INDEX (idempotent)
-#   6. Exports all GMCC_* env vars via $CLAUDE_ENV_FILE
+#   6. Inherits parent kbite list into newly-created instance/session files
+#   7. Exports all GMCC_* env vars via $CLAUDE_ENV_FILE
 #
-# As of v6.1.0 the four runtime yamls use the .gmcc.yaml suffix and
-# carry yeet:/yeet_type: headers — they conform to types in gmcc.yeet.yaml.
+# v10.0.0:
+#   - Instance directory is now {repo_basename}_{4-char hash of abs path}
+#     instead of the old slugified abs path.
+#   - Sessions carry their raw `branch:` in the instance_data entry.
+#   - File-level `kbite:` list is seeded from parent at lazy-create time
+#     (no propagation after that).
 # Anything outside a git repo: silent exit with no GMCC vars set.
 
 # --- 0. Git-repo guard ------------------------------------------------------
@@ -35,12 +40,27 @@ REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 PROJECT_NAME=$(basename "$REPO_ROOT")
 BRANCH=$(git branch --show-current 2>/dev/null || echo "main")
 
-# Slugify: replace each / with __ (matches branch sanitization convention).
+# Slugify: replace each / with __ (used for branch sanitization).
 # Use sed (not tr) — tr is char-to-char and would collapse / into a single _.
 slugify() { echo "$1" | sed 's|/|__|g'; }
 
-# Strip the leading __ that comes from the leading / in absolute paths.
-INSTANCE_ID=$(slugify "$REPO_ROOT" | sed 's|^__||')
+# Portable 4-char hex hash of the input string. Used to disambiguate
+# instances of the same repo basename checked out at different abs paths.
+hash4() {
+    if command -v md5sum >/dev/null 2>&1; then
+        printf '%s' "$1" | md5sum | cut -c1-4
+    elif command -v md5 >/dev/null 2>&1; then
+        printf '%s' "$1" | md5 | cut -c1-4
+    else
+        # POSIX-ish fallback: cksum is universal but not crypto. 4 chars
+        # of its hex output is good enough as a uniqueness suffix.
+        printf '%s' "$1" | cksum | awk '{printf "%04x", $1}' | cut -c1-4
+    fi
+}
+
+# v10.0.0: instance code = {repo_basename}_{4-char hash of abs path}.
+# Machine-safe, collision-resistant, deterministic from $REPO_ROOT.
+INSTANCE_ID="${PROJECT_NAME}_$(hash4 "$REPO_ROOT")"
 SESSION_BRANCH=$(slugify "$BRANCH")
 
 # --- 4. Resolved paths ------------------------------------------------------
@@ -67,6 +87,39 @@ gen_uuid() {
 # Extract the first top-level `uuid:` value from a yaml file.
 get_yaml_uuid() {
     grep -m1 "^uuid: " "$1" 2>/dev/null | sed 's/^uuid: //'
+}
+
+# Seed a child file's `kbite: []` line with the parent's full kbite block.
+# No-op if parent's list is empty, parent file missing, or child already
+# has a non-empty kbite list. Idempotent.
+inherit_kbite() {
+    local parent="$1"
+    local child="$2"
+    [ -f "$parent" ] || return 0
+    [ -f "$child" ] || return 0
+    # Skip if parent has an empty list.
+    grep -qE "^kbite: \[\]$" "$parent" && return 0
+    # Skip if child no longer has the placeholder (already inherited).
+    grep -qE "^kbite: \[\]$" "$child" || return 0
+    # Extract parent's kbite block: from `kbite:` up to but not including
+    # the next top-level YAML key.
+    local block
+    block=$(awk '
+        /^kbite:/ { capture = 1; print; next }
+        capture && /^[a-zA-Z_][a-zA-Z0-9_]*:/ { exit }
+        capture { print }
+    ' "$parent")
+    [ -z "$block" ] && return 0
+    # Substitute child's `kbite: []` placeholder with the parent block.
+    local tmp="$child.kbite.tmp"
+    if awk -v block="$block" '
+        /^kbite: \[\]$/ { print block; next }
+        { print }
+    ' "$child" > "$tmp"; then
+        mv "$tmp" "$child" || rm -f "$tmp"
+    else
+        rm -f "$tmp"
+    fi
 }
 
 # --- 5. Lazy create ---------------------------------------------------------
@@ -100,6 +153,8 @@ if [ ! -f "$GMCC_PROJECT_PATH/project_data.gmcc.yaml" ] \
         -e "s|PROJECT_TEMPLATE_CKFS_REL_PATH|$PROJECT_REL|g" \
         "$TEMPLATES_DIR/PROJECT_TEMPLATE/project_data.gmcc.yaml" \
         > "$GMCC_PROJECT_PATH/project_data.gmcc.yaml"
+    # Seed project_data.kbite from project_index.kbite at create time.
+    inherit_kbite "$GMCC_PROJECTS_INDEX" "$GMCC_PROJECT_PATH/project_data.gmcc.yaml"
 fi
 
 # Always-resolve the project's uuid (either freshly generated or extracted
@@ -116,7 +171,7 @@ if [ ! -f "$GMCC_INSTANCE_PATH/instance_data.gmcc.yaml" ] \
     INSTANCE_UUID=$(gen_uuid)
     sed -e "s|INSTANCE_TEMPLATE_CODE|$INSTANCE_ID|g" \
         -e "s|INSTANCE_TEMPLATE_UUID|$INSTANCE_UUID|g" \
-        -e "s|INSTANCE_TEMPLATE_NAME|$INSTANCE_ID|g" \
+        -e "s|INSTANCE_TEMPLATE_NAME|$PROJECT_NAME|g" \
         -e "s|INSTANCE_TEMPLATE_CREATED_AT|$ISO_NOW|g" \
         -e "s|INSTANCE_TEMPLATE_CKFS_ABS_PATH|$GMCC_INSTANCE_PATH|g" \
         -e "s|INSTANCE_TEMPLATE_CKFS_REL_PATH|$INSTANCE_REL|g" \
@@ -124,6 +179,8 @@ if [ ! -f "$GMCC_INSTANCE_PATH/instance_data.gmcc.yaml" ] \
         -e "s|INSTANCE_TEMPLATE_PROJECT_UUID|$PROJECT_UUID|g" \
         "$TEMPLATES_DIR/PROJECT_TEMPLATE/instances/INSTANCE_TEMPLATE/instance_data.gmcc.yaml" \
         > "$GMCC_INSTANCE_PATH/instance_data.gmcc.yaml"
+    # Seed instance_data.kbite from project_data.kbite at create time.
+    inherit_kbite "$GMCC_PROJECT_PATH/project_data.gmcc.yaml" "$GMCC_INSTANCE_PATH/instance_data.gmcc.yaml"
 fi
 INSTANCE_UUID=$(get_yaml_uuid "$GMCC_INSTANCE_PATH/instance_data.gmcc.yaml")
 
@@ -145,6 +202,8 @@ if [ ! -f "$GMCC_SESSION_PATH/session_data.gmcc.yaml" ] \
         -e "s|SESSION_TEMPLATE_PROJECT_UUID|$PROJECT_UUID|g" \
         "$TEMPLATES_DIR/PROJECT_TEMPLATE/instances/INSTANCE_TEMPLATE/sessions/SESSION_TEMPLATE/session_data.gmcc.yaml" \
         > "$GMCC_SESSION_PATH/session_data.gmcc.yaml"
+    # Seed session_data.kbite from instance_data.kbite at create time.
+    inherit_kbite "$GMCC_INSTANCE_PATH/instance_data.gmcc.yaml" "$GMCC_SESSION_PATH/session_data.gmcc.yaml"
 fi
 SESSION_UUID=$(get_yaml_uuid "$GMCC_SESSION_PATH/session_data.gmcc.yaml")
 
@@ -214,6 +273,7 @@ if [ -f "$INSTANCE_DATA" ]; then
             echo "    updated_time: $ISO_NOW"
             echo "    gmcc_ckfs_absolute_path: $GMCC_SESSION_PATH"
             echo "    gmcc_ckfs_relative_path: $SESSION_REL"
+            echo "    branch: $BRANCH"
         } >> "$INSTANCE_DATA"
     fi
 fi

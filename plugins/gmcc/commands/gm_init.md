@@ -137,8 +137,20 @@ Export the stable GMCC paths from `~/.zshrc` so they are available in every shel
 - `GMCC_KBITE` — kbites root
 - `GMCC_KBITE_DIGESTED` — digested-kbites root
 - `GMCC_KBITE_OPEN` — open-maw root
+- `GMCC_PLUGIN_ROOT` — installed-plugin directory (version-dependent; updated on plugin upgrade via `/gm_cleanup`)
 
 Per-session resolved paths (`GMCC_PROJECT_PATH`, `GMCC_INSTANCE_PATH`, `GMCC_SESSION_PATH`) are NOT persisted here — they are set dynamically by `detect_repo.sh` on SessionStart based on the current repo + branch.
+
+### Validate plugin-root is available
+
+`gm_init` must run inside a booted Claude session so that `detect_repo.sh` has exported `$GMCC_PLUGIN_ROOT`. Without that, the persisted block would be incomplete.
+
+```bash
+if [ -z "$GMCC_PLUGIN_ROOT" ]; then
+    echo "[GMB] ERROR: GMCC_PLUGIN_ROOT not set. Run /gm_init from a booted Claude session (restart Claude Code from inside a git repo)."
+    exit 1
+fi
+```
 
 ### Current-state check before writing
 
@@ -147,14 +159,16 @@ ZSHRC="$HOME/.zshrc"
 MARKER_OPEN="# >>> gmcc env >>>"
 MARKER_CLOSE="# <<< gmcc env <<<"
 
-read -r -d '' EXPECTED_BLOCK <<'EOF'
+# Note: unquoted heredoc so $GMCC_PLUGIN_ROOT interpolates at write time.
+read -r -d '' EXPECTED_BLOCK <<EOF
 # >>> gmcc env >>>
-export GMCC_CKFS_ROOT="$HOME/gmcc_ckfs"
-export GMCC_PROJECTS="$GMCC_CKFS_ROOT/projects"
-export GMCC_PROJECTS_INDEX="$GMCC_PROJECTS/project_index.gmcc.yaml"
-export GMCC_KBITE="$GMCC_CKFS_ROOT/kbites"
-export GMCC_KBITE_DIGESTED="$GMCC_CKFS_ROOT/kbites/digested"
-export GMCC_KBITE_OPEN="$GMCC_CKFS_ROOT/kbites/open"
+export GMCC_CKFS_ROOT="\$HOME/gmcc_ckfs"
+export GMCC_PROJECTS="\$GMCC_CKFS_ROOT/projects"
+export GMCC_PROJECTS_INDEX="\$GMCC_PROJECTS/project_index.gmcc.yaml"
+export GMCC_KBITE="\$GMCC_CKFS_ROOT/kbites"
+export GMCC_KBITE_DIGESTED="\$GMCC_CKFS_ROOT/kbites/digested"
+export GMCC_KBITE_OPEN="\$GMCC_CKFS_ROOT/kbites/open"
+export GMCC_PLUGIN_ROOT="$GMCC_PLUGIN_ROOT"
 # <<< gmcc env <<<
 EOF
 
@@ -162,9 +176,23 @@ if [ -f "$ZSHRC" ] && grep -qF "$MARKER_OPEN" "$ZSHRC"; then
     CURRENT_BLOCK=$(awk "/$MARKER_OPEN/,/$MARKER_CLOSE/" "$ZSHRC")
     if [ "$CURRENT_BLOCK" = "$EXPECTED_BLOCK" ]; then
         echo "[GMB] GMCC env block in ~/.zshrc is up to date — skipping"
+    elif ! printf '%s\n' "$CURRENT_BLOCK" | grep -qF "export GMCC_PLUGIN_ROOT="; then
+        # Known-old shape: block exists but predates the GMCC_PLUGIN_ROOT addition.
+        # Safe to upgrade in place — every other line is stable.
+        TMP="$ZSHRC.gmcc.tmp.$$"
+        awk -v open="$MARKER_OPEN" -v close="$MARKER_CLOSE" -v block="$EXPECTED_BLOCK" '
+            $0 == open { print block; inblock=1; next }
+            inblock && $0 == close { inblock=0; next }
+            inblock { next }
+            { print }
+        ' "$ZSHRC" > "$TMP" && mv "$TMP" "$ZSHRC"
+        echo "[GMB] Upgraded ~/.zshrc gmcc env block — added GMCC_PLUGIN_ROOT"
     else
+        # Block has a GMCC_PLUGIN_ROOT line (possibly with a different value) or
+        # an unexpected diff. Don't overwrite — /gm_cleanup handles stale values
+        # per-finding so the user is in the loop.
         echo "[GMB] WARNING: existing GMCC env block in ~/.zshrc differs from expected"
-        echo "       Leaving in place. Inspect manually:"
+        echo "       Leaving in place. Run /gm_cleanup to repair, or inspect manually:"
         echo "       sed -n \"/$MARKER_OPEN/,/$MARKER_CLOSE/p\" ~/.zshrc"
         echo "       Expected block:"
         printf '%s\n' "$EXPECTED_BLOCK" | sed 's/^/         /'
@@ -175,7 +203,67 @@ else
 fi
 ```
 
-The check is conservative: if a non-matching block is already present, gm_init does not overwrite it. The user is shown the expected contents and decides whether to update.
+The check stays conservative for unknown diffs: an existing block whose `GMCC_PLUGIN_ROOT` value diverges is left in place (it might be hand-tuned), and `/gm_cleanup` surfaces it as a per-finding interactive choice. The one diff `gm_init` heals automatically is the well-known "old block has every other line but no `GMCC_PLUGIN_ROOT` export" upgrade path.
+
+---
+
+## Persist CKFS permission grant in ~/.claude/settings.json
+
+Grants the plugin (and any subagent it spawns) unconstrained Read/Edit/Write/Glob access to everything under `$GMCC_CKFS_ROOT`. Without this the user is prompted for permission on every new file path the plugin touches outside the current project cwd — `~/gmcc_ckfs/` is always outside cwd, so the prompts never end.
+
+This is a one-time grant at **user scope** (`~/.claude/settings.json`). It applies to every repo on this machine and is inherited by subagents.
+
+### Required keys
+
+- `permissions.additionalDirectories` — must include `$GMCC_CKFS_ROOT` (Claude Code refuses file ops outside cwd without this, even with allow rules).
+- `permissions.allow` — must include:
+    - `Read($GMCC_CKFS_ROOT/**)`
+    - `Edit($GMCC_CKFS_ROOT/**)`
+    - `Write($GMCC_CKFS_ROOT/**)`
+    - `Glob($GMCC_CKFS_ROOT/**)`
+
+`$GMCC_CKFS_ROOT` is expanded to its absolute value at write time — no `~` literal in the JSON.
+
+### Idempotent merge
+
+```bash
+SETTINGS="$HOME/.claude/settings.json"
+CKFS_ABS="${GMCC_CKFS_ROOT:-$HOME/gmcc_ckfs}"
+
+if ! command -v jq >/dev/null 2>&1; then
+    echo "[GMB] WARNING: jq not found — skipping CKFS permission grant."
+    echo "       Install jq (brew install jq) and re-run /gm_init to grant."
+else
+    mkdir -p "$(dirname "$SETTINGS")"
+    [ -f "$SETTINGS" ] || echo '{}' > "$SETTINGS"
+
+    TMP="$SETTINGS.gmcc.tmp.$$"
+    jq \
+      --arg dir "$CKFS_ABS" \
+      --arg r "Read($CKFS_ABS/**)" \
+      --arg e "Edit($CKFS_ABS/**)" \
+      --arg w "Write($CKFS_ABS/**)" \
+      --arg g "Glob($CKFS_ABS/**)" \
+      '
+        .permissions //= {}
+        | .permissions.additionalDirectories //= []
+        | .permissions.allow //= []
+        | .permissions.additionalDirectories =
+            (.permissions.additionalDirectories + [$dir] | unique)
+        | .permissions.allow =
+            (.permissions.allow + [$r, $e, $w, $g] | unique)
+      ' "$SETTINGS" > "$TMP" && mv "$TMP" "$SETTINGS"
+
+    echo "[GMB] CKFS permission grant present in ~/.claude/settings.json"
+fi
+```
+
+Notes:
+- `unique` makes the merge idempotent — re-running never duplicates entries.
+- `//=` only initializes missing keys; existing `permissions.deny`, `permissions.ask`, and unrelated top-level keys (`env`, `enabledPlugins`, etc.) are untouched.
+- Falls back to a warning (not a hard error) if `jq` is missing — the rest of `/gm_init` still completes.
+- Takes effect on the **next** Claude Code restart. The current session has its permission set already loaded.
+- `/gm_cleanup` detects drift on this grant (missing entries, moved `$GMCC_CKFS_ROOT`) and offers to repair using the same merge.
 
 ---
 
@@ -187,6 +275,7 @@ The check is conservative: if a non-matching block is already present, gm_init d
    - Check that `~/gmcc_ckfs/projects/project_index.gmcc.yaml` exists
    - Check that `~/gmcc_ckfs/README.md` exists
    - Check that `~/.zshrc` contains the `# >>> gmcc env >>>` marker
+   - Check that `~/.claude/settings.json` contains `Read($GMCC_CKFS_ROOT/**)` in `permissions.allow` and `$GMCC_CKFS_ROOT` in `permissions.additionalDirectories` (skip if jq was missing — already warned above)
 
 2. **Report Success**:
 ```
@@ -197,7 +286,8 @@ Created:
 - ~/gmcc_ckfs/README.md
 - ~/gmcc_ckfs/projects/
 - ~/gmcc_ckfs/projects/project_index.gmcc.yaml
-- ~/.zshrc: GMCC env block (run `source ~/.zshrc` or open a new terminal)
+- ~/.zshrc: GMCC env block including GMCC_PLUGIN_ROOT (run `source ~/.zshrc` or open a new terminal). After future plugin upgrades the persisted GMCC_PLUGIN_ROOT will go stale — run /gm_cleanup to refresh it.
+- ~/.claude/settings.json: CKFS permission grant — additionalDirectories + Read/Edit/Write/Glob on $GMCC_CKFS_ROOT/**. Takes effect on next Claude Code restart; covers plugin subagents automatically. Run /gm_cleanup if these ever drift.
 
 Next steps:
 1. Navigate to a git repository

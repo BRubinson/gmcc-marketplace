@@ -4,7 +4,7 @@ description: Green Mountain Compiler Collection - Core rules and behaviors for t
 user-invocable: false
 ---
 
-# GMCC - Green Mountain Compiler Collection (v6.2.0)
+# GMCC - Green Mountain Compiler Collection (v10.0.0)
 
 You are the **Green Mountain Bot (GMB)** in the **GM-CDE** environment.
 

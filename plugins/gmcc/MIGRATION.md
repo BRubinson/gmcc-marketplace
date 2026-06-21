@@ -1,5 +1,82 @@
 # GMCC Migration Guide
 
+## v6.2.0 to v10.0.0 — Typing-system finalization (prompts → folders, kbite mixin, typed entries, hash-coded instances)
+
+A follow-on within the v6.2.0 release that closes the v6.1.x typing gap
+end-to-end. Every change is additive at the type level; runtime data
+under existing v6.1 trees is migrated by `/gm_cleanup`.
+
+### Type additions in `gmcc.yeet.yaml`
+
+- **Enum `gmcc_prompt_status`** with values `Draft`, `Clarifying`, `Clarified`.
+- **Mixin `has_kbite_list`** — single field `kbite: List<string>`. Unwrapped into all five file types (`gmcc_project_index_file`, `gmcc_project_data_file`, `gmcc_instance_data_file`, `gmcc_session_data_file`, `gmcc_prompt_data_file`). Inherited from parent at lazy-create time; deletes/changes do NOT propagate.
+- **New file type `gmcc_prompt_data_file`** — top-level shape of `{prompt_folder}/{id}_{name}_data.gmcc.yaml`. Unwraps `has_base_fields`, `has_ckfs_paths`, `has_kbite_list`. Adds `initial_prompt_path`, `clarified_prompt_path` (empty until Clarified), `prompt_status`, `command`.
+- **New entry type `gmcc_session_data_file_prompt_files_entry`** — lightweight stub (`id`, `name`, `status`, `path`).
+- **New entry type `gmcc_session_data_file_changed_files_entry`** — typed (`file`, `timestamp`, `lines`, `commit`, `note`).
+- **`branch: string` added to `gmcc_instance_data_file_session_entry`** — sessions now carry their raw branch in the instance_data entry alongside the slug-form `code`.
+- **Replaced fields on `gmcc_session_data_file`**: `prompts: List<string>` → `List<gmcc_session_data_file_prompt_files_entry>`; `changed_files: List<string>` → `List<gmcc_session_data_file_changed_files_entry>`.
+
+### Instance directory algorithm change
+
+Pre-change: `instance_id` was the slugified absolute path
+(`Users__brycerubinson__Dev__gmcc-marketplace`) and was used as both
+the directory name and the `code:` field.
+
+Post-change: `code = {basename($REPO_ROOT)}_{4-char hash of abs path}`
+(e.g. `gmcc-marketplace_a3f2`). The code IS the directory name.
+`name:` is the human-readable basename. The hook (`detect_repo.sh`)
+derives this deterministically from `$REPO_ROOT` — no user input
+required.
+
+### Prompts on disk: file → folder
+
+Pre-change: `prompts/{id}_{name}.yaml` + `prompts/{id}_{name}_clarified.yaml`
+(two flat siblings).
+
+Post-change: one folder per prompt:
+
+```
+prompts/{id}_{name}/
+    {id}_{name}_data.gmcc.yaml      # gmcc_prompt_data_file (index)
+    {id}_{name}_initial.yaml        # raw user prompt content
+    {id}_{name}_clarified.yaml      # absent until Clarified
+    memory/
+        explore.md
+        architecture.md
+        review.md
+```
+
+### Bot artifact persistence reversed
+
+The earlier v6.0.0 "intermediate artifacts NOT persisted" policy is
+**reversed**. All three bots (`/gm_bot`, `/gm_bot_rpi`, `/gm_bot_team`)
+now write per-phase artifacts under `prompts/{id}_{name}/memory/`. For
+`/gm_bot_team`, only the synthesized output of each team phase is
+persisted — individual teammate reports are not. See
+`skills/gmcc/ref/bot_workflows.md`.
+
+### Migration steps
+
+1. Update the plugin to v6.2.0 (typing finalization).
+2. Restart Claude Code. `detect_repo.sh` will produce new code-based
+   instance directories for fresh trees; existing v6.1 instances are
+   untouched until `/gm_cleanup` runs.
+3. Run `/gm_cleanup`. It detects:
+   - Legacy slugified-abs-path instance directories → renames to
+     `{basename}_{hash4}` and rewrites `gmcc_ckfs_absolute_path` /
+     `gmcc_ckfs_relative_path` in the instance_data + every session_data
+     beneath it + the matching entry in the parent project_data.
+   - Legacy flat-file prompts (`prompts/{id}_{name}.yaml` +
+     `prompts/{id}_{name}_clarified.yaml`) → migrates each pair into a
+     `prompts/{id}_{name}/` folder containing `{id}_{name}_data.gmcc.yaml`,
+     `{id}_{name}_initial.yaml`, and `{id}_{name}_clarified.yaml` (if
+     present). Prompt-file schema version bumps `1 → 2`.
+4. Existing session entries gain `branch:` automatically the next time
+   `detect_repo.sh` registers a new session in that instance; legacy
+   session entries are left alone until `/gm_cleanup` patches them.
+
+---
+
 ## v6.1.0 to v6.2.0 — `.yeet.md` → `.yeet.yaml` (pure YAML package format)
 
 The YEETS type package file format is replaced end-to-end. The old `.yeet.md`

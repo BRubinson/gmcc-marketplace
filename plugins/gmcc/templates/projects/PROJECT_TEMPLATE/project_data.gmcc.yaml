@@ -22,10 +22,14 @@ repository_name: PROJECT_TEMPLATE_CODE
 http_uri: null
 ssh_uri: null
 
+# File-level kbite registry. Seeded from parent project_index at
+# lazy-create time only; subsequent parent edits do NOT propagate.
+kbite: []
+
 instances: []
 # Each instance entry conforms to gmcc_project_data_file_instance_entry:
 #   - id: int
-#     code: {slug_of_abs_path}
+#     code: {basename}_{hash4}              # e.g. gmcc-marketplace_a3f2 (v10.0.0)
 #     uuid: {v4}
 #     name: {display name}
 #     description: ""

@@ -43,6 +43,10 @@ The skill is also useful steady-state: catching orphan registry entries, missing
 | Legacy `gmcc_plugin_template/` | `~/gmcc_ckfs/gmcc_plugin_template/` (removed in v5.5.0) | Delete (default) |
 | Legacy `gmcc_user_workspace/` | Any path named `gmcc_user_workspace` (see deprecated concepts below) | Archive (default) or delete |
 | Stale chewed provenance path | Inside `kbites/digested/{name}/.../*_chewed.md`, a `**Source**:` or `**Location**:` line points at an absolute path that no longer exists (typically a legacy maw under `~/gmcc_ckfs/{anything}/fam/.../maw/`) | Rewrite the line to strip the dead absolute prefix and prepend `(retired maw source) `, preserving the relative slug for provenance (default), or leave the line unchanged |
+| Stale `GMCC_PLUGIN_ROOT` in `~/.zshrc` | inside the `# >>> gmcc env >>>` block, `export GMCC_PLUGIN_ROOT=...` is missing entirely, or its value differs from the current session's `$GMCC_PLUGIN_ROOT` (typically because the plugin was upgraded since `/gm_init` ran) | Update to the current session's `$GMCC_PLUGIN_ROOT` (default), keep existing, or remove the line |
+| Missing CKFS permission grant in `~/.claude/settings.json` | one or more of: `permissions.additionalDirectories` doesn't include `$GMCC_CKFS_ROOT`; `permissions.allow` doesn't include `Read($GMCC_CKFS_ROOT/**)`, `Edit($GMCC_CKFS_ROOT/**)`, `Write($GMCC_CKFS_ROOT/**)`, or `Glob($GMCC_CKFS_ROOT/**)` | Add missing entries (default — idempotent jq merge), or skip |
+| **Legacy slug-path instance directory** (v10.0.0 migration) | Instance directory name uses the legacy `__`-separated slugified abs path (e.g. `Users__brycerubinson__Dev__gmcc-marketplace/`) instead of the new `{basename}_{hash4}` code form | **Migrate** to new code-based directory (default — see "v10.0.0 Instance Code Migration" below), or skip |
+| **Legacy flat-file prompts** (v10.0.0 migration) | A session's `prompts/` directory contains `{id}_{name}.yaml` and/or `{id}_{name}_clarified.yaml` loose files instead of a `{id}_{name}/` folder | **Migrate** to per-prompt folder layout (default — see "v10.0.0 Prompt Folder Migration" below), or skip |
 
 ---
 
@@ -77,6 +81,107 @@ This preserves the slug for human provenance ("yes, this came from `swift_ui/pri
 
 Detection: any `*_chewed.md` under `kbites/digested/` whose `**Source**:` / `**Location**:` line starts with `/` and references a path that doesn't exist on disk. The chew prompt template should be updated separately to emit slug-relative paths in new chewed files.
 
+### Persistent Env: `GMCC_PLUGIN_ROOT` in `~/.zshrc`
+
+`/gm_init` writes a marked `# >>> gmcc env >>>` ... `# <<< gmcc env <<<` block to `~/.zshrc` containing the stable GMCC exports plus `GMCC_PLUGIN_ROOT`. The plugin-root value is version-dependent (`~/.claude/plugins/cache/gmcc-marketplace/gmcc/{version}/`), so it goes stale every time the plugin upgrades. GUI consumers (notably the GMVibes Yeet Viewer) read it from the launching shell's environment, so a stale or missing value breaks them.
+
+**Detection rules** (run during the walk; one finding max from this category):
+
+1. If `$GMCC_PLUGIN_ROOT` is unset (cleanup invoked outside a booted Claude session) → skip this check entirely. Log `[GMB] Skipping GMCC_PLUGIN_ROOT check — session not booted`. Do NOT emit a finding.
+2. If `~/.zshrc` does not exist, or the `# >>> gmcc env >>>` marker is absent → no finding. `/gm_init` owns block creation; `/gm_cleanup` does not create the block from scratch.
+3. Otherwise, extract the block between the markers:
+   - If it contains no `export GMCC_PLUGIN_ROOT=` line → finding **kind: missing**.
+   - If it contains a line whose value (after stripping surrounding quotes) differs from `$GMCC_PLUGIN_ROOT` → finding **kind: stale**, include both values in the finding text.
+   - If the value matches → no finding.
+
+**Resolution (per-finding AskUserQuestion):**
+
+```
+Stale GMCC_PLUGIN_ROOT in ~/.zshrc
+
+  current ($GMCC_PLUGIN_ROOT): {actual}
+  persisted in ~/.zshrc:        {persisted or "(missing)"}
+
+How would you like to resolve this?
+
+- Update to current value - Rewrite the export line in place (default)
+- Keep existing - Leave ~/.zshrc unchanged
+- Remove the line - Delete just the export line, keep the rest of the block
+```
+
+**Apply:** edit only between the markers — never touch lines outside them.
+
+- **Update**: in-place sed-replace the single `export GMCC_PLUGIN_ROOT=...` line with `export GMCC_PLUGIN_ROOT="$GMCC_PLUGIN_ROOT"`. For the **missing** case, insert the line just before the closing marker.
+- **Keep**: no-op.
+- **Remove**: sed-delete the single `export GMCC_PLUGIN_ROOT=...` line.
+
+After applying Update, remind the user to `source ~/.zshrc` (or restart the affected GUI app) for the new value to take effect in already-running shells.
+
+### Persistent Permissions: CKFS allow rules in `~/.claude/settings.json`
+
+`/gm_init` writes a one-time grant into `~/.claude/settings.json` that gives the plugin (and any subagent it spawns) unconstrained Read/Edit/Write/Glob access under `$GMCC_CKFS_ROOT`, plus an `additionalDirectories` entry so Claude Code is willing to operate on paths outside the current repo's cwd. Without these, the user gets a permission prompt on every new ckfs file path — which is constant for normal GMCC use.
+
+Drift causes: user manually edited `~/.claude/settings.json`, `$GMCC_CKFS_ROOT` was moved, settings.json was wiped, or `/gm_init` ran on a machine without `jq` (the grant step warns and skips in that case).
+
+**Detection rules** (run during the walk; one finding max from this category):
+
+1. If `$GMCC_CKFS_ROOT` is unset (cleanup invoked outside a booted Claude session) → skip this check entirely. Log `[GMB] Skipping CKFS permission grant check — session not booted`. Do NOT emit a finding.
+2. If `~/.claude/settings.json` does not exist or is unparseable JSON → no finding. `/gm_init` owns creation; `/gm_cleanup` does not create from scratch.
+3. Parse settings.json. Compute the expected entries from `$GMCC_CKFS_ROOT`:
+   - dir: `$GMCC_CKFS_ROOT`
+   - allow: `Read($GMCC_CKFS_ROOT/**)`, `Edit($GMCC_CKFS_ROOT/**)`, `Write($GMCC_CKFS_ROOT/**)`, `Glob($GMCC_CKFS_ROOT/**)`
+4. Emit a finding **kind: missing-entries** if any of:
+   - `.permissions.additionalDirectories` is missing/empty or does not contain the dir.
+   - `.permissions.allow` is missing/empty or does not contain one or more of the four allow patterns.
+   Include the exact list of specifically-missing entries in the finding text.
+5. If all entries are present → no finding.
+
+**Resolution (per-finding AskUserQuestion):**
+
+```
+Missing CKFS permission grant in ~/.claude/settings.json
+
+  $GMCC_CKFS_ROOT: {actual}
+
+  Missing entries:
+    {bulleted list of specific entries missing}
+
+  Without these, GMCC operations on ckfs files prompt for permission every
+  time a new path is touched.
+
+How would you like to resolve this?
+
+- Add missing entries - Idempotent jq merge into ~/.claude/settings.json (default)
+- Skip - Leave settings.json unchanged
+```
+
+**Apply:** identical jq merge to the one `/gm_init` uses — idempotent (no duplicates if some entries already present), preserves all other keys (`env`, `enabledPlugins`, `permissions.deny`, `permissions.ask`, etc.). Pseudocode:
+
+```bash
+SETTINGS="$HOME/.claude/settings.json"
+CKFS_ABS="$GMCC_CKFS_ROOT"
+TMP="$SETTINGS.gmcc.tmp.$$"
+jq \
+  --arg dir "$CKFS_ABS" \
+  --arg r "Read($CKFS_ABS/**)" \
+  --arg e "Edit($CKFS_ABS/**)" \
+  --arg w "Write($CKFS_ABS/**)" \
+  --arg g "Glob($CKFS_ABS/**)" \
+  '
+    .permissions //= {}
+    | .permissions.additionalDirectories //= []
+    | .permissions.allow //= []
+    | .permissions.additionalDirectories =
+        (.permissions.additionalDirectories + [$dir] | unique)
+    | .permissions.allow =
+        (.permissions.allow + [$r, $e, $w, $g] | unique)
+  ' "$SETTINGS" > "$TMP" && mv "$TMP" "$SETTINGS"
+```
+
+If `jq` is unavailable on the user's machine: do NOT attempt a manual JSON edit. Instead, downgrade the resolution to a printed instruction telling the user to install jq (`brew install jq`) and re-run `/gm_cleanup`, plus echo the exact key/value entries they would otherwise need to hand-add.
+
+After applying, remind the user that the new grant takes effect on the **next** Claude Code restart — the currently running session has its permission set already loaded.
+
 ---
 
 ## Schema Version Detection
@@ -89,7 +194,7 @@ Each templated yaml file carries a top-level `version:` integer. The cleanup ski
 | `project_data.gmcc.yaml` | `templates/projects/PROJECT_TEMPLATE/project_data.gmcc.yaml` |
 | `instance_data.gmcc.yaml` | `templates/projects/PROJECT_TEMPLATE/instances/INSTANCE_TEMPLATE/instance_data.gmcc.yaml` |
 | `session_data.gmcc.yaml` | `templates/projects/PROJECT_TEMPLATE/instances/INSTANCE_TEMPLATE/sessions/SESSION_TEMPLATE/session_data.gmcc.yaml` |
-| `prompts/{id}_{name}.yaml`, `{id}_{name}_clarified.yaml` | No templates ship — current version is hardcoded in this skill (currently 1). Bump this constant when the prompt-file schema changes. |
+| `prompts/{id}_{name}/{id}_{name}_data.gmcc.yaml` | No templates ship — current version is hardcoded in this skill (currently **2**). The data file alone carries the prompt-schema `version:`; sibling `_initial.yaml` / `_clarified.yaml` are content-only and do not carry version. v2 introduced the per-prompt folder layout + `gmcc_prompt_data_file` index. Bump this constant when the prompt-file schema changes. |
 
 If the on-disk version is **equal** to the template's: file is compliant, no finding.
 If the on-disk version is **lower**: emit an "Outdated schema" finding.
@@ -181,6 +286,99 @@ No `if version == 1: ...` branches to write or maintain.
 
 ---
 
+## v10.0.0 Instance Code Migration
+
+**Detection.** During the walk, for every `projects/{p}/instances/{i}/`
+directory: if `{i}` does NOT match the regex `^[a-zA-Z0-9_-]+_[0-9a-f]{4}$`
+AND DOES contain the legacy double-underscore separator (`__`), flag it
+as a legacy slug-path instance directory.
+
+**Resolution flow.** For each finding the user chose to migrate:
+
+1. Read `instance_data.gmcc.yaml` to recover `system_path:` — the
+   absolute path to the underlying repo checkout.
+2. Compute the new code: `{basename(system_path)}_{4-char md5 of system_path}`.
+   (Same algorithm `detect_repo.sh` uses — see `ckfs_details.md`.)
+3. Build the migration plan:
+   - Rename `instances/{old_slug}/` → `instances/{new_code}/`.
+   - Rewrite `gmcc_ckfs_absolute_path:` and `gmcc_ckfs_relative_path:`
+     inside the renamed `instance_data.gmcc.yaml` and in EVERY
+     `session_data.gmcc.yaml` under it (replace the old segment with
+     the new one).
+   - Rewrite the matching `instances[]` entry inside the parent
+     `project_data.gmcc.yaml`: update `code:`, `gmcc_ckfs_absolute_path:`,
+     `gmcc_ckfs_relative_path:` (leave `uuid:` and `system_path:` alone).
+   - For each `instance_data.gmcc.yaml` `sessions[]` entry that lacks a
+     `branch:` field: insert `branch: {raw branch name}` derived from
+     `code:` (reverse the `sed 's|/|__|g'` slugification — replace each
+     `__` with `/`).
+4. Present the migration as a plan via AskUserQuestion with options:
+   **Apply** (default), **Skip**, **Re-roll with hint**.
+5. On Apply: execute the rename + every text substitution, then record
+   a `cleanup_actions` entry: `{action: "v6_2_instance_code_migration",
+   from: {old_slug}, to: {new_code}, paths_rewritten: {n}, timestamp}`.
+
+**Idempotency.** Re-running over an already-migrated instance produces
+no finding (its directory name matches the new code regex).
+
+---
+
+## v10.0.0 Prompt Folder Migration
+
+**Detection.** During the walk, for every `prompts/` directory: any
+file matching `^([0-9]+)_(.+)\.yaml$` at the root level (i.e., not
+inside a `{id}_{name}/` subdir) is a legacy flat-file prompt. Pair each
+draft (`{id}_{name}.yaml`) with its sibling clarified
+(`{id}_{name}_clarified.yaml`) if present. Emit ONE finding per `{id}_{name}`
+pair (or single draft if no clarified sibling exists).
+
+**Resolution flow.** For each finding the user chose to migrate:
+
+1. Read the draft file (and the clarified file if present).
+2. Build the migration plan:
+   - Create folder `prompts/{id}_{name}/` and subfolder
+     `prompts/{id}_{name}/memory/`.
+   - Write `prompts/{id}_{name}/{id}_{name}_data.gmcc.yaml` —
+     conforms to `gmcc_prompt_data_file`. Pull `id`, `name`,
+     `created_at`, `command` from the legacy draft yaml. Generate a v4
+     UUID for the prompt. `prompt_status`: `Clarified` if the clarified
+     sibling existed, else `Draft`. `clarified_prompt_path`:
+     `{id}_{name}_clarified.yaml` (or `""` if no clarified). `kbite`:
+     seeded from the parent `session_data.gmcc.yaml`'s `kbite:` list at
+     the time of migration.
+   - Write `prompts/{id}_{name}/{id}_{name}_initial.yaml` — the
+     `content:` + `kbites_loaded:` body from the legacy draft file.
+   - If the clarified sibling existed: write
+     `prompts/{id}_{name}/{id}_{name}_clarified.yaml` with the body
+     of the legacy clarified file (`clarified_at`, `original_content`,
+     `clarifications`, `refined_content`, `key_files`,
+     `patterns_to_follow`, `constraints`, `kbites_loaded`).
+   - Rewrite the matching `session_data.gmcc.yaml` `prompts[]` entry to
+     the new lightweight stub shape:
+     `id`, `name`, `status: Draft|Clarified`,
+     `path: prompts/{id}_{name}/{id}_{name}_data.gmcc.yaml`.
+     Drop the legacy `draft_file:`, `clarified_file:`, `file:`,
+     `created_at`, `clarified_at` keys (the data file is the source of
+     truth from here on).
+   - For each entry in `session_data.gmcc.yaml`'s `changed_files:` list
+     that is missing the `note:` field, append `note: ""`.
+3. Backup the legacy files: move `{id}_{name}.yaml` and
+   `{id}_{name}_clarified.yaml` to a sibling `.v1.bak/` directory inside
+   `prompts/` (don't delete — they're recoverable).
+4. Present the plan as a diff via AskUserQuestion with options:
+   **Apply** (default), **Skip**, **Re-roll with hint**, **Backup +
+   recreate from template** (last resort — loses the content body).
+5. On Apply: execute the writes + backups, then record a
+   `cleanup_actions` entry:
+   `{action: "v6_2_prompt_folder_migration", id, name,
+   had_clarified: bool, timestamp}`. Schema version implicitly bumps
+   1 → 2.
+
+**Idempotency.** Re-running over an already-migrated session emits no
+finding (no loose `*.yaml` at `prompts/` root).
+
+---
+
 ## Walk Strategy
 
 The walk is bounded — never recurses into git repos, kbite resource trees, or `_archive/`. Order:
@@ -190,7 +388,7 @@ The walk is bounded — never recurses into git repos, kbite resource trees, or 
 3. **Per-project dir** — must have `project_data.gmcc.yaml` + `instances/`. Anything else is a finding.
 4. **Per-instance dir** — must have `instance_data.gmcc.yaml` + `sessions/`. Anything else is a finding.
 5. **Per-session dir** — must have `session_data.gmcc.yaml` + `prompts/`. Anything else is a finding.
-6. **`prompts/`** — only `{id}_{name}.yaml` and `{id}_{name}_clarified.yaml` files; nothing else.
+6. **`prompts/`** — only `{id}_{name}/` subdirectories (each containing `{id}_{name}_data.gmcc.yaml`, `{id}_{name}_initial.yaml`, optionally `{id}_{name}_clarified.yaml`, and a `memory/` subdir). Loose `*.yaml` files at `prompts/` root are flagged as **Legacy flat-file prompts** (v10.0.0 migration).
 7. **Cross-check `project_index.gmcc.yaml`** against actual `projects/{name}/instances/{id}/` dirs. Mismatches in either direction are findings.
 8. **Legacy detection**: `~/gmcc_ckfs/{anything}/fam/` is the v5.x signature. Any `{anything}/fam/{branch}/` tree is flagged with its full contents.
 

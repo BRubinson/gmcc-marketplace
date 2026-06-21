@@ -22,6 +22,11 @@ updated_time: PROJECT_INDEX_FILE_CREATED_AT
 gmcc_ckfs_absolute_path: PROJECT_INDEX_FILE_CKFS_ABS_PATH
 gmcc_ckfs_relative_path: projects/project_index.gmcc.yaml
 
+# File-level kbite registry. Seeded from parent at lazy-create time only;
+# subsequent parent edits do NOT propagate. project_index is the root, so
+# this list starts empty by default.
+kbite: []
+
 projects: []
 # Each project entry conforms to gmcc_project_index_file_project_entry — identity only.
 # Follow gmcc_ckfs_absolute_path to that project's project_data.gmcc.yaml for instances.

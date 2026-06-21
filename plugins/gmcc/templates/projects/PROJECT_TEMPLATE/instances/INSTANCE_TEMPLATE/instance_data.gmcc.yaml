@@ -22,6 +22,10 @@ gmcc_ckfs_relative_path: INSTANCE_TEMPLATE_CKFS_REL_PATH
 system_path: INSTANCE_TEMPLATE_SYSTEM_PATH
 project_uuid: INSTANCE_TEMPLATE_PROJECT_UUID
 
+# File-level kbite registry. Seeded from parent project_data at
+# lazy-create time only; subsequent parent edits do NOT propagate.
+kbite: []
+
 sessions: []
 # Each session entry conforms to gmcc_instance_data_file_session_entry:
 #   - id: int
@@ -33,3 +37,4 @@ sessions: []
 #     updated_time: {ISO 8601}
 #     gmcc_ckfs_absolute_path: ...
 #     gmcc_ckfs_relative_path: ...
+#     branch: {raw branch name}             # NEW in v10.0.0

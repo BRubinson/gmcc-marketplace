@@ -6,7 +6,7 @@ disable-model-invocation: true
 allowed-tools: Read, Write, Edit, Grep, Glob, Bash, Task, AskUserQuestion
 ---
 
-# GM-CDE Bot (Lightweight, v6.0.0)
+# GM-CDE Bot (Lightweight, v10.0.0)
 
 You are executing a lightweight development workflow entirely in the primary context.
 
@@ -26,7 +26,7 @@ Exit without proceeding.
 The SessionStart hook auto-creates `$GMCC_SESSION_PATH/{session_data.gmcc.yaml, prompts/}`. If `$GMCC_SESSION_PATH/session_data.gmcc.yaml` is missing, instruct the user to restart Claude Code (don't try to recover here).
 
 1. Read `$GMCC_SESSION_PATH/session_data.gmcc.yaml` for current session state (existing prompts, changed_files).
-2. Skim recent clarified prompts under `$GMCC_SESSION_PATH/prompts/*_clarified.yaml` for context if relevant.
+2. Skim recent clarified prompts under `$GMCC_SESSION_PATH/prompts/*/*_clarified.yaml` for context if relevant.
 
 ---
 
@@ -39,11 +39,12 @@ Parse `$ARGUMENTS`:
 /gm_bot 3 continue with the login endpoint
          ^prompt id  ^continuation
 ```
-1. Find entry with `id: 3` in `session_data.gmcc.yaml`'s `prompts:` list.
+1. Find entry with `id: 3` in `session_data.gmcc.yaml`'s `prompts:` list. Follow `path:` to read the prompt_data file.
 2. If not found: error "No prompt with id 3 in current session".
-3. Determine resume phase from status:
-   - `status: clarified` → load `prompts/3_*_clarified.yaml`, jump to Phase 4 (Implement)
-   - `status: draft` → load `prompts/3_*.yaml`, jump to Phase 2 (Clarify)
+3. Determine resume phase from the prompt_data file's `prompt_status:`:
+   - `Clarified` → load the sibling `{id}_{name}_clarified.yaml`, jump to Phase 4 (Plan)
+   - `Clarifying` → re-enter Phase 3 (Clarify) from where it stalled
+   - `Draft` → load the sibling `{id}_{name}_initial.yaml`, jump to Phase 2
 4. The remaining arguments become the continuation prompt.
 
 ### Case 2: First token is non-numeric (NEW mode)
@@ -52,8 +53,8 @@ Parse `$ARGUMENTS`:
          ^prompt name  ^prompt content
 ```
 1. Pick next prompt id: max existing id in `session_data.gmcc.yaml` + 1, or 1 if none.
-2. Write `$GMCC_SESSION_PATH/prompts/{id}_{name}.yaml` (draft — see template below).
-3. Append entry to `session_data.gmcc.yaml`'s `prompts:` list with `status: draft`.
+2. Create the prompt folder + initial files (see Draft Prompt Folder Layout below).
+3. Append entry to `session_data.gmcc.yaml`'s `prompts:` list with `status: Draft`.
 4. Proceed to Phase 1.
 
 ### Case 3: No arguments
@@ -69,20 +70,63 @@ Example: auth-refactor implement OAuth2 flow
 
 ---
 
-## Draft Prompt File Template
+## Draft Prompt Folder Layout (v10.0.0)
 
-Write to `$GMCC_SESSION_PATH/prompts/{id}_{name}.yaml`:
+Each prompt is a FOLDER (not a loose file). At create time:
+
+```
+$GMCC_SESSION_PATH/prompts/{id}_{name}/
+    {id}_{name}_data.gmcc.yaml      # gmcc_prompt_data_file (index)
+    {id}_{name}_initial.yaml        # raw user prompt content
+    memory/                          # bot artifacts (explore/architecture/review)
+```
+
+Create the folder + `memory/` subdir, then write the two yaml files.
+
+### `{id}_{name}_data.gmcc.yaml` (the index)
+
+Conforms to `gmcc.gmcc_prompt_data_file`. Seed `kbite:` from the parent
+`session_data.gmcc.yaml`'s `kbite:` list.
 
 ```yaml
-version: 1
+version: 2
+yeet:
+  - gmcc
+yeet_type: gmcc.gmcc_prompt_data_file
+
 id: {id}
+code: {name}
+uuid: {v4}
 name: {name}
-status: draft
+description: ""
+created_time: {ISO 8601}
+updated_time: {ISO 8601}
+gmcc_ckfs_absolute_path: {GMCC_SESSION_PATH}/prompts/{id}_{name}/{id}_{name}_data.gmcc.yaml
+gmcc_ckfs_relative_path: projects/{p}/instances/{i}/sessions/{s}/prompts/{id}_{name}/{id}_{name}_data.gmcc.yaml
+kbite: []                            # seeded from session_data.kbite
+initial_prompt_path: {id}_{name}_initial.yaml
+clarified_prompt_path: ""            # set when Phase 3 completes
+prompt_status: Draft
 command: /gm_bot
-created_at: {ISO 8601}
+```
+
+### `{id}_{name}_initial.yaml` (raw prompt content)
+
+```yaml
 content: |
   {raw user prompt}
-kbites_loaded: []   # filled in by Phase 1
+kbites_loaded: []                    # filled by Phase 1
+```
+
+### session_data prompts[] entry
+
+Append a lightweight stub conforming to `gmcc_session_data_file_prompt_files_entry`:
+
+```yaml
+  - id: {id}
+    name: {name}
+    status: Draft
+    path: prompts/{id}_{name}/{id}_{name}_data.gmcc.yaml
 ```
 
 ---
@@ -96,7 +140,7 @@ Skip if resuming a draft or clarified prompt that already has `kbites_loaded`.
 3. For each selected kbite:
    - Read `KBITE_INDEX.md` and `KBITE_TRIGGER_MAP.md`
    - Load the top 3-5 highest-relevance chewed files
-4. Update the draft prompt yaml's `kbites_loaded:` list.
+4. Update `{id}_{name}_initial.yaml`'s `kbites_loaded:` list and merge selections into `{id}_{name}_data.gmcc.yaml`'s `kbite:` list.
 
 ---
 
@@ -104,20 +148,18 @@ Skip if resuming a draft or clarified prompt that already has `kbites_loaded`.
 
 Explore the codebase using Glob/Grep/Read. Identify the files relevant to this prompt, the integration points, and any ambiguities to resolve in Clarify. Keep this in primary context — no subagents.
 
+**Persist your exploration notes** to `$GMCC_SESSION_PATH/prompts/{id}_{name}/memory/explore.md` (concise markdown — files surveyed, patterns spotted, open questions).
+
 ---
 
 ## Phase 3: Clarify
 
-1. Identify underspecified aspects (edge cases, scope boundaries, design preferences, backwards compat).
-2. Use AskUserQuestion to resolve all ambiguities.
-3. Write `$GMCC_SESSION_PATH/prompts/{id}_{name}_clarified.yaml`:
+1. Flip `{id}_{name}_data.gmcc.yaml`'s `prompt_status` to `Clarifying` and update `session_data.gmcc.yaml` prompts[] entry's `status: Clarifying`.
+2. Identify underspecified aspects (edge cases, scope boundaries, design preferences, backwards compat).
+3. Use AskUserQuestion to resolve all ambiguities.
+4. Write `$GMCC_SESSION_PATH/prompts/{id}_{name}/{id}_{name}_clarified.yaml`:
 
 ```yaml
-version: 1
-id: {id}
-name: {name}
-status: clarified
-command: /gm_bot
 clarified_at: {ISO 8601}
 original_content: |
   {raw user prompt}
@@ -139,9 +181,10 @@ kbites_loaded:
   - {kbite name}
 ```
 
-4. Update `session_data.gmcc.yaml`: flip the prompt entry's `status` to `clarified`, set `clarified_file: prompts/{id}_{name}_clarified.yaml`.
+5. Update `{id}_{name}_data.gmcc.yaml`: set `prompt_status: Clarified`, set `clarified_prompt_path: {id}_{name}_clarified.yaml`, bump `updated_time`.
+6. Update `session_data.gmcc.yaml` prompts[] entry: `status: Clarified`.
 
-The original draft file is **not modified** — the clarified file is the new source of truth.
+The `{id}_{name}_initial.yaml` file is **not modified** — the clarified file is the new source of truth.
 
 ---
 
@@ -151,6 +194,7 @@ The original draft file is **not modified** — the clarified file is the new so
 2. Design the implementation approach based on the clarified prompt + kbite context + exploration findings.
 3. Write a concrete plan with files-to-edit, ordered steps, and key patterns to follow.
 4. Exit plan mode for user approval.
+5. **Persist the approved plan** to `$GMCC_SESSION_PATH/prompts/{id}_{name}/memory/architecture.md`.
 
 ---
 
@@ -158,12 +202,13 @@ The original draft file is **not modified** — the clarified file is the new so
 
 1. Execute the approved plan.
 2. Make edits with Read/Edit/Write.
-3. After each file write, append to `session_data.gmcc.yaml`'s `changed_files:` list:
+3. After each file write, append to `session_data.gmcc.yaml`'s `changed_files:` list (conforms to `gmcc_session_data_file_changed_files_entry`):
    ```yaml
    - file: {path relative to instance}
      timestamp: {ISO 8601}
      lines: [[start, end], ...]
      commit: {short sha if committed, else "uncommitted"}
+     note: ""
    ```
 
 ---
@@ -171,8 +216,9 @@ The original draft file is **not modified** — the clarified file is the new so
 ## Phase 6: Feedback Integration
 
 1. Present a summary: files modified, key decisions, known limitations.
-2. Wait for user feedback. Iterate until satisfied.
-3. On completion, append a final phase-history line to `session_data.gmcc.yaml` (under a `phase_history:` section — create it if absent) noting completion of this prompt.
+2. **Persist a brief review note** to `$GMCC_SESSION_PATH/prompts/{id}_{name}/memory/review.md` covering what was built, what was deferred, and any known limitations.
+3. Wait for user feedback. Iterate until satisfied.
+4. On completion, append a final phase-history line to `session_data.gmcc.yaml` (under a `phase_history:` section — create it if absent) noting completion of this prompt.
 
 ```
 Bot Complete: prompt {id} ({name})
@@ -190,7 +236,7 @@ Bot Complete: prompt {id} ({name})
 
 **Session paused (user stops responding):**
 ```
-State preserved at: $GMCC_SESSION_PATH/prompts/{id}_{name}{_clarified}.yaml
+State preserved at: $GMCC_SESSION_PATH/prompts/{id}_{name}/
 
 To resume: /gm_bot {id} <continuation prompt>
 ```

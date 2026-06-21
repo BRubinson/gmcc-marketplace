@@ -6,9 +6,9 @@ disable-model-invocation: true
 allowed-tools: Read, Write, Edit, Grep, Glob, Bash, Task, AskUserQuestion
 ---
 
-# GM-CDE Bot RPI (Subagent Research/Plan/Implement, v6.0.0)
+# GM-CDE Bot RPI (Subagent Research/Plan/Implement, v10.0.0)
 
-You are executing an enhanced development workflow that leverages GMCC subagents for Research, Planning, and Review phases. Same prompt-into-session model as `/gm_bot`, with subagents added to Phases 2, 4, and 6.
+You are executing an enhanced development workflow that leverages GMCC subagents for Research, Planning, and Review phases. Same prompt-into-session model as `/gm_bot`, with subagents added to Phases 2, 4, and 6. Subagent reports are persisted to `prompts/{id}_{name}/memory/`.
 
 ---
 
@@ -26,7 +26,7 @@ Exit without proceeding.
 The SessionStart hook auto-creates `$GMCC_SESSION_PATH/{session_data.gmcc.yaml, prompts/}`. If `$GMCC_SESSION_PATH/session_data.gmcc.yaml` is missing, instruct the user to restart Claude Code.
 
 1. Read `$GMCC_SESSION_PATH/session_data.gmcc.yaml` for current session state.
-2. Skim recent clarified prompts under `$GMCC_SESSION_PATH/prompts/*_clarified.yaml` for context.
+2. Skim recent clarified prompts under `$GMCC_SESSION_PATH/prompts/*/*_clarified.yaml` for context.
 
 ---
 
@@ -34,27 +34,66 @@ The SessionStart hook auto-creates `$GMCC_SESSION_PATH/{session_data.gmcc.yaml, 
 
 Identical to `/gm_bot`. See `${CLAUDE_PLUGIN_ROOT}/commands/gm_bot.md` for full detail. Quick summary:
 
-- **Resume** (`/gm_bot_rpi 3 ...`): find prompt with `id: 3` in session_data; resume at Phase 4 if clarified, Phase 3 if draft.
+- **Resume** (`/gm_bot_rpi 3 ...`): find prompt with `id: 3` in session_data; follow `path:` to the prompt_data file. Resume at Phase 4 if `Clarified`, re-enter Phase 3 if `Clarifying`, jump to Phase 2 if `Draft`.
 - **New** (`/gm_bot_rpi auth-refactor ...`): assign next id, write draft yaml, append session_data entry, proceed.
 - **No args**: AskUserQuestion for name + content.
 
 ---
 
-## Draft Prompt File Template
+## Draft Prompt Folder Layout (v10.0.0)
 
-Write to `$GMCC_SESSION_PATH/prompts/{id}_{name}.yaml`:
+Each prompt is a FOLDER. At create time:
+
+```
+$GMCC_SESSION_PATH/prompts/{id}_{name}/
+    {id}_{name}_data.gmcc.yaml      # gmcc_prompt_data_file (index)
+    {id}_{name}_initial.yaml        # raw user prompt content
+    memory/                          # explore.md / architecture.md / review.md
+```
+
+### `{id}_{name}_data.gmcc.yaml`
+
+Conforms to `gmcc.gmcc_prompt_data_file`. Seed `kbite:` from parent
+`session_data.gmcc.yaml`'s `kbite:` list.
 
 ```yaml
-version: 1
+version: 2
+yeet:
+  - gmcc
+yeet_type: gmcc.gmcc_prompt_data_file
+
 id: {id}
+code: {name}
+uuid: {v4}
 name: {name}
-status: draft
+description: ""
+created_time: {ISO 8601}
+updated_time: {ISO 8601}
+gmcc_ckfs_absolute_path: {GMCC_SESSION_PATH}/prompts/{id}_{name}/{id}_{name}_data.gmcc.yaml
+gmcc_ckfs_relative_path: projects/{p}/instances/{i}/sessions/{s}/prompts/{id}_{name}/{id}_{name}_data.gmcc.yaml
+kbite: []                            # seeded from session_data.kbite
+initial_prompt_path: {id}_{name}_initial.yaml
+clarified_prompt_path: ""
+prompt_status: Draft
 command: /gm_bot_rpi
-created_at: {ISO 8601}
+```
+
+### `{id}_{name}_initial.yaml`
+
+```yaml
 content: |
   {raw user prompt}
 kbites_loaded: []
 kbite_context_summary: ""    # filled in Phase 1 for subagent passing
+```
+
+### session_data prompts[] entry
+
+```yaml
+  - id: {id}
+    name: {name}
+    status: Draft
+    path: prompts/{id}_{name}/{id}_{name}_data.gmcc.yaml
 ```
 
 ---
@@ -64,13 +103,13 @@ kbite_context_summary: ""    # filled in Phase 1 for subagent passing
 1. List available kbites: `ls $GMCC_KBITE_DIGESTED/`. For each, read `$GMCC_KBITE/{name}/KBITE_PURPOSE.md`.
 2. AskUserQuestion (multiSelect) to pick relevant kbites.
 3. For each selected kbite: read `KBITE_INDEX.md` + `KBITE_TRIGGER_MAP.md`, load top 3-5 chewed files, compile a **kbite context summary** (key learnings, takeaways, patterns).
-4. Update the draft prompt yaml's `kbites_loaded:` list and `kbite_context_summary:` field — this summary is passed to every subagent spawn.
+4. Update `{id}_{name}_initial.yaml`'s `kbites_loaded:` list and `kbite_context_summary:` field — this summary is passed to every subagent spawn. Merge selections into `{id}_{name}_data.gmcc.yaml`'s `kbite:` list.
 
 ---
 
 ## Phase 2: Implementation Overview (Explore Subagent)
 
-Spawn 1 explore subagent via Task tool. The subagent does its work in its own context window; it returns a structured report as its final message. The primary context receives the report content but does NOT persist it to disk (v6.0.0 deliberately drops intermediate-artifact persistence — see `skills/gmcc/ref/bot_workflows.md`).
+Spawn 1 explore subagent via Task tool. The subagent does its work in its own context window; it returns a structured report as its final message. The primary context receives the report content **and persists it** to `$GMCC_SESSION_PATH/prompts/{id}_{name}/memory/explore.md` (v10.0.0 — see `skills/gmcc/ref/bot_workflows.md`).
 
 ```
 Task tool:
@@ -100,22 +139,18 @@ Task tool:
     Include: Target, Key Files, Patterns, Integration Points, Dependencies, Uncertainties, Methodology Insights.
 ```
 
-Read the returned report into the primary context. Use it to inform Clarify.
+Read the returned report into the primary context AND write it verbatim to `$GMCC_SESSION_PATH/prompts/{id}_{name}/memory/explore.md`. Use it to inform Clarify.
 
 ---
 
 ## Phase 3: Clarify
 
-1. Review the exploration report for uncertainties and ambiguities.
-2. AskUserQuestion to resolve all identified issues (uncertainties, edge cases, integration preferences, scope boundaries).
-3. Write `$GMCC_SESSION_PATH/prompts/{id}_{name}_clarified.yaml`:
+1. Flip `{id}_{name}_data.gmcc.yaml`'s `prompt_status` to `Clarifying` and update session_data prompts[] entry's `status: Clarifying`.
+2. Review the exploration report for uncertainties and ambiguities.
+3. AskUserQuestion to resolve all identified issues (uncertainties, edge cases, integration preferences, scope boundaries).
+4. Write `$GMCC_SESSION_PATH/prompts/{id}_{name}/{id}_{name}_clarified.yaml`:
 
 ```yaml
-version: 1
-id: {id}
-name: {name}
-status: clarified
-command: /gm_bot_rpi
 clarified_at: {ISO 8601}
 original_content: |
   {raw user prompt}
@@ -136,13 +171,14 @@ kbites_loaded:
   - {kbite name}
 ```
 
-4. Update `session_data.gmcc.yaml`: flip prompt entry to `status: clarified`, set `clarified_file: prompts/{id}_{name}_clarified.yaml`.
+5. Update `{id}_{name}_data.gmcc.yaml`: set `prompt_status: Clarified`, set `clarified_prompt_path: {id}_{name}_clarified.yaml`, bump `updated_time`.
+6. Update `session_data.gmcc.yaml` prompts[] entry: `status: Clarified`.
 
 ---
 
 ## Phase 4: Plan (Architect Subagent)
 
-Spawn 1 architect subagent. Same in-conversation pattern — no disk persistence of the architecture doc.
+Spawn 1 architect subagent. The returned architecture is persisted to `$GMCC_SESSION_PATH/prompts/{id}_{name}/memory/architecture.md` after user approval.
 
 ```
 Task tool:
@@ -183,18 +219,21 @@ How would you like to proceed?
 - Reject and redesign - Start architecture over
 ```
 
+Once approved, write the architecture (verbatim from the subagent) to `$GMCC_SESSION_PATH/prompts/{id}_{name}/memory/architecture.md`.
+
 ---
 
 ## Phase 5: Implement
 
 1. Follow the approved architecture's build sequence.
 2. Make edits with Read/Edit/Write.
-3. After each file write, append to `session_data.gmcc.yaml`'s `changed_files:` list:
+3. After each file write, append to `session_data.gmcc.yaml`'s `changed_files:` list (conforms to `gmcc_session_data_file_changed_files_entry`):
    ```yaml
    - file: {path relative to instance}
      timestamp: {ISO 8601}
      lines: [[start, end], ...]
      commit: {short sha or "uncommitted"}
+     note: ""
    ```
 
 ---
@@ -239,6 +278,8 @@ How would you like to handle the findings?
 
 Implement requested fixes (back to Phase 5 for the fix subset).
 
+Write the review report (verbatim from the subagent) to `$GMCC_SESSION_PATH/prompts/{id}_{name}/memory/review.md`.
+
 ---
 
 ## Phase 7: Feedback Integration
@@ -278,7 +319,7 @@ Continue the phase in primary context as a fallback.
 
 **Session paused:**
 ```
-State preserved at: $GMCC_SESSION_PATH/prompts/{id}_{name}{_clarified}.yaml
+State preserved at: $GMCC_SESSION_PATH/prompts/{id}_{name}/
 
 To resume: /gm_bot_rpi {id} <continuation prompt>
 ```
