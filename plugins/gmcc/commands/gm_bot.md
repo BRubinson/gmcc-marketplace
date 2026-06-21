@@ -23,9 +23,9 @@ To fix: Restart Claude Code from within a git repository.
 ```
 Exit without proceeding.
 
-The SessionStart hook auto-creates `$GMCC_SESSION_PATH/{session_data.yaml, prompts/}`. If `$GMCC_SESSION_PATH/session_data.yaml` is missing, instruct the user to restart Claude Code (don't try to recover here).
+The SessionStart hook auto-creates `$GMCC_SESSION_PATH/{session_data.gmcc.yaml, prompts/}`. If `$GMCC_SESSION_PATH/session_data.gmcc.yaml` is missing, instruct the user to restart Claude Code (don't try to recover here).
 
-1. Read `$GMCC_SESSION_PATH/session_data.yaml` for current session state (existing prompts, changed_files).
+1. Read `$GMCC_SESSION_PATH/session_data.gmcc.yaml` for current session state (existing prompts, changed_files).
 2. Skim recent clarified prompts under `$GMCC_SESSION_PATH/prompts/*_clarified.yaml` for context if relevant.
 
 ---
@@ -39,7 +39,7 @@ Parse `$ARGUMENTS`:
 /gm_bot 3 continue with the login endpoint
          ^prompt id  ^continuation
 ```
-1. Find entry with `id: 3` in `session_data.yaml`'s `prompts:` list.
+1. Find entry with `id: 3` in `session_data.gmcc.yaml`'s `prompts:` list.
 2. If not found: error "No prompt with id 3 in current session".
 3. Determine resume phase from status:
    - `status: clarified` → load `prompts/3_*_clarified.yaml`, jump to Phase 4 (Implement)
@@ -51,9 +51,9 @@ Parse `$ARGUMENTS`:
 /gm_bot auth-refactor implement OAuth2 flow
          ^prompt name  ^prompt content
 ```
-1. Pick next prompt id: max existing id in `session_data.yaml` + 1, or 1 if none.
+1. Pick next prompt id: max existing id in `session_data.gmcc.yaml` + 1, or 1 if none.
 2. Write `$GMCC_SESSION_PATH/prompts/{id}_{name}.yaml` (draft — see template below).
-3. Append entry to `session_data.yaml`'s `prompts:` list with `status: draft`.
+3. Append entry to `session_data.gmcc.yaml`'s `prompts:` list with `status: draft`.
 4. Proceed to Phase 1.
 
 ### Case 3: No arguments
@@ -139,7 +139,7 @@ kbites_loaded:
   - {kbite name}
 ```
 
-4. Update `session_data.yaml`: flip the prompt entry's `status` to `clarified`, set `clarified_file: prompts/{id}_{name}_clarified.yaml`.
+4. Update `session_data.gmcc.yaml`: flip the prompt entry's `status` to `clarified`, set `clarified_file: prompts/{id}_{name}_clarified.yaml`.
 
 The original draft file is **not modified** — the clarified file is the new source of truth.
 
@@ -158,7 +158,7 @@ The original draft file is **not modified** — the clarified file is the new so
 
 1. Execute the approved plan.
 2. Make edits with Read/Edit/Write.
-3. After each file write, append to `session_data.yaml`'s `changed_files:` list:
+3. After each file write, append to `session_data.gmcc.yaml`'s `changed_files:` list:
    ```yaml
    - file: {path relative to instance}
      timestamp: {ISO 8601}
@@ -172,7 +172,7 @@ The original draft file is **not modified** — the clarified file is the new so
 
 1. Present a summary: files modified, key decisions, known limitations.
 2. Wait for user feedback. Iterate until satisfied.
-3. On completion, append a final phase-history line to `session_data.yaml` (under a `phase_history:` section — create it if absent) noting completion of this prompt.
+3. On completion, append a final phase-history line to `session_data.gmcc.yaml` (under a `phase_history:` section — create it if absent) noting completion of this prompt.
 
 ```
 Bot Complete: prompt {id} ({name})

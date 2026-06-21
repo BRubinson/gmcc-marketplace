@@ -17,7 +17,7 @@ When Claude Code starts a session:
 2. **detect_repo.sh executes**
    - Detects if in a git repository
    - If not in git repo: exits silently (no GMCC vars set)
-   - If in git repo: resolves project / instance / session for the current repo + branch, **lazily creates** any missing directories from `templates/projects/`, idempotently registers the project in `project_index.yaml`, and sets all GMCC environment variables (including the boot signal `GMCC_BOOTED=1`)
+   - If in git repo: resolves project / instance / session for the current repo + branch, **lazily creates** any missing directories from `templates/projects/`, idempotently registers the project in `project_index.gmcc.yaml`, and sets all GMCC environment variables (including the boot signal `GMCC_BOOTED=1`)
 3. **Environment variables written to `$CLAUDE_ENV_FILE`** — `detect_repo.sh` is the single source of truth for the full set. Read `${CLAUDE_PLUGIN_ROOT}/scripts/detect_repo.sh` directly for the authoritative export list. The diagnostics in this skill echo whatever is actually set at runtime.
 
 ## Boot Validation for Commands
@@ -88,9 +88,9 @@ echo "  Git repository: $(git rev-parse --git-dir > /dev/null 2>&1 && echo 'YES'
 echo "  System initialized: $([ -d "$HOME/gmcc_ckfs" ] && echo 'YES' || echo 'NO')"
 echo "  Projects root: $([ -d "$GMCC_PROJECTS" ] && echo 'YES - '$GMCC_PROJECTS || echo 'NO')"
 echo "  Projects registry: $([ -f "$GMCC_PROJECTS_INDEX" ] && echo 'YES' || echo 'NO')"
-echo "  Project provisioned: $([ -f "$GMCC_PROJECT_PATH/project_data.yaml" ] && echo 'YES - '$GMCC_PROJECT_PATH || echo 'NO')"
-echo "  Instance provisioned: $([ -f "$GMCC_INSTANCE_PATH/instance_data.yaml" ] && echo 'YES - '$GMCC_INSTANCE_PATH || echo 'NO')"
-echo "  Session provisioned: $([ -f "$GMCC_SESSION_PATH/session_data.yaml" ] && echo 'YES - '$GMCC_SESSION_PATH || echo 'NO')"
+echo "  Project provisioned: $([ -f "$GMCC_PROJECT_PATH/project_data.gmcc.yaml" ] && echo 'YES - '$GMCC_PROJECT_PATH || echo 'NO')"
+echo "  Instance provisioned: $([ -f "$GMCC_INSTANCE_PATH/instance_data.gmcc.yaml" ] && echo 'YES - '$GMCC_INSTANCE_PATH || echo 'NO')"
+echo "  Session provisioned: $([ -f "$GMCC_SESSION_PATH/session_data.gmcc.yaml" ] && echo 'YES - '$GMCC_SESSION_PATH || echo 'NO')"
 echo ""
 ```
 

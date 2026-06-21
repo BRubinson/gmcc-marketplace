@@ -27,15 +27,15 @@ Read this file on-demand when performing ckfs operations.
 ~/gmcc_ckfs/                                             # $GMCC_CKFS_ROOT
 ├── README.md
 ├── projects/                                            # $GMCC_PROJECTS
-│   ├── project_index.yaml                               # $GMCC_PROJECTS_INDEX
+│   ├── project_index.gmcc.yaml                               # $GMCC_PROJECTS_INDEX
 │   └── {project_name}/                                  # $GMCC_PROJECT_PATH
-│       ├── project_data.yaml
+│       ├── project_data.gmcc.yaml
 │       └── instances/
 │           └── {slug_of_abs_path}/                      # $GMCC_INSTANCE_PATH
-│               ├── instance_data.yaml
+│               ├── instance_data.gmcc.yaml
 │               └── sessions/
 │                   └── {sanitized_branch}/              # $GMCC_SESSION_PATH
-│                       ├── session_data.yaml
+│                       ├── session_data.gmcc.yaml
 │                       └── prompts/
 │                           ├── {id}_{name}.yaml             # draft
 │                           └── {id}_{name}_clarified.yaml   # clarified
@@ -67,24 +67,38 @@ A project corresponds to exactly one git repo (by basename). An instance is a un
 On every SessionStart, the hook ensures the following exist for the current git context. All steps are idempotent:
 
 1. `$GMCC_PROJECTS/` (created if missing — `/gm_init` does this normally; the hook is a safety net)
-2. `$GMCC_PROJECTS_INDEX` (copied from `templates/projects/project_index.yaml`)
-3. `$GMCC_PROJECT_PATH/{project_data.yaml, instances/}` (filled from `templates/projects/PROJECT_TEMPLATE/project_data.yaml` with placeholder substitution)
-4. `$GMCC_INSTANCE_PATH/{instance_data.yaml, sessions/}` (filled from `templates/projects/PROJECT_TEMPLATE/instances/INSTANCE_TEMPLATE/instance_data.yaml`)
-5. `$GMCC_SESSION_PATH/{session_data.yaml, prompts/}` (filled from `templates/projects/PROJECT_TEMPLATE/instances/INSTANCE_TEMPLATE/sessions/SESSION_TEMPLATE/session_data.yaml`)
+2. `$GMCC_PROJECTS_INDEX` (copied from `templates/projects/project_index.gmcc.yaml`)
+3. `$GMCC_PROJECT_PATH/{project_data.gmcc.yaml, instances/}` (filled from `templates/projects/PROJECT_TEMPLATE/project_data.gmcc.yaml` with placeholder substitution)
+4. `$GMCC_INSTANCE_PATH/{instance_data.gmcc.yaml, sessions/}` (filled from `templates/projects/PROJECT_TEMPLATE/instances/INSTANCE_TEMPLATE/instance_data.gmcc.yaml`)
+5. `$GMCC_SESSION_PATH/{session_data.gmcc.yaml, prompts/}` (filled from `templates/projects/PROJECT_TEMPLATE/instances/INSTANCE_TEMPLATE/sessions/SESSION_TEMPLATE/session_data.gmcc.yaml`)
 6. Append a project entry to `$GMCC_PROJECTS_INDEX` if new (idempotent grep-then-append)
 
 This means **commands can always assume the layout exists** — no per-command init logic is needed.
 
-## session_data.yaml (Current Schema)
+## session_data.gmcc.yaml (Current Schema — v6.1.0)
 
-Minimal v6.0.0 schema. Fuller schema design is deferred to a follow-up release.
+Conforms to `gmcc.gmcc_session_data_file`. The file body unwraps `has_base_fields`
+(serial id, code, uuid, name, description, created/updated time) and
+`has_ckfs_paths`, plus branch / instance_uuid / project_uuid back-references
+and the prompt/changed-files lists.
 
 ```yaml
-version: 1
+yeet:
+  - gmcc
+yeet_type: gmcc.gmcc_session_data_file
+
+id: 1
+code: {sanitized_branch}                       # was: branch (slug form)
+uuid: {v4}
+name: {display name — usually equal to code at creation}
+description: ""
+created_time: {ISO 8601}                       # was: started_at
+updated_time: {ISO 8601}
+gmcc_ckfs_absolute_path: {GMCC_SESSION_PATH}
+gmcc_ckfs_relative_path: projects/{project}/instances/{instance}/sessions/{branch}
 branch: {sanitized_branch}
-instance: {instance_id}
-project: {project_name}
-started_at: {ISO 8601}
+instance_uuid: {v4}                            # back-ref to the parent instance
+project_uuid: {v4}                             # back-ref to the parent project
 
 # Prompts authored by bot workflows. Files live in ./prompts/.
 prompts:
@@ -103,21 +117,31 @@ changed_files:
     commit: {short sha or "uncommitted"}
 ```
 
+The other three runtime yamls share the same outer shape: `yeet:` /
+`yeet_type:` headers, then `has_base_fields` + `has_ckfs_paths` fields,
+plus extras declared by their YEETS type. The hierarchy is **owner-local**
+— each file owns its direct children, not a deep tree:
+
+- `project_index.gmcc.yaml` → flat list of project entries (identity only).
+- `project_data.gmcc.yaml` → repo metadata + list of that project's instances.
+- `instance_data.gmcc.yaml` → `has_system_path` + `project_uuid` back-reference + list of that instance's sessions.
+- `session_data.gmcc.yaml` → standalone (no children list); carries `branch`, `instance_uuid`, `project_uuid` back-references plus the `prompts` / `changed_files` lists.
+
 ## Yaml Files (Editable By)
 
 | File | Purpose | Maintained by |
 |------|---------|---------------|
-| `project_index.yaml` | Registry of every project + instance | `detect_repo.sh` (registers); `/gm_cleanup` (prunes) |
-| `project_data.yaml` | Per-project identity, metadata | `detect_repo.sh` (creates); user or future commands (edits) |
-| `instance_data.yaml` | Per-instance identity, abs path | `detect_repo.sh` (creates); rarely edited |
-| `session_data.yaml` | Per-branch session state (prompts, changed files) | Bot workflows (continuous updates) |
+| `project_index.gmcc.yaml` | Flat registry of all projects (identity only) | `detect_repo.sh` (registers); `/gm_cleanup` (prunes) |
+| `project_data.gmcc.yaml` | Per-project identity, repo metadata, instance list | `detect_repo.sh` (creates + appends instances); user or future commands (edits) |
+| `instance_data.gmcc.yaml` | Per-instance identity, system path, session list | `detect_repo.sh` (creates + appends sessions); rarely edited |
+| `session_data.gmcc.yaml` | Per-branch session state (prompts, changed files) | Bot workflows (continuous updates) |
 | `prompts/*.yaml` | Per-prompt content (draft + clarified) | Bot workflows (immutable once clarified) |
 
 ## Prompts Lifecycle
 
 Bot workflows author prompts in two stages:
 
-1. **Draft** — `/gm_bot*` writes `$GMCC_SESSION_PATH/prompts/{id}_{name}.yaml` with the user's raw input. session_data.yaml entry status = `draft`.
-2. **Clarified** — After the Clarify phase, write `$GMCC_SESSION_PATH/prompts/{id}_{name}_clarified.yaml` with the refined prompt + Q/A pairs. session_data.yaml entry status = `clarified`. The draft file is **not** modified — the clarified file is the new source of truth from this point on.
+1. **Draft** — `/gm_bot*` writes `$GMCC_SESSION_PATH/prompts/{id}_{name}.yaml` with the user's raw input. session_data.gmcc.yaml entry status = `draft`.
+2. **Clarified** — After the Clarify phase, write `$GMCC_SESSION_PATH/prompts/{id}_{name}_clarified.yaml` with the refined prompt + Q/A pairs. session_data.gmcc.yaml entry status = `clarified`. The draft file is **not** modified — the clarified file is the new source of truth from this point on.
 
-Workflow intermediate artifacts (exploration reports, architecture docs, review reports) are **not persisted to disk**. They live in conversation context only. Resume across sessions relies on session_data.yaml prompt statuses and clarified prompt files.
+Workflow intermediate artifacts (exploration reports, architecture docs, review reports) are **not persisted to disk**. They live in conversation context only. Resume across sessions relies on session_data.gmcc.yaml prompt statuses and clarified prompt files.

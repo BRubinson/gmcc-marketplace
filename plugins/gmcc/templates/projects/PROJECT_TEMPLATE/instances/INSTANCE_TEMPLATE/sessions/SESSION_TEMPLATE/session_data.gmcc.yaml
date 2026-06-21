@@ -1,0 +1,32 @@
+# session_data.gmcc.yaml — per-branch session state.
+#
+# A session corresponds to a git branch within an instance.
+# SESSION_TEMPLATE_* placeholders are rewritten at copy time.
+#
+# Conforms to gmcc.gmcc_session_data_file (see $GMCC_PLUGIN_ROOT/gmcc.yeet.md).
+
+yeet:
+  - gmcc
+yeet_type: gmcc.gmcc_session_data_file
+
+id: 1
+code: SESSION_TEMPLATE_CODE
+uuid: SESSION_TEMPLATE_UUID
+name: SESSION_TEMPLATE_NAME
+description: ""
+created_time: SESSION_TEMPLATE_CREATED_AT
+updated_time: SESSION_TEMPLATE_CREATED_AT
+gmcc_ckfs_absolute_path: SESSION_TEMPLATE_CKFS_ABS_PATH
+gmcc_ckfs_relative_path: SESSION_TEMPLATE_CKFS_REL_PATH
+branch: SESSION_TEMPLATE_BRANCH
+instance_uuid: SESSION_TEMPLATE_INSTANCE_UUID
+project_uuid: SESSION_TEMPLATE_PROJECT_UUID
+
+# Prompts authored by bot workflows. Files live in ./prompts/.
+# v6.1.x stores these as untyped string entries; v6.2+ promotes to
+# proper Struct<session_prompt> entries.
+# Status flow: draft -> clarified.
+prompts: []
+
+# Files modified during this session. Maintained by bot workflows on each edit.
+changed_files: []

@@ -1,0 +1,36 @@
+# GMCC Projects Registry
+#
+# A flat list of every project tracked under this CKFS root. Per-project
+# instance lists live in each project's project_data.gmcc.yaml, and
+# per-instance session lists live in each instance's instance_data.gmcc.yaml.
+#
+# Maintained by detect_repo.sh (lazy registration on SessionStart) and /gm_cleanup.
+#
+# Conforms to gmcc.gmcc_project_index_file (see $GMCC_PLUGIN_ROOT/gmcc.yeet.md).
+
+yeet:
+  - gmcc
+yeet_type: gmcc.gmcc_project_index_file
+
+id: 1
+code: gmcc_runtime_project_index_file
+uuid: PROJECT_INDEX_FILE_UUID
+name: Project Index Runtime File
+description: "Authoritative GMCC project registry."
+created_time: PROJECT_INDEX_FILE_CREATED_AT
+updated_time: PROJECT_INDEX_FILE_CREATED_AT
+gmcc_ckfs_absolute_path: PROJECT_INDEX_FILE_CKFS_ABS_PATH
+gmcc_ckfs_relative_path: projects/project_index.gmcc.yaml
+
+projects: []
+# Each project entry conforms to gmcc_project_index_file_project_entry — identity only.
+# Follow gmcc_ckfs_absolute_path to that project's project_data.gmcc.yaml for instances.
+#   - id: int                                      # serial within projects[]
+#     code: {project_slug}                         # = git repo dir basename
+#     uuid: {v4}
+#     name: {display name}
+#     description: ""
+#     created_time: {ISO 8601}
+#     updated_time: {ISO 8601}
+#     gmcc_ckfs_absolute_path: {GMCC_PROJECTS}/{project_slug}
+#     gmcc_ckfs_relative_path: projects/{project_slug}

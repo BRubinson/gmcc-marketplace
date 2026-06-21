@@ -1,0 +1,35 @@
+# instance_data.gmcc.yaml — per-instance metadata + session list.
+#
+# An instance is a unique filesystem path to a checkout of the parent
+# project's repository. INSTANCE_TEMPLATE_* placeholders are rewritten
+# at copy time.
+#
+# Conforms to gmcc.gmcc_instance_data_file (see $GMCC_PLUGIN_ROOT/gmcc.yeet.md).
+
+yeet:
+  - gmcc
+yeet_type: gmcc.gmcc_instance_data_file
+
+id: 1
+code: INSTANCE_TEMPLATE_CODE
+uuid: INSTANCE_TEMPLATE_UUID
+name: INSTANCE_TEMPLATE_NAME
+description: ""
+created_time: INSTANCE_TEMPLATE_CREATED_AT
+updated_time: INSTANCE_TEMPLATE_CREATED_AT
+gmcc_ckfs_absolute_path: INSTANCE_TEMPLATE_CKFS_ABS_PATH
+gmcc_ckfs_relative_path: INSTANCE_TEMPLATE_CKFS_REL_PATH
+system_path: INSTANCE_TEMPLATE_SYSTEM_PATH
+project_uuid: INSTANCE_TEMPLATE_PROJECT_UUID
+
+sessions: []
+# Each session entry conforms to gmcc_instance_data_file_session_entry:
+#   - id: int
+#     code: {branch_slug}
+#     uuid: {v4}
+#     name: {display name}
+#     description: ""
+#     created_time: {ISO 8601}
+#     updated_time: {ISO 8601}
+#     gmcc_ckfs_absolute_path: ...
+#     gmcc_ckfs_relative_path: ...

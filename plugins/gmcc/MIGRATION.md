@@ -1,5 +1,61 @@
 # GMCC Migration Guide
 
+## v6.0.1 to v6.1.0 — Base YEETS types + `.gmcc.yaml` rename
+
+Populates `gmcc.yeet.md` with the core type definitions and migrates the
+four runtime yaml files to YEETS-validated `.gmcc.yaml` form.
+
+### New
+
+- `gmcc.yeet.md` now exports the **base `has_*` mixins** (`has_serial_id`,
+  `has_code`, `has_uuid`, `has_name`, `has_description`, `has_created_time`,
+  `has_updated_time`, `has_base_fields`, `has_gmcc_ckfs_absolute_path`,
+  `has_gmcc_ckfs_relative_path`, `has_ckfs_paths`, `has_system_path`) and
+  the four **runtime file types** (`gmcc_project_index_file`,
+  `gmcc_project_index_file_project_entry`, `gmcc_project_index_file_instance_entry`,
+  `gmcc_project_index_file_session_entry`, `gmcc_project_data_file`, `gmcc_instance_data_file`,
+  `gmcc_session_data_file`). Package UUID is the nil UUID (`00000000-...`),
+  reserved for the bootstrap package.
+- `UUID` and `FILE_PATH` are now primary types in YEETS.
+- New section in `skills/gmcc/SKILL.md`: **The `unwrap` keyword** —
+  documents YEETS struct composition (`unwrap` = implements / mixin),
+  including inline `<YEET>` shorthand and the canonical `Unwrap<other>`
+  longhand.
+- **`.gmcc.yaml` suffix** marks a yaml as YEETS-enabled. The four core
+  runtime files were renamed:
+    - `project_index.yaml` → `project_index.gmcc.yaml`
+    - `project_data.yaml` → `project_data.gmcc.yaml`
+    - `instance_data.yaml` → `instance_data.gmcc.yaml`
+    - `session_data.yaml` → `session_data.gmcc.yaml`
+  Each now carries `yeet:` + `yeet_type:` top-level keys and conforms to
+  its declared type.
+
+### Field changes inside the runtime yamls
+
+Each runtime yaml now unwraps `has_base_fields` + `has_ckfs_paths`. This
+adds `id` (int serial), `code` (the slug — formerly `id` for instances /
+`name` for projects), `uuid` (v4), `name` (display name), `description`,
+`created_time` (formerly `created_at` / `registered_at` / `started_at`),
+`updated_time`, `gmcc_ckfs_absolute_path`, `gmcc_ckfs_relative_path`.
+
+Instance entries also unwrap `has_system_path` — the underlying repo
+checkout path that used to live in `abs_path` now lives in `system_path`.
+
+`project_index.gmcc.yaml` is the registry: it nests `projects[]` →
+`instances[]` → `sessions[]`, each entry carrying full identity + path
+fields.
+
+### Migration steps
+
+1. Update the plugin to v6.1.0.
+2. `detect_repo.sh` provisions the new file shape automatically on next
+   SessionStart for any new project / instance / session.
+3. Existing v6.0.x `*.yaml` runtime files are NOT auto-migrated. Run
+   `/gm_cleanup` (or invoke the prompt that did the live migration) to
+   rewrite them.
+
+---
+
 ## v6.0.0 to v6.0.1 — YEETS scaffolding
 
 Adds the YEETS (YAML Expositional Estimated Typing System) language to GMCC.
@@ -35,15 +91,15 @@ Adds the YEETS (YAML Expositional Estimated Typing System) language to GMCC.
 │   ├── digested/{kbite_name}/...
 │   └── open/{kbite_name}/...
 └── projects/                                # NEW
-    ├── project_index.yaml                   # registry of all projects
+    ├── project_index.gmcc.yaml                   # registry of all projects
     └── {project_name}/                      # project name = git repo dir basename
-        ├── project_data.yaml
+        ├── project_data.gmcc.yaml
         └── instances/
             └── {slug_of_abs_path}/          # one entry per physical checkout of this repo
-                ├── instance_data.yaml
+                ├── instance_data.gmcc.yaml
                 └── sessions/
                     └── {sanitized_branch}/  # one entry per git branch in this instance
-                        ├── session_data.yaml
+                        ├── session_data.gmcc.yaml
                         └── prompts/
                             ├── {id}_{name}.yaml             # draft
                             └── {id}_{name}_clarified.yaml   # clarified
@@ -53,7 +109,7 @@ Adds the YEETS (YAML Expositional Estimated Typing System) language to GMCC.
 
 - The terms **FAM** and **per-branch FAM** are gone. Their replacement is **session** (a branch within an instance).
 - `GMCC_REPO_PATH`, `GMCC_FAM_PATH`, `GMCC_REPO_ID`, `GMCC_ACTIVE_BRANCH` env vars are removed (not renamed — they point at a structure that no longer exists).
-- `ChangedFiles.md` as a file is gone. Changed-files info is now a structured `changed_files:` section inside `session_data.yaml` (entries: `file`, `timestamp`, `lines` ranges, `commit`).
+- `ChangedFiles.md` as a file is gone. Changed-files info is now a structured `changed_files:` section inside `session_data.gmcc.yaml` (entries: `file`, `timestamp`, `lines` ranges, `commit`).
 - `thoughts/mem_{N}_{name}/` workflow directories are gone. The per-session `prompts/` directory replaces them, and bot workflows now author prompts (draft + clarified) only — intermediate exploration/architecture/review reports are no longer persisted to disk (they live in conversation context).
 - `plugins/gmcc/ckfs_templates/` is gone. Replaced by `plugins/gmcc/templates/projects/` (mirrors the runtime tree).
 
@@ -62,7 +118,7 @@ Adds the YEETS (YAML Expositional Estimated Typing System) language to GMCC.
 | Var | Value |
 |-----|-------|
 | `GMCC_PROJECTS` | `$GMCC_CKFS_ROOT/projects` |
-| `GMCC_PROJECTS_INDEX` | `$GMCC_CKFS_ROOT/projects/project_index.yaml` |
+| `GMCC_PROJECTS_INDEX` | `$GMCC_CKFS_ROOT/projects/project_index.gmcc.yaml` |
 | `GMCC_PROJECT_PATH` | `$GMCC_PROJECTS/{project_name}` |
 | `GMCC_INSTANCE_PATH` | `$GMCC_PROJECT_PATH/instances/{instance_id}` |
 | `GMCC_SESSION_PATH` | `$GMCC_INSTANCE_PATH/sessions/{branch}` |
@@ -79,7 +135,7 @@ Adds the YEETS (YAML Expositional Estimated Typing System) language to GMCC.
 
 ### Deferred schemas
 
-`project_data.yaml`, `instance_data.yaml`, `session_data.yaml`, and `project_index.yaml` ship with **minimal placeholder fields**. Full schema design lands in a follow-up release.
+`project_data.gmcc.yaml`, `instance_data.gmcc.yaml`, `session_data.gmcc.yaml`, and `project_index.gmcc.yaml` ship with **minimal placeholder fields**. Full schema design lands in a follow-up release.
 
 ---
 
@@ -106,7 +162,7 @@ This release is a set of focused cleanups in preparation for the upcoming FAM re
 
 ### What's coming next (v6.0.0)
 
-The FAM (`$GMCC_FAM_PATH`) format is being rewritten end-to-end. New top-level concept: `_PROJECTS` env var → `ckfs/projects/{name}/project_data.yaml` → instances (`instance_data.yaml`) → sessions (`session_data.yaml`). Templates will live under `plugins/gmcc/templates/projects/`. That work is gated on a separate RPI session; v5.5.0 is the last release of the current FAM format.
+The FAM (`$GMCC_FAM_PATH`) format is being rewritten end-to-end. New top-level concept: `_PROJECTS` env var → `ckfs/projects/{name}/project_data.gmcc.yaml` → instances (`instance_data.gmcc.yaml`) → sessions (`session_data.gmcc.yaml`). Templates will live under `plugins/gmcc/templates/projects/`. That work is gated on a separate RPI session; v5.5.0 is the last release of the current FAM format.
 
 ---
 

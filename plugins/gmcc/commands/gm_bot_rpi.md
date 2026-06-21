@@ -23,9 +23,9 @@ To fix: Restart Claude Code from within a git repository.
 ```
 Exit without proceeding.
 
-The SessionStart hook auto-creates `$GMCC_SESSION_PATH/{session_data.yaml, prompts/}`. If `$GMCC_SESSION_PATH/session_data.yaml` is missing, instruct the user to restart Claude Code.
+The SessionStart hook auto-creates `$GMCC_SESSION_PATH/{session_data.gmcc.yaml, prompts/}`. If `$GMCC_SESSION_PATH/session_data.gmcc.yaml` is missing, instruct the user to restart Claude Code.
 
-1. Read `$GMCC_SESSION_PATH/session_data.yaml` for current session state.
+1. Read `$GMCC_SESSION_PATH/session_data.gmcc.yaml` for current session state.
 2. Skim recent clarified prompts under `$GMCC_SESSION_PATH/prompts/*_clarified.yaml` for context.
 
 ---
@@ -136,7 +136,7 @@ kbites_loaded:
   - {kbite name}
 ```
 
-4. Update `session_data.yaml`: flip prompt entry to `status: clarified`, set `clarified_file: prompts/{id}_{name}_clarified.yaml`.
+4. Update `session_data.gmcc.yaml`: flip prompt entry to `status: clarified`, set `clarified_file: prompts/{id}_{name}_clarified.yaml`.
 
 ---
 
@@ -189,7 +189,7 @@ How would you like to proceed?
 
 1. Follow the approved architecture's build sequence.
 2. Make edits with Read/Edit/Write.
-3. After each file write, append to `session_data.yaml`'s `changed_files:` list:
+3. After each file write, append to `session_data.gmcc.yaml`'s `changed_files:` list:
    ```yaml
    - file: {path relative to instance}
      timestamp: {ISO 8601}
@@ -220,7 +220,7 @@ Task tool:
     {architecture doc from Phase 4}
 
     ## Files Changed
-    {list from session_data.yaml changed_files}
+    {list from session_data.gmcc.yaml changed_files}
 
     ## Output
     Return your review report as your final message.
@@ -245,7 +245,7 @@ Implement requested fixes (back to Phase 5 for the fix subset).
 
 1. Present a complete summary: what was built, files modified, review findings addressed, known limitations.
 2. Wait for user feedback. Iterate until satisfied.
-3. On completion, append to `session_data.yaml`:
+3. On completion, append to `session_data.gmcc.yaml`:
    ```yaml
    phase_history:
      - prompt_id: {id}

@@ -16,12 +16,12 @@ All bot workflows operate inside the **current session** — automatically resol
 
 A bot run does NOT create a new session — it adds a new **prompt** to the existing session:
 
-1. On invocation, the bot reads `$GMCC_SESSION_PATH/session_data.yaml`.
+1. On invocation, the bot reads `$GMCC_SESSION_PATH/session_data.gmcc.yaml`.
 2. It picks the next prompt id (max existing id + 1, or 1 if none).
 3. It writes a draft prompt to `$GMCC_SESSION_PATH/prompts/{id}_{name}.yaml` with the user's raw input + invocation metadata.
-4. It appends an entry to `session_data.yaml`'s `prompts:` list with `status: draft`.
+4. It appends an entry to `session_data.gmcc.yaml`'s `prompts:` list with `status: draft`.
 5. After the Clarify phase, it writes `$GMCC_SESSION_PATH/prompts/{id}_{name}_clarified.yaml` and flips the session_data entry to `status: clarified`.
-6. Implementation runs. Each file edit appends to `session_data.yaml`'s `changed_files:` list with file, timestamp, line ranges, and commit ref.
+6. Implementation runs. Each file edit appends to `session_data.gmcc.yaml`'s `changed_files:` list with file, timestamp, line ranges, and commit ref.
 
 ### Resume Logic
 
@@ -33,7 +33,7 @@ To resume an in-progress prompt, invoke with the prompt id as the first argument
 ```
 
 The bot:
-1. Reads `session_data.yaml`, finds prompt with `id: 3`.
+1. Reads `session_data.gmcc.yaml`, finds prompt with `id: 3`.
 2. If `status: clarified`, reads the clarified file and proceeds to Implement.
 3. If `status: draft`, reads the draft and resumes at Clarify.
 4. If id not found, errors.

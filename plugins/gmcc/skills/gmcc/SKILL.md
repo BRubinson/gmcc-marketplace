@@ -4,7 +4,7 @@ description: Green Mountain Compiler Collection - Core rules and behaviors for t
 user-invocable: false
 ---
 
-# GMCC - Green Mountain Compiler Collection (v6.0.1)
+# GMCC - Green Mountain Compiler Collection (v6.1.0)
 
 You are the **Green Mountain Bot (GMB)** in the **GM-CDE** environment.
 
@@ -26,7 +26,7 @@ All GMCC env vars are exported by `${CLAUDE_PLUGIN_ROOT}/scripts/detect_repo.sh`
 ## GM-CDE Three-Tier Architecture
 
 1. **Plugin (static)**: `$GMCC_PLUGIN_ROOT/` — Skills, commands, prompts, hooks, scripts, templates.
-2. **Per-Project CKFS**: `$GMCC_PROJECTS/{project_name}/` — project_data.yaml + instances. Each instance is a unique filesystem path to a checkout of that project's repo; each instance holds sessions (one per git branch).
+2. **Per-Project CKFS**: `$GMCC_PROJECTS/{project_name}/` — project_data.gmcc.yaml + instances. Each instance is a unique filesystem path to a checkout of that project's repo; each instance holds sessions (one per git branch).
 3. **System KBites**: `$GMCC_KBITE/` (= `$GMCC_CKFS_ROOT/kbites/`) — Shared knowledge across projects, split into `$GMCC_KBITE_DIGESTED/` (active indexes) and `$GMCC_KBITE_OPEN/` (in-progress maws). KBITE_PURPOSE.md lives at the kbite root, above the lifecycle split.
 
 For detailed structures, read: `$GMCC_PLUGIN_ROOT/skills/gmcc/ref/ckfs_details.md`
@@ -37,13 +37,13 @@ For detailed structures, read: `$GMCC_PLUGIN_ROOT/skills/gmcc/ref/ckfs_details.m
 
 ### Always Do
 1. Trust the SessionStart hook for project / instance / session resolution — never recompute the paths yourself
-2. Load current session context (`$GMCC_SESSION_PATH/session_data.yaml` + relevant `prompts/`) before starting work
-3. Record significant prompts to `$GMCC_SESSION_PATH/prompts/` and update `session_data.yaml`'s `prompts:` and `changed_files:` sections
+2. Load current session context (`$GMCC_SESSION_PATH/session_data.gmcc.yaml` + relevant `prompts/`) before starting work
+3. Record significant prompts to `$GMCC_SESSION_PATH/prompts/` and update `session_data.gmcc.yaml`'s `prompts:` and `changed_files:` sections
 4. Check kbite triggers on every prompt (read `ref/kbite_awareness.md` for protocol)
 
 ### Never Do
 1. Modify a clarified prompt file after creation — author a new prompt instead
-2. Skip session_data.yaml updates when changing tracked state
+2. Skip session_data.gmcc.yaml updates when changing tracked state
 3. Ignore ckfs maintenance
 
 ---
@@ -51,7 +51,7 @@ For detailed structures, read: `$GMCC_PLUGIN_ROOT/skills/gmcc/ref/ckfs_details.m
 ## On Context Compaction
 
 When context is compacted, immediately:
-1. Re-read `$GMCC_SESSION_PATH/session_data.yaml` for the prompt + changed-files summary
+1. Re-read `$GMCC_SESSION_PATH/session_data.gmcc.yaml` for the prompt + changed-files summary
 2. Re-read the most recent clarified prompts under `$GMCC_SESSION_PATH/prompts/`
 3. Restore awareness of current task state
 4. Check for relevant kbite triggers
@@ -93,6 +93,10 @@ All YEETS identifiers — enum names, struct names, field names, package names �
 | `decimal` | High-precision number with decimal points |
 | `int` | An integer |
 | `timestamp` | A millisecond Unix timestamp (epoch). Distinct from the ISO 8601 strings used in GMCC session yamls — those are `string` at the YEETS layer for v6.0.x. |
+| `uuid` | A canonical v4 UUID in the standard 8-4-4-4-12 lowercase-hex string form (e.g. `7508e7eb-8106-4675-a9d4-e9d649c9e2d2`). The nil UUID `00000000-0000-0000-0000-000000000000` is reserved as the "TODO stub" / bootstrap marker. |
+| `file_path` | An absolute or relative filesystem path. Stored as a string at the storage layer; YEETS validates the field exists but does not currently enforce path syntax. |
+| `http_uri` | An HTTP(S) URI, e.g. `https://github.com/owner/repo.git`. Stored as a string; YEETS validates the field exists but does not currently enforce URI syntax. |
+| `ssh_uri` | An SSH URI, e.g. `git@github.com:owner/repo.git`. Stored as a string; YEETS validates the field exists but does not currently enforce URI syntax. |
 
 ### Parametric collections
 
@@ -118,6 +122,45 @@ Structs:
 - Are parametrically composable (recursive refs via nullable fields are allowed).
 - Must be serializable to JSON, XML, YAML, and YEETS.
 - YEETS-defined functions are limited to **pure** mapping functions that return new instances — never mutate in place.
+
+### The `unwrap` keyword
+
+YEETS structs compose by `unwrap` — the YEETS analogue of "implements an interface" or "mixes in a trait". Unwrapping struct `B` into struct `A` makes every field of `B` directly accessible on instances of `A` via the same dotted convention (`a.field_from_b`), as if `B`'s fields were declared on `A`.
+
+Inline `<YEET>` shorthand:
+
+```
+<YEET>
+struct payee
+    unwrap account_details
+</YEET>
+```
+
+This says: `payee` has every field of `account_details`, accessible directly: if `account_details` has `routing_number`, then `payee_instance.routing_number` is valid. The `payee` struct is the implementer; `account_details` provides the value implementations.
+
+Canonical `.yeet.md` form (the longer grammar `/gm_compile` validates) uses `Unwrap<other_struct>` as a typed field whose name conventionally starts with `unwrap_`:
+
+```yaml
+structs:
+  account_details:
+    fields:
+      routing_number: string
+      account_number: string
+  payee:
+    fields:
+      unwrap_account_details: Unwrap<account_details>
+      display_name: string?
+```
+
+Semantics:
+
+- **Field-level access** — `payee.routing_number` resolves through the unwrap to `payee.unwrap_account_details.routing_number`. Both forms validate.
+- **Interface / implements** — treat the unwrapped struct as an interface; the unwrapping struct must satisfy every field it carries.
+- **Recursive composition** — unwrap chains compose. If `has_base_fields` unwraps `has_serial_id`, then a struct unwrapping `has_base_fields` exposes `id` at the top level.
+- **Name collisions** — two unwraps that both expose a field of the same name are a compile error. Qualify by removing one of the unwraps or by adding the field explicitly to break the tie.
+- **Multiple unwraps** — a struct may unwrap any number of other structs. There is no diamond rule beyond the collision check above.
+
+The base mixins in `gmcc.yeet.md` (e.g. `has_serial_id`, `has_uuid`, `has_name`, `has_ckfs_paths`) are designed to be unwrapped into larger types — this is how GMCC composes identity, timing, and path bundles without repeating fields.
 
 ### Canonical grammar
 
@@ -269,7 +312,9 @@ Two distinct import contracts:
    import ui.graphs.line
    ```
 
-2. **Inside supported `.yaml` files** — two top-level keys cooperate. `yeet:` lists imported packages; `yeet_type:` names the dotted struct path this yaml's body conforms to. `/gm_compile` reads both to drive validation.
+2. **Inside `.gmcc.yaml` files** — the `.gmcc.yaml` suffix declares a yaml as YEETS-enabled. Two top-level keys cooperate. `yeet:` lists imported packages; `yeet_type:` names the dotted struct path this yaml's body conforms to. `/gm_compile` reads both to drive validation. Plain `.yaml` files are unvalidated; the suffix is the opt-in signal.
+
+   The four core GMCC runtime yamls all use this suffix: `project_index.gmcc.yaml`, `project_data.gmcc.yaml`, `instance_data.gmcc.yaml`, `session_data.gmcc.yaml`. Their canonical types live in `gmcc.yeet.md`.
 
    ```yaml
    yeet:
@@ -283,7 +328,7 @@ Two distinct import contracts:
 
 ### Core type file
 
-The GMCC base package `gmcc` lives at `$GMCC_PLUGIN_ROOT/gmcc.yeet.md`. The package itself exists (and has a real UUID); the types it exports are currently TODO stubs awaiting v6.1 population. Author additional packages as sibling `.yeet.md` files; package paths follow a dotted hierarchy like Java packages.
+The GMCC base package `gmcc` lives at `$GMCC_PLUGIN_ROOT/gmcc.yeet.md`. It uses the reserved nil UUID (`00000000-0000-0000-0000-000000000000`) as the canonical bootstrap-package marker. The package exports the base `has_*` mixins (composed via `unwrap`) and the four runtime file types (`gmcc_project_index_file`, `gmcc_project_data_file`, `gmcc_instance_data_file`, `gmcc_session_data_file`). Author additional packages as sibling `.yeet.md` files; package paths follow a dotted hierarchy like Java packages.
 
 ### Compilation
 

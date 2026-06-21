@@ -33,7 +33,7 @@ Or use /gm_bot_rpi for subagent-based workflow.
 ```
 Exit without proceeding.
 
-1. Read `$GMCC_SESSION_PATH/session_data.yaml` for current session state.
+1. Read `$GMCC_SESSION_PATH/session_data.gmcc.yaml` for current session state.
 2. Skim recent clarified prompts for context.
 
 ---
@@ -165,7 +165,7 @@ kbites_loaded:
   - {kbite name}
 ```
 
-4. Update `session_data.yaml`: flip prompt entry to `status: clarified`.
+4. Update `session_data.gmcc.yaml`: flip prompt entry to `status: clarified`.
 
 ---
 
@@ -224,7 +224,7 @@ How would you like to proceed?
 
 1. Follow the approved unified architecture's build sequence.
 2. Make edits with Read/Edit/Write.
-3. After each file write, append to `session_data.yaml`'s `changed_files:` list:
+3. After each file write, append to `session_data.gmcc.yaml`'s `changed_files:` list:
    ```yaml
    - file: {path}
      timestamp: {ISO 8601}
@@ -255,7 +255,7 @@ Read and follow your agent identity from: $GMCC_PLUGIN_ROOT/prompts/gmcc_agent_c
 {unified architecture from Phase 4}
 
 ## Files Changed
-{list from session_data.yaml changed_files}
+{list from session_data.gmcc.yaml changed_files}
 
 ## Methodology Assignment: {methodology}
 Apply YOUR methodology's lens. Conservatives look for stability risks; aggressives look for missed simplifications; pragmatists check value-vs-effort; alternatives challenge assumptions.
@@ -287,7 +287,7 @@ Implement requested fixes.
 
 1. Present a complete summary.
 2. Wait for feedback. Iterate until satisfied.
-3. On completion, append to `session_data.yaml`:
+3. On completion, append to `session_data.gmcc.yaml`:
    ```yaml
    phase_history:
      - prompt_id: {id}

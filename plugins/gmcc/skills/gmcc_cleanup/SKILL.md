@@ -21,7 +21,7 @@ The skill is also useful steady-state: catching orphan registry entries, missing
 - After upgrading from v5.x to v6.0.0
 - Periodically, to keep the CKFS tidy
 - After manual ckfs edits (renamed dirs, deleted files) that may have desynced the registry
-- When `/gm_bot*` reports a missing or malformed `session_data.yaml`
+- When `/gm_bot*` reports a missing or malformed `session_data.gmcc.yaml`
 
 ---
 
@@ -31,12 +31,12 @@ The skill is also useful steady-state: catching orphan registry entries, missing
 |----------|---------|--------------------|
 | Legacy v5.x FAM | `~/gmcc_ckfs/{repo}/fam/{branch}/ChangedFiles.md` | Archive to `~/gmcc_ckfs/_archive/legacy_fam/{repo}/{branch}/` (default), or delete, or convert manually |
 | Legacy v5.x repo root | `~/gmcc_ckfs/{repo}/` with no `projects/` parent | Archive (default) or delete |
-| Orphan project registry entry | `project_index.yaml` lists `foo` but `projects/foo/` doesn't exist | Remove from registry (default) or recreate empty project dir |
-| Orphan project dir | `projects/foo/` exists but `foo` is not in `project_index.yaml` | Re-register (default) or archive |
-| Orphan instance registry entry | `project_index.yaml` lists an instance `abs_path` that no longer exists on disk | Remove from registry (default) or keep (user moved the checkout temporarily) |
-| Missing `project_data.yaml` | `projects/{name}/instances/` exists but `project_data.yaml` doesn't | Recreate from template (default) |
-| Missing `instance_data.yaml` | `projects/{p}/instances/{i}/sessions/` exists but `instance_data.yaml` doesn't | Recreate from template (default) |
-| Missing `session_data.yaml` | `sessions/{branch}/prompts/` has files but `session_data.yaml` doesn't | Recreate from template (default), rebuild `prompts:` list from filenames |
+| Orphan project registry entry | `project_index.gmcc.yaml` lists `foo` but `projects/foo/` doesn't exist | Remove from registry (default) or recreate empty project dir |
+| Orphan project dir | `projects/foo/` exists but `foo` is not in `project_index.gmcc.yaml` | Re-register (default) or archive |
+| Orphan instance registry entry | `project_index.gmcc.yaml` lists an instance `abs_path` that no longer exists on disk | Remove from registry (default) or keep (user moved the checkout temporarily) |
+| Missing `project_data.gmcc.yaml` | `projects/{name}/instances/` exists but `project_data.gmcc.yaml` doesn't | Recreate from template (default) |
+| Missing `instance_data.gmcc.yaml` | `projects/{p}/instances/{i}/sessions/` exists but `instance_data.gmcc.yaml` doesn't | Recreate from template (default) |
+| Missing `session_data.gmcc.yaml` | `sessions/{branch}/prompts/` has files but `session_data.gmcc.yaml` doesn't | Recreate from template (default), rebuild `prompts:` list from filenames |
 | **Outdated schema** | yaml `version:` field is lower than the template's `version:` for the same file type | **LLM-driven migration** (default — see "Schema Migration" section below), or skip, or backup+recreate |
 | Malformed yaml | file fails to parse as yaml | LLM-driven repair (default — uses template + parseable fragments as context), or backup + recreate, or manual fix |
 | Cruft at unexpected level | `projects/{name}/foo.txt` not matching the schema | Keep (default) or archive |
@@ -55,7 +55,7 @@ This section is the **only** place in the live plugin that mentions these concep
 | `gmcc_user_workspace` (external) | A pre-CKFS scratch dir at `~/gmcc_user_workspace/`, used before v6 unified everything under `$GMCC_CKFS_ROOT`. Often git-initialized with assorted `.md`, `.swift`, `.excalidraw` files and ad-hoc sub-projects. | `~/gmcc_user_workspace/` (outside the CKFS) | Any directory at `$HOME/gmcc_user_workspace` is legacy by definition. Default action: **Archive** to `~/gmcc_ckfs/_archive/cold_storage/gmcc_user_workspace_external/`. |
 | `gmcc_user_workspace` (CKFS-internal) | A v5.x-era copy that lived as a v5 repo root inside the CKFS, with its own `fam/`, `resource/`, `REPOSITORY_INDEX.md`, etc. | `~/gmcc_ckfs/gmcc_user_workspace/` | Falls under the generic "Legacy v5.x repo root" rule above. Default action: **Archive** to `~/gmcc_ckfs/_archive/cold_storage/gmcc_user_workspace/`. |
 | `$GMCC_FAM_PATH` and friends | The v5.x env vars `GMCC_FAM_PATH`, `GMCC_REPO_PATH`, `GMCC_REPO_ID`, `GMCC_ACTIVE_BRANCH` pointed at the per-branch FAM directory structure. The runtime no longer exports them; if a shell still has them set, it's a stale shell. | `~/.zshrc`, `~/.bashrc`, exported in a long-running shell session | Grep user rc files for `GMCC_FAM_PATH=` / `GMCC_REPO_PATH=` exports. Default action: **flag for user** — do not auto-edit shell rc files. |
-| FAM hierarchy | `~/gmcc_ckfs/{repo}/fam/{branch}/{ChangedFiles,Famalouge,Purpose,Tasks}.md` + `thoughts/mem_*` dirs. Replaced by `sessions/{branch}/session_data.yaml` + `prompts/`. | Anywhere under `~/gmcc_ckfs/{anything}/fam/` | Covered by the "Legacy v5.x FAM" rule above. |
+| FAM hierarchy | `~/gmcc_ckfs/{repo}/fam/{branch}/{ChangedFiles,Famalouge,Purpose,Tasks}.md` + `thoughts/mem_*` dirs. Replaced by `sessions/{branch}/session_data.gmcc.yaml` + `prompts/`. | Anywhere under `~/gmcc_ckfs/{anything}/fam/` | Covered by the "Legacy v5.x FAM" rule above. |
 | `gmcc_plugin_template/` at CKFS root | A scaffolding dir for authoring sibling plugins; removed in v5.5.0. | `~/gmcc_ckfs/gmcc_plugin_template/` | Covered by the "Legacy `gmcc_plugin_template/`" rule above. |
 | `ckfs_templates/` inside the plugin | Pre-v6 template location for FAM/CKFS scaffolding. Moved to `plugins/gmcc/templates/projects/`. | `plugins/gmcc/ckfs_templates/` inside any installed plugin checkout | Not normally on the user's CKFS — flag only if encountered. |
 | `thoughts/mem_{N}_{name}/` dirs | v5.x equivalent of today's `prompts/{id}_{name}.yaml` + `_clarified.yaml`. | Inside any legacy `fam/{branch}/` tree | Captured by FAM hierarchy detection. |
@@ -85,10 +85,10 @@ Each templated yaml file carries a top-level `version:` integer. The cleanup ski
 
 | File type | Template path (current-version source) |
 |-----------|----------------------------------------|
-| `project_index.yaml` | `templates/projects/project_index.yaml` |
-| `project_data.yaml` | `templates/projects/PROJECT_TEMPLATE/project_data.yaml` |
-| `instance_data.yaml` | `templates/projects/PROJECT_TEMPLATE/instances/INSTANCE_TEMPLATE/instance_data.yaml` |
-| `session_data.yaml` | `templates/projects/PROJECT_TEMPLATE/instances/INSTANCE_TEMPLATE/sessions/SESSION_TEMPLATE/session_data.yaml` |
+| `project_index.gmcc.yaml` | `templates/projects/project_index.gmcc.yaml` |
+| `project_data.gmcc.yaml` | `templates/projects/PROJECT_TEMPLATE/project_data.gmcc.yaml` |
+| `instance_data.gmcc.yaml` | `templates/projects/PROJECT_TEMPLATE/instances/INSTANCE_TEMPLATE/instance_data.gmcc.yaml` |
+| `session_data.gmcc.yaml` | `templates/projects/PROJECT_TEMPLATE/instances/INSTANCE_TEMPLATE/sessions/SESSION_TEMPLATE/session_data.gmcc.yaml` |
 | `prompts/{id}_{name}.yaml`, `{id}_{name}_clarified.yaml` | No templates ship — current version is hardcoded in this skill (currently 1). Bump this constant when the prompt-file schema changes. |
 
 If the on-disk version is **equal** to the template's: file is compliant, no finding.
@@ -114,7 +114,7 @@ For each "Outdated schema" finding the user chose to migrate:
    - The full on-disk file content (the outdated one).
    - The full current template file (from `$GMCC_PLUGIN_ROOT/templates/projects/...`).
    - The relevant section of `$GMCC_PLUGIN_ROOT/skills/gmcc/ref/ckfs_details.md` (the schema documentation for that file type).
-   - Sibling files at the same level if they could disambiguate intent (e.g., for a `session_data.yaml` migration, the directory's `prompts/*.yaml` filenames help rebuild the prompts list if v2 changed its shape).
+   - Sibling files at the same level if they could disambiguate intent (e.g., for a `session_data.gmcc.yaml` migration, the directory's `prompts/*.yaml` filenames help rebuild the prompts list if v2 changed its shape).
 
 2. **Produce the migrated content.** Apply these rules when generating it:
    - Preserve every piece of user data from the old file — never drop fields whose data is recoverable. If a field was renamed, carry the value forward under the new name.
@@ -129,12 +129,12 @@ For each "Outdated schema" finding the user chose to migrate:
    - **Re-roll** — ask the model to produce a different migration (useful if the first attempt mishandled a field). The user can provide a hint.
    - **Backup + recreate from template** — drop the user's data, write a fresh file at the current version. Last resort.
 
-4. **On Apply**, record the migration in `session_data.yaml` of the **current** session (the one running `/gm_cleanup`) under a `cleanup_actions:` list. Each entry: `{path, action: "schema_migration", from_version, to_version, timestamp}`. This is the audit trail.
+4. **On Apply**, record the migration in `session_data.gmcc.yaml` of the **current** session (the one running `/gm_cleanup`) under a `cleanup_actions:` list. Each entry: `{path, action: "schema_migration", from_version, to_version, timestamp}`. This is the audit trail.
 
 ### What the user sees per migration
 
 ```
-[GMB] Outdated schema: sessions/feature__login/session_data.yaml
+[GMB] Outdated schema: sessions/feature__login/session_data.gmcc.yaml
 
   Current on-disk version: 1
   Template version: 2
@@ -142,8 +142,8 @@ For each "Outdated schema" finding the user chose to migrate:
   I read: the file, the v2 template, and the schema doc.
   My proposed migration:
 
-  --- /Users/.../session_data.yaml (v1)
-  +++ /Users/.../session_data.yaml (v2)
+  --- /Users/.../session_data.gmcc.yaml (v1)
+  +++ /Users/.../session_data.gmcc.yaml (v2)
   @@ -1,8 +1,12 @@
    version: 1
   +version: 2
@@ -186,12 +186,12 @@ No `if version == 1: ...` branches to write or maintain.
 The walk is bounded — never recurses into git repos, kbite resource trees, or `_archive/`. Order:
 
 1. **Top-level of `$GMCC_CKFS_ROOT`** — anything other than `README.md`, `projects/`, `kbites/`, `_archive/` is a finding.
-2. **`projects/`** — anything other than `project_index.yaml` and per-project dirs is a finding.
-3. **Per-project dir** — must have `project_data.yaml` + `instances/`. Anything else is a finding.
-4. **Per-instance dir** — must have `instance_data.yaml` + `sessions/`. Anything else is a finding.
-5. **Per-session dir** — must have `session_data.yaml` + `prompts/`. Anything else is a finding.
+2. **`projects/`** — anything other than `project_index.gmcc.yaml` and per-project dirs is a finding.
+3. **Per-project dir** — must have `project_data.gmcc.yaml` + `instances/`. Anything else is a finding.
+4. **Per-instance dir** — must have `instance_data.gmcc.yaml` + `sessions/`. Anything else is a finding.
+5. **Per-session dir** — must have `session_data.gmcc.yaml` + `prompts/`. Anything else is a finding.
 6. **`prompts/`** — only `{id}_{name}.yaml` and `{id}_{name}_clarified.yaml` files; nothing else.
-7. **Cross-check `project_index.yaml`** against actual `projects/{name}/instances/{id}/` dirs. Mismatches in either direction are findings.
+7. **Cross-check `project_index.gmcc.yaml`** against actual `projects/{name}/instances/{id}/` dirs. Mismatches in either direction are findings.
 8. **Legacy detection**: `~/gmcc_ckfs/{anything}/fam/` is the v5.x signature. Any `{anything}/fam/{branch}/` tree is flagged with its full contents.
 
 ---
@@ -249,7 +249,7 @@ Resolved: {n}/{total} findings
 
 Aborted findings (still present): {n}
 
-Audit trail: cleanup_actions entries appended to $GMCC_SESSION_PATH/session_data.yaml
+Audit trail: cleanup_actions entries appended to $GMCC_SESSION_PATH/session_data.gmcc.yaml
 ```
 
 ---
