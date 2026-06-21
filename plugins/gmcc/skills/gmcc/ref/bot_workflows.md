@@ -19,7 +19,7 @@ A bot run does NOT create a new session — it adds a new **prompt** to the exis
 ```
 $GMCC_SESSION_PATH/prompts/{id}_{name}/
     {id}_{name}_data.gmcc.yaml      # gmcc_prompt_data_file (index/status, version: 3)
-    {id}_{name}_initial.yaml        # gmcc_initial_prompt_file: backstory/goal/detail + kbite context
+    {id}_{name}_initial.yaml        # gmcc_initial_prompt_file: detail (verbatim) + empty goal/backstory + kbite context
     {id}_{name}_clarified.yaml      # gmcc_clarified_prompt_file (absent until Clarified)
     memory/
         explore.md                   # exploration report (Phase 2)
@@ -33,7 +33,7 @@ below.
 
 1. On invocation, the bot reads `$GMCC_SESSION_PATH/session_data.gmcc.yaml`.
 2. It picks the next prompt id (max existing id + 1, or 1 if none).
-3. It creates `prompts/{id}_{name}/` with the `memory/` subdir, writes `{id}_{name}_data.gmcc.yaml` (conforms to `gmcc_prompt_data_file`, `version: 3`, `prompt_status: Draft`, kbite seeded from `session_data.kbite`) and `{id}_{name}_initial.yaml` (conforms to `gmcc_initial_prompt_file`; `backstory` inherited from `session_data.backstory`, plus `goal` + `detail`).
+3. It creates `prompts/{id}_{name}/` with the `memory/` subdir, writes `{id}_{name}_data.gmcc.yaml` (conforms to `gmcc_prompt_data_file`, `version: 3`, `prompt_status: Draft`, kbite seeded from `session_data.kbite`) and `{id}_{name}_initial.yaml` (conforms to `gmcc_initial_prompt_file`; the passed prompt is written **verbatim** to `detail`, `goal` left empty `""`, `backstory` inherited verbatim from `session_data.backstory` — all three are human-input only, never split or authored).
 4. It appends a lightweight stub to `session_data.gmcc.yaml`'s `prompts:` list (conforms to `gmcc_session_data_file_prompt_files_entry`): `id`, `name`, `status: Draft`, `path: prompts/{id}_{name}/{id}_{name}_data.gmcc.yaml`.
 5. The Clarify phase flips `prompt_status` to `Clarifying`. Its **first** step is YEET-type detection over the initial prompt (see Prompt Style below); it then runs **separate** goal and detail clarification suites, and on completion writes `{id}_{name}_clarified.yaml` (conforms to `gmcc_clarified_prompt_file`), sets `clarified_prompt_path`, flips `prompt_status` to `Clarified`, and updates the session_data stub.
 6. Implementation runs. Each file edit appends to `session_data.gmcc.yaml`'s `changed_files:` list (conforms to `gmcc_session_data_file_changed_files_entry`): `file`, `timestamp`, `lines`, `commit`, `note`.
@@ -72,13 +72,17 @@ the `.yaml` suffix and carry `yeet:` + `yeet_type:` headers for `/gm_compile`.
 
 | Field | Meaning |
 |-------|---------|
-| `backstory` | Inherited from the session's `backstory:` at draft-create time (empty unless a session backstory was set). May diverge per prompt. A future tool may write the session value. |
-| `goal` | The generally desired outcome, akin to acceptance criteria. |
-| `detail` | How to accomplish the goal — the remaining specifics. |
+| `backstory` | **Human input.** Inherited verbatim from the session's `backstory:` at draft-create time (empty `""` unless a session backstory was set). May diverge per prompt. A future editor lets humans write it. |
+| `goal` | **Human input.** The generally desired outcome / acceptance criteria. Left empty (`""`) at create time. |
+| `detail` | **Human input.** How to accomplish the goal — the specifics. |
 | `kbites_loaded` (+ `kbite_context_summary?`) | KBites loaded in Phase 1; summary is subagent/team-only. |
 
-When the user supplies one undifferentiated blob, split it faithfully into goal
-(the outcome) vs detail (everything else) — never invent requirements.
+**STAY TRUE — never split, infer, or author `backstory`/`goal`/`detail`.** These
+three are human-authored only (an editor is coming). When creating a NEW prompt
+from a passed argument, the entire passed prompt is assumed to be `detail` and is
+written there **verbatim**; `goal` is left empty (`""`); `backstory` is inherited
+from the session (`""` if unset). Never split a blob into goal vs detail and never
+invent an outcome — the Clarify phase fleshes out the goal later via human Q&A.
 
 ### Clarify phase — detection first, then split suites
 

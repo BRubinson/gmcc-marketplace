@@ -54,19 +54,23 @@ Same folder shape as `/gm_bot_rpi`:
 ```
 $GMCC_SESSION_PATH/prompts/{id}_{name}/
     {id}_{name}_data.gmcc.yaml      # gmcc_prompt_data_file (index, version: 3)
-    {id}_{name}_initial.yaml        # split prompt: backstory / goal / detail
+    {id}_{name}_initial.yaml        # prompt style: detail (verbatim) + empty goal/backstory
     memory/                          # synthesized explore/architecture/review
 ```
 
 `{id}_{name}_data.gmcc.yaml` conforms to `gmcc.gmcc_prompt_data_file` (`version: 3`)
 with `command: /gm_bot_team` and `prompt_status: Draft`. Seed `kbite:` from parent
 session_data. `{id}_{name}_initial.yaml` conforms to `gmcc.gmcc_initial_prompt_file`
-— it keeps the `.yaml` suffix but carries `yeet:` + `yeet_type:` headers and splits
-the prompt into `backstory:` (inherited from parent `session_data.gmcc.yaml`'s
-`backstory:` at create time, empty unless set; may diverge), `goal:`, and `detail:`,
-plus `kbites_loaded:` + `kbite_context_summary:`. session_data prompts[] entry uses
-the lightweight stub shape (`id`, `name`, `status`, `path`). See `gm_bot_rpi.md` for
-the exact yaml templates.
+— it keeps the `.yaml` suffix but carries `yeet:` + `yeet_type:` headers. Its three
+prompt-style fields are **human-authored only** — **STAY TRUE, do NOT split, infer,
+or author them.** When creating a NEW prompt from a passed argument, the entire
+passed prompt is assumed to be `detail:` and written there **verbatim**; `goal:` is
+left empty (`""`); `backstory:` is inherited verbatim from the parent
+`session_data.gmcc.yaml`'s `backstory:` (empty `""` if unset; may diverge). Never
+split a blob into goal vs detail or invent an outcome — the Phase 3 Clarify suite
+fleshes out the goal later. Also write `kbites_loaded:` + `kbite_context_summary:`.
+session_data prompts[] entry uses the lightweight stub shape (`id`, `name`,
+`status`, `path`). See `gm_bot_rpi.md` for the exact yaml templates.
 
 ---
 

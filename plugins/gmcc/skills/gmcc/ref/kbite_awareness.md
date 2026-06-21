@@ -1,24 +1,31 @@
-# KBite Trigger Awareness Reference
+# KBite Awareness Reference
 
-<!-- [FIX #2] Extracted from core SKILL.md to reduce auto-loaded context.
-     Read this file when working with kbites or when trigger matching is needed. -->
+<!-- Extracted from core SKILL.md to reduce auto-loaded context.
+     Read this file when working with kbites. -->
 
-## Trigger Check Protocol (CRITICAL)
+## KBite Loading Protocol
 
 The KBite system provides persistent, indexed knowledge at `$GMCC_KBITE_DIGESTED/`.
 
-**On EVERY prompt**, before beginning work:
+KBites are **inherited, not trigger-matched**. The kbites relevant to the current
+work are declared up the ckfs hierarchy — project → instance → session → prompt —
+and recorded in each level's `kbite:` registry. There is no per-prompt keyword
+scan and no automatic activation.
 
-1. **Scan for triggers**: Parse the user prompt for keywords that might match kbite triggers
-2. **Check available kbites**: For each kbite in `$GMCC_KBITE_DIGESTED/`:
-   - Read `$GMCC_KBITE_DIGESTED/{name}/KBITE_TRIGGERS.md`
-   - Check for keyword matches with confidence > 70
-3. **Load relevant knowledge**: If triggers match:
-   - Read `$GMCC_KBITE_DIGESTED/{name}/KBITE_TRIGGER_MAP.md` to find relevant resources
-   - Load the mapped `*_chewed.md` files
-   - Include this knowledge in your working context
-4. **Cite sources**: When using kbite knowledge, cite the source:
-   - "Per the claude_code_sdk kbite..."
+To use kbite knowledge:
+
+1. **Read the registry**: the active kbites are listed in
+   `$GMCC_SESSION_PATH/session_data.gmcc.yaml`'s `kbite:` field (and, for a
+   specific prompt, the prompt's own `kbite:` list). Wider context — the instance
+   and project `kbite:` registries — is available on demand.
+2. **Load on demand**: for a registered kbite, read
+   `$GMCC_KBITE/{name}/KBITE_PURPOSE.md` + `$GMCC_KBITE_DIGESTED/{name}/KBITE_INDEX.md`,
+   then load the relevant `*_chewed.md` files. Explore freely with Bash
+   (`find`, `cat`, `rg`) — you have read-only run of the ckfs tree.
+3. **Explicit add only**: add a kbite to a registry only when the user explicitly
+   asks for it. Never add one on your own initiative.
+4. **Cite sources**: when using kbite knowledge, cite the source:
+   - "Per the swift_code_edit kbite..."
    - "According to kbite knowledge..."
 
 ## When to Suggest New KBites

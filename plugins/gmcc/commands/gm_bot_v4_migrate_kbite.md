@@ -25,7 +25,7 @@ $GMCC_KBITE_OPEN/{name}/...
 **After** (current):
 ```
 $GMCC_KBITE/{name}/KBITE_PURPOSE.md             # identity-level (above lifecycle)
-$GMCC_KBITE_DIGESTED/{name}/{KBITE_INDEX.md, KBITE_TRIGGERS.md, KBITE_TRIGGER_MAP.md, KBITE_RELATIONSHIPS.md, primary/, secondary/}
+$GMCC_KBITE_DIGESTED/{name}/{KBITE_INDEX.md, KBITE_RELATIONSHIPS.md, primary/, secondary/}
 $GMCC_KBITE_OPEN/{name}/...
 ```
 
@@ -76,8 +76,9 @@ for entry in "$GMCC_KBITE"/*/; do
     mkdir -p "$dst"
     # Move index files and resource trees into digested/.
     # Note: KBITE_PURPOSE.md is intentionally NOT in this list — Phase 1b lands it at the kbite root.
-    for item in KBITE_INDEX.md KBITE_TRIGGERS.md \
-                KBITE_TRIGGER_MAP.md KBITE_RELATIONSHIPS.md \
+    # Legacy KBITE_TRIGGERS.md / KBITE_TRIGGER_MAP.md are intentionally NOT migrated — the
+    # trigger-activation paradigm is retired (kbites are inherited via the kbite: registries).
+    for item in KBITE_INDEX.md KBITE_RELATIONSHIPS.md \
                 primary secondary; do
         if [ -e "$src$item" ]; then
             mv "$src$item" "$dst/"

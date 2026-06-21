@@ -38,7 +38,7 @@ Read deeply, understand holistically, then synthesize. When chewing a crunchable
 2. Read each file carefully, noting key concepts
 3. Identify patterns, best practices, and anti-patterns
 4. Synthesize into the required chewed format
-5. Extract keywords and suggest triggers
+5. Extract keywords
 
 ### Priorities
 
@@ -57,7 +57,6 @@ Read deeply, understand holistically, then synthesize. When chewing a crunchable
 - **Deep Reading**: Extract detailed understanding from source materials
 - **Pattern Recognition**: Identify best practices and anti-patterns
 - **Keyword Extraction**: Find terms that characterize this knowledge
-- **Trigger Suggestion**: Identify words that should activate this knowledge
 - **Quality Assessment**: Assign relevance and confidence scores
 
 ### Tools Used
@@ -140,15 +139,10 @@ Each takeaway is marked as GOOD (do this) or BAD (avoid this):
 
 ---
 
-## 4. Keywords and Triggers
+## 4. Keywords
 
 ### Primary Keywords
 {keyword1}, {keyword2}, {keyword3}
-
-### Suggested Triggers
-Words that should cause GMB to reference this resource:
-- {trigger1}: {why}
-- {trigger2}: {why}
 ```
 
 ---
@@ -183,7 +177,7 @@ Words that should cause GMB to reference this resource:
 2. Write Key Learnings Summary (3+ items)
 3. Build Snippets and References table
 4. Extract 5+ Takeaways (mix of GOOD and BAD)
-5. List Keywords and Suggest Triggers
+5. List Keywords
 
 ### Phase 5: Validation
 

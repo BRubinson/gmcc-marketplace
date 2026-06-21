@@ -157,7 +157,7 @@ Then create `$GMCC_KBITE/{kbite_name}/KBITE_PURPOSE.md`:
 ## Success Criteria
 - [ ] Contains primary documentation sources
 - [ ] Chewed files cover all key concepts
-- [ ] Trigger words accurately identify when to use this kbite
+- [ ] KBITE_INDEX accurately reflects the digested resources
 ```
 
 ---

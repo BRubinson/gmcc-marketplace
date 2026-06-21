@@ -18,7 +18,7 @@ The KBite (Knowledge Bite) system provides persistent, indexed knowledge storage
 
 A **KBite** is a persisted analysis directory format that is:
 - **Pre-tokenized**: Content has been analyzed and summarized for efficient consumption
-- **Indexed**: Searchable via keywords, triggers, and relationships
+- **Indexed**: Searchable via keywords and relationships
 - **Persistent**: Stored at the system level, shared across all repositories
 - **Referenced**: GMCC agents and contexts can efficiently lookup relevant information
 
@@ -63,8 +63,6 @@ The list of known kbites is `ls $GMCC_KBITE_DIGESTED/`.
 ```
 $GMCC_KBITE_DIGESTED/{kbite_name}/
 ├── KBITE_INDEX.md                      # Master index of all digested resources
-├── KBITE_TRIGGERS.md                   # Trigger words that activate this kbite
-├── KBITE_TRIGGER_MAP.md                # Trigger → Index entry mappings
 ├── KBITE_RELATIONSHIPS.md              # Relationships to other kbites
 │
 ├── primary/                            # Axis 1: Primary sources
@@ -260,57 +258,10 @@ Each takeaway is marked as GOOD (do this) or BAD (avoid this):
 
 ---
 
-## 4. Keywords and Triggers
+## 4. Keywords
 
 ### Primary Keywords
 {keyword1}, {keyword2}, {keyword3}
-
-### Suggested Triggers
-Words that should cause GMB to reference this resource:
-- {trigger1}: {why}
-- {trigger2}: {why}
-```
-
----
-
-## Trigger System
-
-### KBITE_TRIGGERS.md
-
-Lists trigger words that should activate this kbite:
-
-```markdown
-# KBite Triggers: {kbite_name}
-
-When any of these concepts appear in a prompt or project context, GMB should check this kbite.
-
-## Trigger Words
-
-| Trigger | Confidence | Context |
-|---------|------------|---------|
-| {word} | {0-100} | {when this trigger applies} |
-
-## Anti-Triggers
-
-Words that might seem related but should NOT activate this kbite:
-
-| Word | Reason |
-|------|--------|
-| {word} | {why it's not relevant} |
-```
-
-### KBITE_TRIGGER_MAP.md
-
-Maps triggers to the most relevant index entries:
-
-```markdown
-# KBite Trigger Map: {kbite_name}
-
-Quick lookup from trigger word to relevant resources.
-
-| Trigger | Best Resource | Path | Relevance |
-|---------|---------------|------|-----------|
-| {trigger} | {resource_name} | {axis1/axis2/name} | {0-100} |
 ```
 
 ---
@@ -401,33 +352,37 @@ Moves chewed resources from the open maw into the digested index:
 2. Spawns architects to determine optimal index structure
 3. Moves resources from `$GMCC_KBITE_OPEN/{kbite_name}/` to `$GMCC_KBITE_DIGESTED/{kbite_name}/`
 4. Updates KBITE_INDEX
-5. Generates KBITE_TRIGGERS and KBITE_TRIGGER_MAP
-6. Deletes the `open/` folder
+5. Deletes the `open/` folder
 
 ---
 
 ## GMB Behavioral Rules for KBites
 
-### Trigger Awareness (CRITICAL)
+### KBite Awareness (CRITICAL)
 
-When operating in GM-CDE mode, GMB MUST:
+KBites are **inherited, not trigger-matched**. The kbites relevant to the current
+work are declared up the ckfs hierarchy — project → instance → session → prompt —
+and recorded in each level's `kbite:` registry. When operating in GM-CDE mode,
+GMB MUST:
 
-1. **Check Triggers on Every Prompt**: Before beginning any task, scan the user prompt for kbite trigger words
-2. **Load Relevant KBites**: When triggers match, read the KBITE_TRIGGER_MAP and relevant chewed files
-3. **Reference in Responses**: When using kbite knowledge, cite the source (e.g., "Per claude_code_sdk kbite...")
-4. **Update Triggers**: When discovering new relevant terms during work, note them for future trigger updates
+1. **Read the Registry**: the active kbites are listed in
+   `$GMCC_SESSION_PATH/session_data.gmcc.yaml`'s `kbite:` field (and a prompt's
+   own `kbite:` list). There is no per-prompt keyword scan.
+2. **Load Registered KBites**: for a registered kbite, read its
+   `KBITE_PURPOSE.md` + `KBITE_INDEX.md` and the relevant chewed files.
+3. **Reference in Responses**: when using kbite knowledge, cite the source
+   (e.g., "Per the swift_code_edit kbite...").
+4. **Explicit Add Only**: add a kbite to a registry only when the user explicitly
+   asks for it. Never add one on your own initiative.
 
-### Trigger Check Protocol
+### KBite Load Protocol
 
 ```
-1. Parse user prompt for keywords
-2. For each kbite in $GMCC_KBITE_DIGESTED/:
-   a. Read $GMCC_KBITE_DIGESTED/{name}/KBITE_TRIGGERS.md
-   b. Check for keyword matches
-   c. If match found with confidence > 70:
-      - Read $GMCC_KBITE_DIGESTED/{name}/KBITE_TRIGGER_MAP.md
-      - Load relevant chewed files
-      - Include knowledge in context
+1. Read the kbite: registry from session_data.gmcc.yaml (and the active prompt)
+2. For each registered kbite in $GMCC_KBITE_DIGESTED/:
+   a. Read $GMCC_KBITE/{name}/KBITE_PURPOSE.md + KBITE_INDEX.md
+   b. Load the relevant chewed files (explore with find/cat/rg as needed)
+   c. Include knowledge in context
 3. Proceed with task using loaded knowledge
 ```
 
@@ -467,7 +422,7 @@ The kbite system integrates with core GMCC:
 1. **Environment**: Uses `$GMCC_KBITE`, `$GMCC_KBITE_DIGESTED`, `$GMCC_KBITE_OPEN` for path resolution
 2. **System-Level Storage**: Open maws live next to digested indexes under the same kbite folder — independent of FAM/branch
 3. **Agent System**: Uses GMCC agent framework for chewing
-4. **Trigger System**: Adds behavioral rule to core GMCC skill
+4. **Registry System**: Active kbites are declared in the `kbite:` registries of the project/instance/session/prompt data files
 
 ---
 
@@ -491,6 +446,6 @@ gmcc:agent:kbite_crunch_chew(
 1. **One Topic Per KBite**: Keep kbites focused on a single SDK/tool/domain
 2. **Primary First**: Prioritize official documentation over secondary sources
 3. **Quality Over Quantity**: Better to have 5 excellent chewed resources than 20 shallow ones
-4. **Update Triggers**: Regularly review and refine trigger words based on usage
+4. **Keep the Index Current**: Regularly review and refine KBITE_INDEX as resources change
 5. **Cross-Reference**: Use KBITE_RELATIONSHIPS to connect related knowledge
 6. **Cite Sources**: Always reference kbite knowledge with attribution

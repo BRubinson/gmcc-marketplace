@@ -8,7 +8,7 @@ allowed-tools: Read, Write, Bash, Glob, Grep, Task
 
 # /gm_crunch_digest {kbite_name}
 
-Finalizes a kbite by moving all chewed resources from the maw to persistent storage and generating index/trigger files.
+Finalizes a kbite by moving all chewed resources from the maw to persistent storage and generating the index file.
 
 ---
 
@@ -74,8 +74,6 @@ $GMCC_KBITE_OPEN/{kbite_name}/
 $GMCC_KBITE/{kbite_name}/KBITE_PURPOSE.md       # identity-level (created at open-maw time)
 $GMCC_KBITE_DIGESTED/{kbite_name}/
 ├── KBITE_INDEX.md
-├── KBITE_TRIGGERS.md
-├── KBITE_TRIGGER_MAP.md
 ├── KBITE_RELATIONSHIPS.md
 ├── {axis1}/{axis2}/{resource_name}/
 └── {axis1}/{axis2}/{resource_name}_chewed.md
@@ -88,14 +86,13 @@ $GMCC_KBITE_DIGESTED/{kbite_name}/
 ### Step 1: Review Chewed Resources
 
 1. Read all `*_chewed.md` files from the maw
-2. Collect all keywords, triggers, and takeaways
+2. Collect all keywords and takeaways
 3. Read existing KBITE_INDEX.md (if exists) for merge
 
 ### Step 2: Spawn Architect Agents
 
 Spawn 4 `gmcc:agent:code_architect` agents with different methodologies to determine optimal:
 - Index structure
-- Trigger word selection
 - Keyword cross-reference organization
 
 ```
@@ -112,14 +109,13 @@ gmcc:agent:code_architect(
 
 **Architect Output Expected:**
 - Recommended KBITE_INDEX structure
-- Trigger word recommendations with confidence scores
 - Keyword cross-reference suggestions
 - Any resources to exclude or flag
 
 ### Step 3: Synthesize Architect Recommendations
 
 Combine insights from all 4 architects:
-1. Use consensus for trigger words (>2 architects agree)
+1. Use consensus for index structure (>2 architects agree)
 2. Take highest-confidence keyword mappings
 3. Flag disagreements for review
 
@@ -178,45 +174,7 @@ Per the **gmcc_kbite** skill KBITE_INDEX format:
 | {keyword} | {res1, res2} | {highest_relevance} |
 ```
 
-### Step 7: Generate KBITE_TRIGGERS.md
-
-Per the **gmcc_kbite** skill KBITE_TRIGGERS format:
-
-```markdown
-# KBite Triggers: {kbite_name}
-
-When any of these concepts appear in a prompt or project context, GMB should check this kbite.
-
-## Trigger Words
-
-| Trigger | Confidence | Context |
-|---------|------------|---------|
-| {word} | {0-100} | {when applies} |
-
-## Anti-Triggers
-
-Words that might seem related but should NOT activate this kbite:
-
-| Word | Reason |
-|------|--------|
-| {word} | {reason} |
-```
-
-### Step 8: Generate KBITE_TRIGGER_MAP.md
-
-Per the **gmcc_kbite** skill KBITE_TRIGGER_MAP format:
-
-```markdown
-# KBite Trigger Map: {kbite_name}
-
-Quick lookup from trigger word to relevant resources.
-
-| Trigger | Best Resource | Path | Relevance |
-|---------|---------------|------|-----------|
-| {trigger} | {resource} | {path} | {0-100} |
-```
-
-### Step 9: Initialize KBITE_RELATIONSHIPS.md
+### Step 7: Initialize KBITE_RELATIONSHIPS.md
 
 If not exists, create per the **gmcc_kbite** skill format:
 
@@ -236,7 +194,7 @@ If not exists, create per the **gmcc_kbite** skill format:
 | *None yet* | - | - |
 ```
 
-### Step 10: Delete Open Maw
+### Step 8: Delete Open Maw
 
 After successful migration:
 
@@ -259,22 +217,11 @@ Digest Complete: {kbite_name}
 |--------|-------|
 | Resources Moved | {n} |
 | Keywords Indexed | {n} |
-| Triggers Created | {n} |
 
 ## Generated Files
 
 - KBITE_INDEX.md - Master resource index
-- KBITE_TRIGGERS.md - Activation triggers
-- KBITE_TRIGGER_MAP.md - Trigger to resource mapping
 - KBITE_RELATIONSHIPS.md - Cross-kbite relationships
-
-## Top Triggers
-
-| Trigger | Best Resource | Confidence |
-|---------|---------------|------------|
-| {trigger1} | {resource} | {score} |
-| {trigger2} | {resource} | {score} |
-| {trigger3} | {resource} | {score} |
 
 ## Maw Cleanup
 
@@ -282,9 +229,8 @@ The open maw at `$GMCC_KBITE_OPEN/{kbite_name}/` has been deleted.
 
 ## Next Steps
 
-1. Test triggers by using related keywords in prompts
-2. Add relationships with `/gm_kbite_relate {kbite_name} {other_kbite} {description}`
-3. Review KBITE_TRIGGERS.md and refine as needed
+1. Add relationships with `/gm_kbite_relate {kbite_name} {other_kbite} {description}`
+2. Review KBITE_INDEX.md and refine as needed
 ```
 
 ---
@@ -318,5 +264,5 @@ The maw has NOT been deleted. Fix the issue and run /gm_crunch_digest {kbite_nam
 ```
 [GMB] Warning: Architect agent failed
 
-Proceeding with basic index structure. Review and refine triggers manually.
+Proceeding with basic index structure. Review and refine the index manually.
 ```

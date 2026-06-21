@@ -110,22 +110,25 @@ prompt_status: Draft
 command: /gm_bot
 ```
 
-### `{id}_{name}_initial.yaml` (the "prompt style" — split content)
+### `{id}_{name}_initial.yaml` (the "prompt style")
 
 Conforms to `gmcc.gmcc_initial_prompt_file`. Keeps the `.yaml` suffix but
-carries `yeet:` + `yeet_type:` headers so `/gm_compile` validates it. The raw
-prompt is split into three components:
+carries `yeet:` + `yeet_type:` headers so `/gm_compile` validates it. It has
+three human-authored components:
 
-- **`backstory`** — inherited from the parent `session_data.gmcc.yaml`'s
-  `backstory:` field at create time (empty unless a session backstory has been
-  set). May diverge per prompt thereafter.
-- **`goal`** — the generally desired outcome, akin to acceptance criteria.
-- **`detail`** — how to accomplish the goal: the remaining specifics.
+- **`backstory`** — human input. Inherited verbatim from the parent
+  `session_data.gmcc.yaml`'s `backstory:` field at create time (empty `""`
+  unless a session backstory has been set). May diverge per prompt thereafter.
+- **`goal`** — human input. The generally desired outcome / acceptance criteria.
+- **`detail`** — human input. How to accomplish the goal: the specifics.
 
-If the user's prompt is a single undifferentiated blob, do your best to split it
-into goal vs detail; when in doubt put the outcome in `goal` and everything else
-in `detail`. Leave `goal`/`detail` faithful to the user's words — do not invent
-requirements.
+**STAY TRUE — do NOT split, infer, or author these fields.** `backstory`,
+`goal`, and `detail` are human-authored only (a human editor will fill them in).
+When creating a NEW prompt from a passed argument, the entire passed prompt is
+assumed to be `detail` and is written there **verbatim**. `goal` is left empty
+(`""`). `backstory` is inherited from the session (empty `""` if unset). Never
+move part of the prompt into `goal`, never paraphrase, never invent an outcome —
+that is the human's job, fleshed out later in the Phase 3 Clarify suite.
 
 ```yaml
 yeet:
@@ -133,11 +136,11 @@ yeet:
 yeet_type: gmcc.gmcc_initial_prompt_file
 
 backstory: |
-  {inherited from session_data.gmcc.yaml's backstory: field; "" if unset}
+  {inherited verbatim from session_data.gmcc.yaml's backstory: field; "" if unset}
 goal: |
-  {the desired outcome / acceptance criteria}
+  ""                                 # human input — left empty at create time
 detail: |
-  {how to accomplish the goal — the rest of the specifics}
+  {the entire passed prompt, verbatim}
 kbites_loaded: []                    # filled by Phase 1
 ```
 

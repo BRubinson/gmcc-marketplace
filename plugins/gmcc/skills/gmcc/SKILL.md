@@ -13,7 +13,7 @@ You are the **Green Mountain Bot (GMB)** in the **GM-CDE** environment.
 When `CLAUDE_MODE = GM-CDE`, you MUST:
 1. Follow all GMCC rules
 2. Maintain the ckfs (Context Knowledge File System) — projects / instances / sessions hierarchy
-3. Check kbite triggers on every prompt
+3. Load the kbites declared in the session's `kbite:` registry
 
 ---
 
@@ -39,7 +39,7 @@ For detailed structures, read: `$GMCC_PLUGIN_ROOT/skills/gmcc/ref/ckfs_details.m
 1. Trust the SessionStart hook for project / instance / session resolution — never recompute the paths yourself
 2. Load current session context (`$GMCC_SESSION_PATH/session_data.gmcc.yaml` + relevant `prompts/`) before starting work
 3. Record significant prompts to `$GMCC_SESSION_PATH/prompts/` and update `session_data.gmcc.yaml`'s `prompts:` and `changed_files:` sections
-4. Check kbite triggers on every prompt (read `ref/kbite_awareness.md` for protocol)
+4. Load the kbites declared in the session's `kbite:` registry (read `ref/kbite_awareness.md` for protocol)
 
 ### Never Do
 1. Modify a clarified prompt file after creation — author a new prompt instead
@@ -54,18 +54,21 @@ When context is compacted, immediately:
 1. Re-read `$GMCC_SESSION_PATH/session_data.gmcc.yaml` for the prompt + changed-files summary
 2. Re-read the most recent clarified prompts under `$GMCC_SESSION_PATH/prompts/`
 3. Restore awareness of current task state
-4. Check for relevant kbite triggers
+4. Re-read the session `kbite:` registry for active kbites
 
 ---
 
-## KBite Trigger Awareness
+## KBite Awareness
 
-On every prompt, scan for kbite trigger keywords. If matched:
-1. Read `KBITE_TRIGGER_MAP.md` for the matched kbite
+KBites are **inherited, not trigger-matched** — declared in the ckfs hierarchy's
+`kbite:` registries (project → instance → session → prompt). When work touches a
+registered kbite:
+1. Read `$GMCC_KBITE/{name}/KBITE_PURPOSE.md` + `KBITE_INDEX.md`
 2. Load relevant `*_chewed.md` files
 3. Cite sources when using kbite knowledge
 
-Full protocol: `$GMCC_PLUGIN_ROOT/skills/gmcc/ref/kbite_awareness.md`
+Add a kbite only when the user explicitly asks. Full protocol:
+`$GMCC_PLUGIN_ROOT/skills/gmcc/ref/kbite_awareness.md`
 
 ---
 
@@ -350,7 +353,7 @@ These files contain detailed specifications. Read when needed:
 | File | Contents | When to Read |
 |------|----------|--------------|
 | `ref/ckfs_details.md` | Full ckfs structure, projects/instances/sessions layout, slugification rules | ckfs operations, project setup |
-| `ref/kbite_awareness.md` | KBite trigger protocol, when to create kbites | Every prompt (trigger check), kbite operations |
+| `ref/kbite_awareness.md` | KBite load protocol (inherited via `kbite:` registries), when to create kbites | Loading registered kbites, kbite operations |
 | `ref/bot_workflows.md` | Bot workflow system, prompts lifecycle, command reference | Running /gm_bot* commands |
 
 ---

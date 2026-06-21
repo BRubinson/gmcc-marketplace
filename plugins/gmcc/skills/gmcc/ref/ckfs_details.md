@@ -187,7 +187,7 @@ Each prompt is a folder, not a loose file:
 ```
 prompts/{id}_{name}/
     {id}_{name}_data.gmcc.yaml      # the gmcc_prompt_data_file (index, version: 3)
-    {id}_{name}_initial.yaml        # split prompt: backstory / goal / detail (v11.0.0)
+    {id}_{name}_initial.yaml        # prompt style: detail (verbatim) + empty goal/backstory (v11.0.0)
     {id}_{name}_clarified.yaml      # absent until prompt_status = Clarified
     memory/
         explore.md                   # Phase 2 artifact
@@ -210,13 +210,17 @@ Both content files keep the plain `.yaml` suffix but carry `yeet:` +
 `yeet_type:` headers so `/gm_compile` validates them.
 
 `{id}_{name}_initial.yaml` conforms to `gmcc.gmcc_initial_prompt_file` — the
-"prompt style" split:
+"prompt style". `backstory`/`goal`/`detail` are **human-input only**; the bot
+must **STAY TRUE** and never split, infer, or author them (a human editor is
+coming). At create time the entire passed prompt is written **verbatim** to
+`detail`; `goal` is left empty (`""`); `backstory` is inherited from the session.
 
-- **`backstory`** — inherited from the parent `session_data.gmcc.yaml`'s
-  `backstory:` at draft-create time (empty unless a session backstory was set).
-  May diverge per prompt afterward.
-- **`goal`** — the desired outcome, akin to acceptance criteria.
-- **`detail`** — how to accomplish the goal.
+- **`backstory`** — human input, inherited verbatim from the parent
+  `session_data.gmcc.yaml`'s `backstory:` at draft-create time (empty `""` unless
+  a session backstory was set). May diverge per prompt afterward.
+- **`goal`** — human input; the desired outcome / acceptance criteria. Empty
+  (`""`) at create time; built up later in the Clarify phase.
+- **`detail`** — human input; the passed prompt verbatim (how to accomplish it).
 - `kbites_loaded` (+ `kbite_context_summary` for the subagent/team tiers).
 
 `{id}_{name}_clarified.yaml` conforms to `gmcc.gmcc_clarified_prompt_file` —
@@ -236,7 +240,7 @@ it resolved), `key_files`, `constraints`, `kbites_loaded`
 | `instance_data.gmcc.yaml` | Per-instance identity, system path, session list | `detect_repo.sh` (creates + appends sessions, each with `branch:`) |
 | `session_data.gmcc.yaml` | Per-branch session state (typed prompts, typed changed_files) | Bot workflows (continuous updates) |
 | `prompts/{id}_{name}/{id}_{name}_data.gmcc.yaml` | Per-prompt index | Bot workflows (status flips, path fills) |
-| `prompts/{id}_{name}/{id}_{name}_initial.yaml` | Split prompt (backstory/goal/detail) | Bot workflows (immutable after Phase 1) |
+| `prompts/{id}_{name}/{id}_{name}_initial.yaml` | Prompt style (human-input backstory/goal/detail; passed prompt → detail verbatim, goal/backstory empty at create) | Bot workflows (immutable after Phase 1) |
 | `prompts/{id}_{name}/{id}_{name}_clarified.yaml` | Clarified prompt | Bot workflows (immutable once written) |
 | `prompts/{id}_{name}/memory/*.md` | Bot phase artifacts | Bot workflows (last-run-wins overwrite) |
 

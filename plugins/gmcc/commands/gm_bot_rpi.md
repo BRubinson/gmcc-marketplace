@@ -47,7 +47,7 @@ Each prompt is a FOLDER. At create time:
 ```
 $GMCC_SESSION_PATH/prompts/{id}_{name}/
     {id}_{name}_data.gmcc.yaml      # gmcc_prompt_data_file (index)
-    {id}_{name}_initial.yaml        # split prompt: backstory / goal / detail
+    {id}_{name}_initial.yaml        # prompt style: detail (verbatim) + empty goal/backstory
     memory/                          # explore.md / architecture.md / review.md
 ```
 
@@ -81,12 +81,18 @@ command: /gm_bot_rpi
 ### `{id}_{name}_initial.yaml`
 
 Conforms to `gmcc.gmcc_initial_prompt_file`. Keeps the `.yaml` suffix but carries
-`yeet:` + `yeet_type:` headers for `/gm_compile`. The raw prompt is split into the
-"prompt style" components: **`backstory`** (inherited from the parent
-`session_data.gmcc.yaml`'s `backstory:` at create time — empty unless set; may
-diverge), **`goal`** (desired outcome / acceptance criteria), and **`detail`**
-(how to accomplish it). Split a blob into goal vs detail faithfully; do not invent
-requirements.
+`yeet:` + `yeet_type:` headers for `/gm_compile`. The three "prompt style"
+components are **human-authored only**: **`backstory`** (inherited verbatim from
+the parent `session_data.gmcc.yaml`'s `backstory:` at create time — empty `""`
+unless set; may diverge), **`goal`** (desired outcome / acceptance criteria), and
+**`detail`** (how to accomplish it).
+
+**STAY TRUE — do NOT split, infer, or author these fields.** When creating a NEW
+prompt from a passed argument, the entire passed prompt is assumed to be `detail`
+and is written there **verbatim**. `goal` is left empty (`""`); `backstory` is
+inherited from the session (`""` if unset). Never split a blob into goal vs
+detail, never paraphrase, never invent an outcome — a human (or upcoming editor)
+authors `goal`/`backstory`; the Phase 3 Clarify suite fleshes out the goal later.
 
 ```yaml
 yeet:
@@ -94,11 +100,11 @@ yeet:
 yeet_type: gmcc.gmcc_initial_prompt_file
 
 backstory: |
-  {inherited from session_data.gmcc.yaml's backstory: field; "" if unset}
+  {inherited verbatim from session_data.gmcc.yaml's backstory: field; "" if unset}
 goal: |
-  {the desired outcome / acceptance criteria}
+  ""                                 # human input — left empty at create time
 detail: |
-  {how to accomplish the goal — the rest of the specifics}
+  {the entire passed prompt, verbatim}
 kbites_loaded: []
 kbite_context_summary: ""    # filled in Phase 1 for subagent passing
 ```
