@@ -194,7 +194,7 @@ Each templated yaml file carries a top-level `version:` integer. The cleanup ski
 | `project_data.gmcc.yaml` | `templates/projects/PROJECT_TEMPLATE/project_data.gmcc.yaml` |
 | `instance_data.gmcc.yaml` | `templates/projects/PROJECT_TEMPLATE/instances/INSTANCE_TEMPLATE/instance_data.gmcc.yaml` |
 | `session_data.gmcc.yaml` | `templates/projects/PROJECT_TEMPLATE/instances/INSTANCE_TEMPLATE/sessions/SESSION_TEMPLATE/session_data.gmcc.yaml` |
-| `prompts/{id}_{name}/{id}_{name}_data.gmcc.yaml` | No templates ship — current version is hardcoded in this skill (currently **2**). The data file alone carries the prompt-schema `version:`; sibling `_initial.yaml` / `_clarified.yaml` are content-only and do not carry version. v2 introduced the per-prompt folder layout + `gmcc_prompt_data_file` index. Bump this constant when the prompt-file schema changes. |
+| `prompts/{id}_{name}/{id}_{name}_data.gmcc.yaml` | No templates ship — current version is hardcoded in this skill (currently **3**). The data file alone carries the prompt-schema `version:`; sibling `_initial.yaml` / `_clarified.yaml` carry `yeet:` + `yeet_type:` headers (v3) but no `version:` field. v2 introduced the per-prompt folder layout + `gmcc_prompt_data_file` index. **v3** (v11.0.0) typed the two content files: the initial file (`gmcc_initial_prompt_file`) splits the old `content:` into `backstory` / `goal` / `detail`; the clarified file (`gmcc_clarified_prompt_file`) splits into `goal_clarifications` / `detail_clarifications`, `refined_goal` / `refined_detail`, and adds `detected_yeet_types`. Bump this constant when the prompt-file schema changes. |
 
 If the on-disk version is **equal** to the template's: file is compliant, no finding.
 If the on-disk version is **lower**: emit an "Outdated schema" finding.
@@ -339,20 +339,27 @@ pair (or single draft if no clarified sibling exists).
    - Create folder `prompts/{id}_{name}/` and subfolder
      `prompts/{id}_{name}/memory/`.
    - Write `prompts/{id}_{name}/{id}_{name}_data.gmcc.yaml` —
-     conforms to `gmcc_prompt_data_file`. Pull `id`, `name`,
-     `created_at`, `command` from the legacy draft yaml. Generate a v4
-     UUID for the prompt. `prompt_status`: `Clarified` if the clarified
-     sibling existed, else `Draft`. `clarified_prompt_path`:
+     conforms to `gmcc_prompt_data_file` with `version: 3`. Pull `id`,
+     `name`, `created_at`, `command` from the legacy draft yaml. Generate
+     a v4 UUID for the prompt. `prompt_status`: `Clarified` if the
+     clarified sibling existed, else `Draft`. `clarified_prompt_path`:
      `{id}_{name}_clarified.yaml` (or `""` if no clarified). `kbite`:
      seeded from the parent `session_data.gmcc.yaml`'s `kbite:` list at
      the time of migration.
-   - Write `prompts/{id}_{name}/{id}_{name}_initial.yaml` — the
-     `content:` + `kbites_loaded:` body from the legacy draft file.
+   - Write `prompts/{id}_{name}/{id}_{name}_initial.yaml` — conforms to
+     `gmcc_initial_prompt_file` (add `yeet:` + `yeet_type:` headers).
+     Split the legacy `content:` body into `backstory: ""` (inherit from
+     the parent `session_data.gmcc.yaml`'s `backstory:` if set),
+     best-effort `goal:` (the outcome) + `detail:` (the rest); carry
+     `kbites_loaded:` through.
    - If the clarified sibling existed: write
-     `prompts/{id}_{name}/{id}_{name}_clarified.yaml` with the body
-     of the legacy clarified file (`clarified_at`, `original_content`,
-     `clarifications`, `refined_content`, `key_files`,
-     `patterns_to_follow`, `constraints`, `kbites_loaded`).
+     `prompts/{id}_{name}/{id}_{name}_clarified.yaml` — conforms to
+     `gmcc_clarified_prompt_file` (add `yeet:` + `yeet_type:` headers).
+     Map the legacy clarified body to the new shape: `clarified_at`,
+     `backstory: ""`, split `clarifications` into `goal_clarifications` /
+     `detail_clarifications` (best effort), split `refined_content` into
+     `refined_goal` / `refined_detail`, `detected_yeet_types: []`,
+     `key_files`, `patterns_to_follow`, `constraints`, `kbites_loaded`.
    - Rewrite the matching `session_data.gmcc.yaml` `prompts[]` entry to
      the new lightweight stub shape:
      `id`, `name`, `status: Draft|Clarified`,

@@ -27,7 +27,7 @@ The grammar itself never lives in these files. They are **mappings only** — th
 Every `{language}.yeet_template.md` in this directory follows the same outline:
 
 1. **Front matter** — target language + version, identifier-casing rule, file-layout rule (one YEETS package → one target module / file / namespace).
-2. **Primary type table** — every YEETS primary type (`string`, `character`, `decimal`, `int`, `timestamp`) on a row, with the target spelling.
+2. **Primary type table** — every YEETS primary type (`string`, `character`, `decimal`, `int`, `timestamp`, `datetime`) on a row, with the target spelling.
 3. **Nullability rule** — how the `?` suffix lowers.
 4. **Parametric collections** — `Map<K, V>`, `List<T>`, `Set<T>` with the target spelling, including how nullability inside the parameters interacts with the target's null model.
 5. **Enum lowering** — including the backing-type variants (`string`, `int`, `character`).

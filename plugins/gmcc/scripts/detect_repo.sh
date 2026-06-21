@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# GM-CDE Repository Detection Script — v10.0.0
+# GM-CDE Repository Detection Script — v11.0.0
 #
 # Runs on SessionStart. When inside a git repository, this script:
 #   1. Resolves the active project (= git repo dir basename)
@@ -18,6 +18,11 @@
 #   - Sessions carry their raw `branch:` in the instance_data entry.
 #   - File-level `kbite:` list is seeded from parent at lazy-create time
 #     (no propagation after that).
+#
+# v11.0.0:
+#   - session_data.gmcc.yaml carries a `backstory: ""` field (from the
+#     SESSION_TEMPLATE; copied verbatim — no new substitution). New prompts
+#     inherit it into their initial prompt's `backstory` at draft-create time.
 # Anything outside a git repo: silent exit with no GMCC vars set.
 
 # --- 0. Git-repo guard ------------------------------------------------------

@@ -22,6 +22,11 @@ branch: SESSION_TEMPLATE_BRANCH
 instance_uuid: SESSION_TEMPLATE_INSTANCE_UUID
 project_uuid: SESSION_TEMPLATE_PROJECT_UUID
 
+# Session-level narrative context. Seeded empty; a future tool may populate it.
+# New prompts inherit this value into their initial prompt's `backstory` field at
+# draft-create time (the prompt's backstory may then diverge).
+backstory: ""
+
 # File-level kbite registry. Seeded from parent instance_data at
 # lazy-create time only; subsequent parent edits do NOT propagate.
 kbite: []

@@ -6,7 +6,7 @@ disable-model-invocation: true
 allowed-tools: Read, Write, Edit, Grep, Glob, Bash, Task, AskUserQuestion
 ---
 
-# GM-CDE Bot RPI (Subagent Research/Plan/Implement, v10.0.0)
+# GM-CDE Bot RPI (Subagent Research/Plan/Implement, v11.0.0)
 
 You are executing an enhanced development workflow that leverages GMCC subagents for Research, Planning, and Review phases. Same prompt-into-session model as `/gm_bot`, with subagents added to Phases 2, 4, and 6. Subagent reports are persisted to `prompts/{id}_{name}/memory/`.
 
@@ -47,7 +47,7 @@ Each prompt is a FOLDER. At create time:
 ```
 $GMCC_SESSION_PATH/prompts/{id}_{name}/
     {id}_{name}_data.gmcc.yaml      # gmcc_prompt_data_file (index)
-    {id}_{name}_initial.yaml        # raw user prompt content
+    {id}_{name}_initial.yaml        # split prompt: backstory / goal / detail
     memory/                          # explore.md / architecture.md / review.md
 ```
 
@@ -57,7 +57,7 @@ Conforms to `gmcc.gmcc_prompt_data_file`. Seed `kbite:` from parent
 `session_data.gmcc.yaml`'s `kbite:` list.
 
 ```yaml
-version: 2
+version: 3
 yeet:
   - gmcc
 yeet_type: gmcc.gmcc_prompt_data_file
@@ -80,9 +80,25 @@ command: /gm_bot_rpi
 
 ### `{id}_{name}_initial.yaml`
 
+Conforms to `gmcc.gmcc_initial_prompt_file`. Keeps the `.yaml` suffix but carries
+`yeet:` + `yeet_type:` headers for `/gm_compile`. The raw prompt is split into the
+"prompt style" components: **`backstory`** (inherited from the parent
+`session_data.gmcc.yaml`'s `backstory:` at create time — empty unless set; may
+diverge), **`goal`** (desired outcome / acceptance criteria), and **`detail`**
+(how to accomplish it). Split a blob into goal vs detail faithfully; do not invent
+requirements.
+
 ```yaml
-content: |
-  {raw user prompt}
+yeet:
+  - gmcc
+yeet_type: gmcc.gmcc_initial_prompt_file
+
+backstory: |
+  {inherited from session_data.gmcc.yaml's backstory: field; "" if unset}
+goal: |
+  {the desired outcome / acceptance criteria}
+detail: |
+  {how to accomplish the goal — the rest of the specifics}
 kbites_loaded: []
 kbite_context_summary: ""    # filled in Phase 1 for subagent passing
 ```
@@ -119,7 +135,7 @@ Task tool:
     Read and follow your agent identity from: $GMCC_PLUGIN_ROOT/prompts/gmcc_agent_code_explorer.prompt.md
 
     ## Task Context
-    **Exploration Target**: {raw prompt content}
+    **Exploration Target**: {initial prompt's goal + detail}
     **Repository**: Explore from the current working directory
     **Branch**: $(basename $GMCC_SESSION_PATH)
 
@@ -146,20 +162,43 @@ Read the returned report into the primary context AND write it verbatim to `$GMC
 ## Phase 3: Clarify
 
 1. Flip `{id}_{name}_data.gmcc.yaml`'s `prompt_status` to `Clarifying` and update session_data prompts[] entry's `status: Clarifying`.
-2. Review the exploration report for uncertainties and ambiguities.
-3. AskUserQuestion to resolve all identified issues (uncertainties, edge cases, integration preferences, scope boundaries).
-4. Write `$GMCC_SESSION_PATH/prompts/{id}_{name}/{id}_{name}_clarified.yaml`:
+
+2. **YEET-type detection (FIRST clarify step).** Before anything else, scan the initial prompt's `goal` + `detail` (cross-referenced with the exploration report) for YEETS types:
+   - **Declared** — types named explicitly in the prose (e.g. "a new yeet type for X", a mentioned struct/enum).
+   - **Inferred** — data shapes the prompt describes structurally without naming a type.
+
+   Resolve each confidently (to an existing struct/enum, a new type to create, or a clear action). If you **cannot** resolve one confidently, you **must** AskUserQuestion to clarify the intended typing behavior. Record every detection under `detected_yeet_types:` with `source:` + `confidence:`. Use `detected_yeet_types: []` if none.
+
+3. **Goal clarification suite.** Resolve what is underspecified about the *outcome* (acceptance criteria, scope boundaries, done definition), informed by the exploration report. AskUserQuestion → `goal_clarifications:`.
+
+4. **Detail clarification suite.** Resolve what is underspecified about the *approach* (uncertainties from exploration, edge cases, integration preferences). AskUserQuestion → `detail_clarifications:`.
+
+5. Write `$GMCC_SESSION_PATH/prompts/{id}_{name}/{id}_{name}_clarified.yaml` (conforms to `gmcc.gmcc_clarified_prompt_file`):
 
 ```yaml
+yeet:
+  - gmcc
+yeet_type: gmcc.gmcc_clarified_prompt_file
+
 clarified_at: {ISO 8601}
-original_content: |
-  {raw user prompt}
-clarifications:
-  - q: {question 1}
-    a: {answer 1}
-refined_content: |
-  {Refined task description integrating clarifications + exploration findings.
-   Single source of truth from here on.}
+backstory: |
+  {carried through from the initial file's backstory; "" if unset}
+goal_clarifications:
+  - q: {question about the outcome}
+    a: {answer}
+detail_clarifications:
+  - q: {question about the approach}
+    a: {answer}
+refined_goal: |
+  {initial goal + goal clarifications, integrated — the acceptance criteria}
+refined_detail: |
+  {initial detail + detail clarifications + exploration findings, integrated —
+   how it gets built. Single source of truth from here on.}
+detected_yeet_types:
+  - type: {detected type token or described shape}
+    resolved_to: {what it means / type to create / user's clarified intent}
+    source: declared            # declared | inferred
+    confidence: confident       # confident | needs_clarification
 key_files:
   - path: {file}
     relevance: {why}
@@ -171,8 +210,8 @@ kbites_loaded:
   - {kbite name}
 ```
 
-5. Update `{id}_{name}_data.gmcc.yaml`: set `prompt_status: Clarified`, set `clarified_prompt_path: {id}_{name}_clarified.yaml`, bump `updated_time`.
-6. Update `session_data.gmcc.yaml` prompts[] entry: `status: Clarified`.
+6. Update `{id}_{name}_data.gmcc.yaml`: set `prompt_status: Clarified`, set `clarified_prompt_path: {id}_{name}_clarified.yaml`, bump `updated_time`.
+7. Update `session_data.gmcc.yaml` prompts[] entry: `status: Clarified`.
 
 ---
 
@@ -188,7 +227,8 @@ Task tool:
     Read and follow your agent identity from: $GMCC_PLUGIN_ROOT/prompts/gmcc_agent_code_architect.prompt.md
 
     ## Architecture Context
-    **Goal**: {refined_content from clarified prompt yaml}
+    **Goal**: {refined_goal from clarified prompt yaml}
+    **Detail**: {refined_detail from clarified prompt yaml}
 
     ## Clarified Prompt
     {full clarified yaml contents}
@@ -250,7 +290,7 @@ Task tool:
     Read and follow your agent identity from: $GMCC_PLUGIN_ROOT/prompts/gmcc_agent_code_quality_reviewer.prompt.md
 
     ## Review Context
-    **Task**: {refined_content from clarified prompt}
+    **Task**: {refined_goal + refined_detail from clarified prompt}
 
     ## Clarified Prompt
     {clarified yaml contents}
@@ -286,7 +326,7 @@ Write the review report (verbatim from the subagent) to `$GMCC_SESSION_PATH/prom
 
 1. Present a complete summary: what was built, files modified, review findings addressed, known limitations.
 2. Wait for user feedback. Iterate until satisfied.
-3. On completion, append to `session_data.gmcc.yaml`:
+3. On completion, append to `session_data.gmcc.yaml`'s `phase_history:` list (each entry conforms to `gmcc_session_data_file_phase_history_entry`):
    ```yaml
    phase_history:
      - prompt_id: {id}

@@ -1,11 +1,11 @@
-# CKFS Detailed Structure Reference (v10.0.0)
+# CKFS Detailed Structure Reference (v11.0.0)
 
 Read this file on-demand when performing ckfs operations.
 
 ## Static Plugin Files (Installed to ~/.claude/plugins/gmcc/)
 ```
 ~/.claude/plugins/gmcc/
-├── .claude-plugin/plugin.json     # Plugin manifest (currently v10.0.0)
+├── .claude-plugin/plugin.json     # Plugin manifest (currently v11.0.0)
 ├── skills/
 │   ├── gmcc/SKILL.md              # Core rules (slim)
 │   ├── gmcc/ref/                  # Reference files (read on-demand)
@@ -140,6 +140,7 @@ kbite: []                                      # seeded from instance_data.kbite
 branch: {raw branch name}
 instance_uuid: {v4}
 project_uuid: {v4}
+backstory: ""                                  # session-level narrative (v11.0.0); seeded empty, prompts inherit it
 
 # Lightweight stubs — follow `path:` to each prompt_data.gmcc.yaml.
 prompts:
@@ -156,6 +157,16 @@ changed_files:
       - [start, end]
     commit: {short sha or "uncommitted"}
     note: ""
+
+# Optional audit trail of completed bot runs (absent until first completion;
+# conforms to gmcc_session_data_file_phase_history_entry). review_status is
+# null for the lightweight /gm_bot tier; teams_used is /gm_bot_team only.
+# (The separate cleanup_actions: list is owned + typed by /gm_cleanup.)
+phase_history:
+  - prompt_id: {int}
+    command: /gm_bot_rpi
+    completed_at: {ISO 8601}
+    review_status: pass | pass_with_issues
 ```
 
 The other four runtime yamls share the same outer shape: `yeet:` /
@@ -175,8 +186,8 @@ Each prompt is a folder, not a loose file:
 
 ```
 prompts/{id}_{name}/
-    {id}_{name}_data.gmcc.yaml      # the gmcc_prompt_data_file (index)
-    {id}_{name}_initial.yaml        # raw user prompt content
+    {id}_{name}_data.gmcc.yaml      # the gmcc_prompt_data_file (index, version: 3)
+    {id}_{name}_initial.yaml        # split prompt: backstory / goal / detail (v11.0.0)
     {id}_{name}_clarified.yaml      # absent until prompt_status = Clarified
     memory/
         explore.md                   # Phase 2 artifact
@@ -193,6 +204,29 @@ and `command:` recording which bot authored it.
 `clarified_prompt_path` is empty-string until `prompt_status` becomes
 `Clarified`.
 
+### Typed prompt content files (v11.0.0)
+
+Both content files keep the plain `.yaml` suffix but carry `yeet:` +
+`yeet_type:` headers so `/gm_compile` validates them.
+
+`{id}_{name}_initial.yaml` conforms to `gmcc.gmcc_initial_prompt_file` — the
+"prompt style" split:
+
+- **`backstory`** — inherited from the parent `session_data.gmcc.yaml`'s
+  `backstory:` at draft-create time (empty unless a session backstory was set).
+  May diverge per prompt afterward.
+- **`goal`** — the desired outcome, akin to acceptance criteria.
+- **`detail`** — how to accomplish the goal.
+- `kbites_loaded` (+ `kbite_context_summary` for the subagent/team tiers).
+
+`{id}_{name}_clarified.yaml` conforms to `gmcc.gmcc_clarified_prompt_file` —
+mirrors the split: `goal_clarifications` / `detail_clarifications` (separate
+Q/A suites), `refined_goal` / `refined_detail`, the carried-through `backstory`,
+`detected_yeet_types` (every YEETS type detected in the initial prompt and how
+it resolved), `key_files`, `constraints`, `kbites_loaded`
+(+ `patterns_to_follow` for subagent/team tiers; team adds per-clarification
+`rating` and `key_files[].consensus`).
+
 ## Yaml Files (Editable By)
 
 | File | Purpose | Maintained by |
@@ -202,7 +236,7 @@ and `command:` recording which bot authored it.
 | `instance_data.gmcc.yaml` | Per-instance identity, system path, session list | `detect_repo.sh` (creates + appends sessions, each with `branch:`) |
 | `session_data.gmcc.yaml` | Per-branch session state (typed prompts, typed changed_files) | Bot workflows (continuous updates) |
 | `prompts/{id}_{name}/{id}_{name}_data.gmcc.yaml` | Per-prompt index | Bot workflows (status flips, path fills) |
-| `prompts/{id}_{name}/{id}_{name}_initial.yaml` | Raw user prompt | Bot workflows (immutable after Phase 1) |
+| `prompts/{id}_{name}/{id}_{name}_initial.yaml` | Split prompt (backstory/goal/detail) | Bot workflows (immutable after Phase 1) |
 | `prompts/{id}_{name}/{id}_{name}_clarified.yaml` | Clarified prompt | Bot workflows (immutable once written) |
 | `prompts/{id}_{name}/memory/*.md` | Bot phase artifacts | Bot workflows (last-run-wins overwrite) |
 
@@ -211,7 +245,7 @@ and `command:` recording which bot authored it.
 Bot workflows author prompts in three stages:
 
 1. **Draft** — `/gm_bot*` creates `prompts/{id}_{name}/` with `memory/`, writes `{id}_{name}_data.gmcc.yaml` (`prompt_status: Draft`, kbite seeded) and `{id}_{name}_initial.yaml`. Appends the session_data stub with `status: Draft`.
-2. **Clarifying** — Phase 3 flips `prompt_status` to `Clarifying` while the bot is asking questions. session_data stub follows.
-3. **Clarified** — Once the Q/A is finalized, writes `{id}_{name}_clarified.yaml`, sets `clarified_prompt_path`, flips `prompt_status` to `Clarified`. session_data stub follows. The `_initial.yaml` file is **not** modified — the clarified file is the new source of truth.
+2. **Clarifying** — Phase 3 flips `prompt_status` to `Clarifying`. Its **first** step (v11.0.0) is YEET-type detection over the initial prompt's `goal` + `detail` — declared and structurally-inferred YEETS types are resolved (or the user is asked when they cannot be), then recorded in the clarified file's `detected_yeet_types`. The bot then runs **separate** goal and detail clarification suites. session_data stub follows.
+3. **Clarified** — Once the Q/A is finalized, writes `{id}_{name}_clarified.yaml` (`refined_goal` / `refined_detail` + `detected_yeet_types`), sets `clarified_prompt_path`, flips `prompt_status` to `Clarified`. session_data stub follows. The `_initial.yaml` file is **not** modified — the clarified file is the new source of truth.
 
 Intermediate artifacts (exploration, architecture, review) are persisted under `memory/` per `bot_workflows.md`. Resume across sessions can rely on both the typed session_data stubs and the persisted memory files.

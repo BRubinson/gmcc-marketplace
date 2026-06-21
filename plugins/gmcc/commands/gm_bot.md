@@ -6,7 +6,7 @@ disable-model-invocation: true
 allowed-tools: Read, Write, Edit, Grep, Glob, Bash, Task, AskUserQuestion
 ---
 
-# GM-CDE Bot (Lightweight, v10.0.0)
+# GM-CDE Bot (Lightweight, v11.0.0)
 
 You are executing a lightweight development workflow entirely in the primary context.
 
@@ -89,7 +89,7 @@ Conforms to `gmcc.gmcc_prompt_data_file`. Seed `kbite:` from the parent
 `session_data.gmcc.yaml`'s `kbite:` list.
 
 ```yaml
-version: 2
+version: 3
 yeet:
   - gmcc
 yeet_type: gmcc.gmcc_prompt_data_file
@@ -110,11 +110,34 @@ prompt_status: Draft
 command: /gm_bot
 ```
 
-### `{id}_{name}_initial.yaml` (raw prompt content)
+### `{id}_{name}_initial.yaml` (the "prompt style" — split content)
+
+Conforms to `gmcc.gmcc_initial_prompt_file`. Keeps the `.yaml` suffix but
+carries `yeet:` + `yeet_type:` headers so `/gm_compile` validates it. The raw
+prompt is split into three components:
+
+- **`backstory`** — inherited from the parent `session_data.gmcc.yaml`'s
+  `backstory:` field at create time (empty unless a session backstory has been
+  set). May diverge per prompt thereafter.
+- **`goal`** — the generally desired outcome, akin to acceptance criteria.
+- **`detail`** — how to accomplish the goal: the remaining specifics.
+
+If the user's prompt is a single undifferentiated blob, do your best to split it
+into goal vs detail; when in doubt put the outcome in `goal` and everything else
+in `detail`. Leave `goal`/`detail` faithful to the user's words — do not invent
+requirements.
 
 ```yaml
-content: |
-  {raw user prompt}
+yeet:
+  - gmcc
+yeet_type: gmcc.gmcc_initial_prompt_file
+
+backstory: |
+  {inherited from session_data.gmcc.yaml's backstory: field; "" if unset}
+goal: |
+  {the desired outcome / acceptance criteria}
+detail: |
+  {how to accomplish the goal — the rest of the specifics}
 kbites_loaded: []                    # filled by Phase 1
 ```
 
@@ -155,34 +178,55 @@ Explore the codebase using Glob/Grep/Read. Identify the files relevant to this p
 ## Phase 3: Clarify
 
 1. Flip `{id}_{name}_data.gmcc.yaml`'s `prompt_status` to `Clarifying` and update `session_data.gmcc.yaml` prompts[] entry's `status: Clarifying`.
-2. Identify underspecified aspects (edge cases, scope boundaries, design preferences, backwards compat).
-3. Use AskUserQuestion to resolve all ambiguities.
-4. Write `$GMCC_SESSION_PATH/prompts/{id}_{name}/{id}_{name}_clarified.yaml`:
+
+2. **YEET-type detection (FIRST clarify step).** Before any other clarification, scan the initial prompt's `goal` + `detail` for YEETS types:
+   - **Declared** — types named explicitly in the prose (e.g. "a new yeet type for X", a mentioned struct/enum name).
+   - **Inferred** — data shapes the prompt describes structurally without naming a type (e.g. "a record holding a name and a list of amounts" → a candidate struct).
+
+   For each detected type, try to resolve it confidently (to a concrete struct/enum in `gmcc.yeet.yaml` or a sibling `.yeet.yaml`, to a new type to create, or to a clear action). If you **cannot** resolve it confidently, you **must** AskUserQuestion to clarify the intended typing behavior. Record every detection in the clarified file's `detected_yeet_types:` list with `source:` (`declared`/`inferred`) and `confidence:` (`confident`/`needs_clarification`). If no YEETS types are present, write `detected_yeet_types: []`.
+
+3. **Goal clarification suite.** Identify what is underspecified about the *outcome* (acceptance criteria, scope boundaries, definition of done). AskUserQuestion; record answers under `goal_clarifications:`.
+
+4. **Detail clarification suite.** Identify what is underspecified about the *approach* (edge cases, integration points, design preferences, backwards compat). AskUserQuestion; record answers under `detail_clarifications:`.
+
+5. Write `$GMCC_SESSION_PATH/prompts/{id}_{name}/{id}_{name}_clarified.yaml` (conforms to `gmcc.gmcc_clarified_prompt_file`):
 
 ```yaml
+yeet:
+  - gmcc
+yeet_type: gmcc.gmcc_clarified_prompt_file
+
 clarified_at: {ISO 8601}
-original_content: |
-  {raw user prompt}
-clarifications:
-  - q: {question 1}
-    a: {answer 1}
-  - q: {question 2}
-    a: {answer 2}
-refined_content: |
-  {The original prompt rewritten with all clarifications integrated inline.
-   Single source of truth for what needs to be built.}
+backstory: |
+  {carried through from the initial file's backstory; "" if unset}
+goal_clarifications:
+  - q: {question about the outcome}
+    a: {answer}
+detail_clarifications:
+  - q: {question about the approach}
+    a: {answer}
+refined_goal: |
+  {the initial goal rewritten with goal clarifications integrated — the
+   acceptance criteria, as the single source of truth}
+refined_detail: |
+  {the initial detail rewritten with detail clarifications integrated — how it
+   gets built}
+detected_yeet_types:
+  - type: {detected type token or described shape}
+    resolved_to: {what it means / the type to create / the user's clarified intent}
+    source: declared            # declared | inferred
+    confidence: confident       # confident | needs_clarification
 key_files:
   - path: {file}
     relevance: {why it matters}
 constraints:
   - {constraint 1}
-  - {constraint 2}
 kbites_loaded:
   - {kbite name}
 ```
 
-5. Update `{id}_{name}_data.gmcc.yaml`: set `prompt_status: Clarified`, set `clarified_prompt_path: {id}_{name}_clarified.yaml`, bump `updated_time`.
-6. Update `session_data.gmcc.yaml` prompts[] entry: `status: Clarified`.
+6. Update `{id}_{name}_data.gmcc.yaml`: set `prompt_status: Clarified`, set `clarified_prompt_path: {id}_{name}_clarified.yaml`, bump `updated_time`.
+7. Update `session_data.gmcc.yaml` prompts[] entry: `status: Clarified`.
 
 The `{id}_{name}_initial.yaml` file is **not modified** — the clarified file is the new source of truth.
 
@@ -218,7 +262,13 @@ The `{id}_{name}_initial.yaml` file is **not modified** — the clarified file i
 1. Present a summary: files modified, key decisions, known limitations.
 2. **Persist a brief review note** to `$GMCC_SESSION_PATH/prompts/{id}_{name}/memory/review.md` covering what was built, what was deferred, and any known limitations.
 3. Wait for user feedback. Iterate until satisfied.
-4. On completion, append a final phase-history line to `session_data.gmcc.yaml` (under a `phase_history:` section — create it if absent) noting completion of this prompt.
+4. On completion, append to `session_data.gmcc.yaml`'s `phase_history:` list (create it if absent; each entry conforms to `gmcc_session_data_file_phase_history_entry`). The lightweight tier has no review phase, so `review_status` is null:
+   ```yaml
+   phase_history:
+     - prompt_id: {id}
+       command: /gm_bot
+       completed_at: {ISO 8601}
+   ```
 
 ```
 Bot Complete: prompt {id} ({name})

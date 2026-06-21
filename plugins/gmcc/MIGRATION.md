@@ -1,5 +1,85 @@
 # GMCC Migration Guide
 
+## v10.0.0 to v11.0.0 — Prompt style (typed initial/clarified files, backstory/goal/detail split, YEET-type detection)
+
+Introduces the structured "prompt style": prompt content is split into named
+components, the initial and clarified prompt files become typed YEETS documents,
+the Clarify phase clarifies `goal` and `detail` with separate question suites, and
+its first step detects YEETS types in the prompt. Every change is additive at the
+type level; runtime data under existing v10.0.0 prompt folders is migrated by
+`/gm_cleanup` (prompt-file schema `2 → 3`).
+
+### Type additions in `gmcc.yeet.yaml`
+
+- **Enum `gmcc_yeet_detection_source`** — `declared | inferred`.
+- **Enum `gmcc_yeet_detection_confidence`** — `confident | needs_clarification`.
+- **Struct `gmcc_initial_prompt_file`** — body of `{id}_{name}_initial.yaml`:
+  `backstory`, `goal`, `detail`, `kbites_loaded`, `kbite_context_summary?`.
+- **Struct `gmcc_clarified_prompt_file`** — body of `{id}_{name}_clarified.yaml`:
+  `clarified_at`, `backstory`, `goal_clarifications`, `detail_clarifications`,
+  `refined_goal`, `refined_detail`, `detected_yeet_types`, `key_files`,
+  `patterns_to_follow?`, `constraints`, `kbites_loaded`.
+- **Support structs** `gmcc_prompt_clarification` (`q`, `a`, `rating?`),
+  `gmcc_detected_yeet_type` (`type`, `resolved_to`, `source`, `confidence`),
+  `gmcc_clarified_prompt_key_file` (`path`, `relevance`, `consensus?`).
+- **`backstory: string` added to `gmcc_session_data_file`** — seeded empty at
+  session creation; new prompts inherit it into their initial `backstory`.
+
+### YEETS grammar: new `datetime` primary type
+
+The YEETS grammar gains a `datetime` primary type — an ISO 8601 datetime string
+(e.g. `2026-06-21T15:40:00Z`), distinct from `timestamp` (an epoch-ms integer).
+This is the type the GMCC runtime yamls have always *stored* for ISO 8601 fields.
+`gmcc.yeet.yaml` now targets `yeet_version: "6.3"` and retypes the fields that
+hold ISO 8601 strings to `datetime`: `has_created_time.created_time`,
+`has_updated_time.updated_time`, `gmcc_session_data_file_changed_files_entry.timestamp`,
+and the new `gmcc_clarified_prompt_file.clarified_at`. No on-disk data changes —
+the values were already ISO 8601 strings; only the declared type is corrected (they
+were previously typed `timestamp`). The Swift mapping (`datetime → String`) is
+documented in `skills/gmcc/yeet_mappings/swift.yeet_template.md`. The short-list
+enum form `values: [a, b, c]` (equivalent to `a | a` pairs when variable equals
+backing string) is now documented explicitly in `skills/gmcc/SKILL.md`.
+
+### Prompt content files become typed
+
+Pre-change: `_initial.yaml` (single `content:`) and `_clarified.yaml`
+(`original_content` + `clarifications` + `refined_content`) were untyped plain
+yaml. Post-change: both keep the `.yaml` suffix but carry `yeet:` +
+`yeet_type:` headers so `/gm_compile` validates them. The initial file splits
+`content:` into `backstory` / `goal` / `detail`; the clarified file splits the
+single Q/A list and `refined_content` into per-section suites and `refined_goal` /
+`refined_detail`, and adds `detected_yeet_types`.
+
+### Clarify phase: detection-first + split suites
+
+When `prompt_status` moves to `Clarifying`, the **first** step is YEET-type
+detection over the initial prompt's `goal` + `detail` — both explicitly-declared
+types and structurally-inferred shapes. Each is resolved confidently or the user
+is asked; results are recorded in `detected_yeet_types`. The bot then runs
+**separate** `goal` and `detail` clarification suites. Applies to all three bots
+(`/gm_bot`, `/gm_bot_rpi`, `/gm_bot_team`), preserving each tier's extras.
+
+### Backstory
+
+`session_data.gmcc.yaml` gains a `backstory:` field (in SESSION_TEMPLATE; copied
+by `detect_repo.sh`, seeded empty). A future tool may populate it. New prompts
+inherit the session backstory into their initial file at draft-create time; a
+prompt's backstory may then diverge.
+
+### Migration steps
+
+1. Update the plugin to v11.0.0 and restart Claude Code. Fresh sessions get the
+   `backstory:` field and new-shape prompt files automatically.
+2. Existing `session_data.gmcc.yaml` files gain `backstory: ""` the next time
+   `/gm_cleanup` migrates them (or add it by hand).
+3. Run `/gm_cleanup`. It detects v2 prompt folders as **Outdated schema** and
+   migrates each per-file: the initial file's `content:` is split into
+   `backstory`/`goal`/`detail` and gains `yeet:`/`yeet_type:` headers; the
+   clarified file is mapped to the new split shape with `detected_yeet_types: []`.
+   Prompt-file schema version bumps `2 → 3`.
+
+---
+
 ## v6.2.0 to v10.0.0 — Typing-system finalization (prompts → folders, kbite mixin, typed entries, hash-coded instances)
 
 A follow-on within the v6.2.0 release that closes the v6.1.x typing gap

@@ -1,4 +1,4 @@
-# Bot Workflow System Reference (v10.0.0)
+# Bot Workflow System Reference (v11.0.0)
 
 Read this file when executing bot workflow commands.
 
@@ -18,20 +18,24 @@ A bot run does NOT create a new session — it adds a new **prompt** to the exis
 
 ```
 $GMCC_SESSION_PATH/prompts/{id}_{name}/
-    {id}_{name}_data.gmcc.yaml      # gmcc_prompt_data_file (index/status)
-    {id}_{name}_initial.yaml        # raw user prompt + kbite context
-    {id}_{name}_clarified.yaml      # absent until prompt_status = Clarified
+    {id}_{name}_data.gmcc.yaml      # gmcc_prompt_data_file (index/status, version: 3)
+    {id}_{name}_initial.yaml        # gmcc_initial_prompt_file: backstory/goal/detail + kbite context
+    {id}_{name}_clarified.yaml      # gmcc_clarified_prompt_file (absent until Clarified)
     memory/
         explore.md                   # exploration report (Phase 2)
         architecture.md              # approved architecture (Phase 4)
         review.md                    # review report (Phase 6)
 ```
 
+Both content files keep the `.yaml` suffix but carry `yeet:` + `yeet_type:`
+headers (v11.0.0) so `/gm_compile` validates them. See the Prompt Style section
+below.
+
 1. On invocation, the bot reads `$GMCC_SESSION_PATH/session_data.gmcc.yaml`.
 2. It picks the next prompt id (max existing id + 1, or 1 if none).
-3. It creates `prompts/{id}_{name}/` with the `memory/` subdir, writes `{id}_{name}_data.gmcc.yaml` (conforms to `gmcc_prompt_data_file`, `prompt_status: Draft`, kbite seeded from `session_data.kbite`) and `{id}_{name}_initial.yaml` (raw content).
+3. It creates `prompts/{id}_{name}/` with the `memory/` subdir, writes `{id}_{name}_data.gmcc.yaml` (conforms to `gmcc_prompt_data_file`, `version: 3`, `prompt_status: Draft`, kbite seeded from `session_data.kbite`) and `{id}_{name}_initial.yaml` (conforms to `gmcc_initial_prompt_file`; `backstory` inherited from `session_data.backstory`, plus `goal` + `detail`).
 4. It appends a lightweight stub to `session_data.gmcc.yaml`'s `prompts:` list (conforms to `gmcc_session_data_file_prompt_files_entry`): `id`, `name`, `status: Draft`, `path: prompts/{id}_{name}/{id}_{name}_data.gmcc.yaml`.
-5. The Clarify phase flips `prompt_status` to `Clarifying`, then on completion writes `{id}_{name}_clarified.yaml`, sets `clarified_prompt_path`, flips `prompt_status` to `Clarified`, and updates the session_data stub.
+5. The Clarify phase flips `prompt_status` to `Clarifying`. Its **first** step is YEET-type detection over the initial prompt (see Prompt Style below); it then runs **separate** goal and detail clarification suites, and on completion writes `{id}_{name}_clarified.yaml` (conforms to `gmcc_clarified_prompt_file`), sets `clarified_prompt_path`, flips `prompt_status` to `Clarified`, and updates the session_data stub.
 6. Implementation runs. Each file edit appends to `session_data.gmcc.yaml`'s `changed_files:` list (conforms to `gmcc_session_data_file_changed_files_entry`): `file`, `timestamp`, `lines`, `commit`, `note`.
 
 ### Resume Logic
@@ -58,6 +62,49 @@ If the first argument is non-numeric, it's treated as a slug name for a new prom
 /gm_bot auth-refactor implement OAuth2 flow
          ^name         ^prompt content
 ```
+
+## Prompt Style (v11.0.0)
+
+Prompt content is split into named components across two typed files. Both keep
+the `.yaml` suffix and carry `yeet:` + `yeet_type:` headers for `/gm_compile`.
+
+### Initial file — `gmcc_initial_prompt_file`
+
+| Field | Meaning |
+|-------|---------|
+| `backstory` | Inherited from the session's `backstory:` at draft-create time (empty unless a session backstory was set). May diverge per prompt. A future tool may write the session value. |
+| `goal` | The generally desired outcome, akin to acceptance criteria. |
+| `detail` | How to accomplish the goal — the remaining specifics. |
+| `kbites_loaded` (+ `kbite_context_summary?`) | KBites loaded in Phase 1; summary is subagent/team-only. |
+
+When the user supplies one undifferentiated blob, split it faithfully into goal
+(the outcome) vs detail (everything else) — never invent requirements.
+
+### Clarify phase — detection first, then split suites
+
+When `prompt_status` moves to `Clarifying`, the **first** action is **YEET-type
+detection** over the initial prompt's `goal` + `detail`:
+
+- **Declared** types — named explicitly in the prose (e.g. "a new yeet type for X").
+- **Inferred** types — data shapes described structurally without naming a type.
+
+Each detection is resolved confidently (to an existing struct/enum, a new type to
+create, or a clear action) or — when it cannot be — the user is asked via
+AskUserQuestion to clarify the intended typing behavior. Every detection is
+recorded in the clarified file's `detected_yeet_types` (with `source:` and
+`confidence:`).
+
+The bot then runs **two separate clarification suites** — one for `goal`
+(outcome/acceptance criteria) and one for `detail` (approach/edge cases) —
+recorded under `goal_clarifications` and `detail_clarifications`.
+
+### Clarified file — `gmcc_clarified_prompt_file`
+
+Carries the through-`backstory`, the two clarification suites, `refined_goal` /
+`refined_detail`, `detected_yeet_types`, `key_files`, `constraints`,
+`kbites_loaded` (+ `patterns_to_follow` for subagent/team tiers; team adds
+per-clarification `rating` and `key_files[].consensus`). It is the single source
+of truth from Clarify onward; the initial file is never modified.
 
 ## KBite Integration
 

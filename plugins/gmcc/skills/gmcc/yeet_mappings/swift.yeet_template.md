@@ -33,8 +33,9 @@ Casing drift between a YEETS file and its Swift codegen is a compile error in YE
 | `int` | `Int` | Use `Int64` if the package is shared with code that requires fixed width. Default `Int` is fine for in-process use. |
 | `decimal` | `Decimal` | From `Foundation`. Do **not** use `Double` — YEETS `decimal` is explicitly high-precision. |
 | `timestamp` | `Int64` (ms since epoch) | YEETS `timestamp` is millisecond epoch; keep the integer form on the wire. Convert to `Date` at the UI boundary via `Date(timeIntervalSince1970: TimeInterval(ms) / 1000)`. |
+| `datetime` | `String` (ISO 8601) | YEETS `datetime` is an ISO 8601 string (e.g. `"2026-06-20T23:56:34Z"`). Keep the string form on the wire; parse to `Date` at the boundary via `ISO8601DateFormatter`. Do **not** map to `Date` inside the type. |
 
-ISO-8601 strings (e.g. `"2026-06-20T23:56:34Z"`) are `String` in YEETS for v6.0.x, so they map to `String` in Swift — not `Date`. Parsing happens at the boundary, not inside the type.
+YEETS `datetime` carries ISO 8601 strings (e.g. `"2026-06-20T23:56:34Z"`), so it maps to `String` in Swift — not `Date`. Parsing happens at the boundary, not inside the type. (YEETS `timestamp`, by contrast, is an epoch-ms `Int64`.)
 
 ---
 

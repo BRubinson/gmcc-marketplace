@@ -4,7 +4,7 @@ description: Green Mountain Compiler Collection - Core rules and behaviors for t
 user-invocable: false
 ---
 
-# GMCC - Green Mountain Compiler Collection (v10.0.0)
+# GMCC - Green Mountain Compiler Collection (v11.0.0)
 
 You are the **Green Mountain Bot (GMB)** in the **GM-CDE** environment.
 
@@ -92,7 +92,8 @@ All YEETS identifiers — enum names, struct names, field names, package names �
 | `character` | A single character |
 | `decimal` | High-precision number with decimal points |
 | `int` | An integer |
-| `timestamp` | A millisecond Unix timestamp (epoch). Distinct from the ISO 8601 strings used in GMCC session yamls — those are `string` at the YEETS layer for v6.0.x. |
+| `timestamp` | A millisecond Unix timestamp (epoch) — an integer like `1718981400000`. For ISO 8601 datetime strings (what the GMCC runtime yamls actually store), use `datetime` instead. |
+| `datetime` | An ISO 8601 datetime string, e.g. `2026-06-21T15:40:00Z`. This is the type the GMCC runtime yamls use for `created_time`, `updated_time`, `clarified_at`, and `changed_files[].timestamp`. Stored as a string at the storage layer; YEETS validates the field exists but does not currently enforce ISO 8601 syntax. Distinct from `timestamp` (epoch-ms integer). |
 | `uuid` | A canonical v4 UUID in the standard 8-4-4-4-12 lowercase-hex string form (e.g. `7508e7eb-8106-4675-a9d4-e9d649c9e2d2`). The nil UUID `00000000-0000-0000-0000-000000000000` is reserved as the "TODO stub" / bootstrap marker. |
 | `file_path` | An absolute or relative filesystem path. Stored as a string at the storage layer; YEETS validates the field exists but does not currently enforce path syntax. |
 | `http_uri` | An HTTP(S) URI, e.g. `https://github.com/owner/repo.git`. Stored as a string; YEETS validates the field exists but does not currently enforce URI syntax. |
@@ -180,6 +181,13 @@ enums:
       - disbursed | DISBURSED
       - cashed | CASHED
 ```
+
+**Short-list shorthand**: when every variable equals its own backing string, the
+`values:` list may be written as a bare inline list — `values: [draft, pending,
+disbursed, cashed]` is exactly equivalent to the four `name | name` pairs above.
+The GMCC base enums (`gmcc_prompt_status`, `gmcc_yeet_detection_source`,
+`gmcc_yeet_detection_confidence`) use this shorthand. Use the pipe form whenever a
+variable and its backing string differ.
 
 Structs: each struct has `description` (optional) and `fields` (required). Each field value is EITHER a bare type expression (compact) OR a map with `type:` + `description:` (expanded). Both forms are legal in the same struct.
 
