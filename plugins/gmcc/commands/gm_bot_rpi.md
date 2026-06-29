@@ -130,10 +130,12 @@ list. No trigger matching, no kbite picker.
    field (seeded from `session_data.gmcc.yaml`'s `kbite:`).
 2. **Explicit add only.** If the user's prompt text explicitly asks to add a
    kbite, append it to the prompt's `kbite:` list. Never add one on your own.
-3. For each inherited/added kbite: read `$GMCC_KBITE/{name}/KBITE_PURPOSE.md` +
-   `KBITE_INDEX.md`, load top 3-5 chewed files, compile a **kbite context
-   summary** (key learnings, takeaways, patterns). Explore freely with Bash
-   (`find`, `cat`, `rg`) — read-only run of the ckfs tree.
+3. For each inherited/added kbite: read the purpose at the kbite root
+   (`$GMCC_KBITE/{name}/KBITE_PURPOSE.md`) and the index under digested
+   (`$GMCC_KBITE_DIGESTED/{name}/KBITE_INDEX.md`), load top 3-5 chewed files
+   from `$GMCC_KBITE_DIGESTED/{name}/` (`primary/`, `secondary/`), compile a
+   **kbite context summary** (key learnings, takeaways, patterns). Explore
+   freely with Bash (`find`, `cat`, `rg`) — read-only run of the ckfs tree.
 4. Update `{id}_{name}_initial.yaml`'s `kbites_loaded:` list and
    `kbite_context_summary:` field — this summary is passed to every subagent
    spawn. Keep `{id}_{name}_data.gmcc.yaml`'s `kbite:` list in sync.

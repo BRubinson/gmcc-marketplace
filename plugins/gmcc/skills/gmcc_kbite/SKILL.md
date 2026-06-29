@@ -424,7 +424,9 @@ GMB MUST:
    `$GMCC_SESSION_PATH/session_data.gmcc.yaml`'s `kbite:` field (and a prompt's
    own `kbite:` list). There is no per-prompt keyword scan.
 2. **Load Registered KBites**: for a registered kbite, read its
-   `KBITE_PURPOSE.md` + `KBITE_INDEX.md` and the relevant chewed files.
+   `KBITE_PURPOSE.md` (at the kbite root, `$GMCC_KBITE/{name}/`) +
+   `KBITE_INDEX.md` (under digested, `$GMCC_KBITE_DIGESTED/{name}/`) and the
+   relevant chewed files from `$GMCC_KBITE_DIGESTED/{name}/`.
 3. **Reference in Responses**: when using kbite knowledge, cite the source
    (e.g., "Per the swift_code_edit kbite...").
 4. **Explicit Add Only**: add a kbite to a registry only when the user explicitly
@@ -435,8 +437,8 @@ GMB MUST:
 ```
 1. Read the kbite: registry from session_data.gmcc.yaml (and the active prompt)
 2. For each registered kbite in $GMCC_KBITE_DIGESTED/:
-   a. Read $GMCC_KBITE/{name}/KBITE_PURPOSE.md + KBITE_INDEX.md
-   b. Load the relevant chewed files (explore with find/cat/rg as needed)
+   a. Read $GMCC_KBITE/{name}/KBITE_PURPOSE.md (root) + $GMCC_KBITE_DIGESTED/{name}/KBITE_INDEX.md (digested)
+   b. Load the relevant chewed files from $GMCC_KBITE_DIGESTED/{name}/ (explore with find/cat/rg as needed)
    c. Include knowledge in context
 3. Proceed with task using loaded knowledge
 ```

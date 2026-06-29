@@ -182,10 +182,13 @@ matching and no kbite picker.
 2. **Explicit add only.** If the user's prompt text explicitly asks to add a
    kbite (e.g. "add the swift_ui kbite", "use the spatial kbite"), append it to
    the prompt's `kbite:` list. Never add a kbite on your own initiative.
-3. For each inherited/added kbite, load context from `$GMCC_KBITE_DIGESTED/{name}/`:
-   read `$GMCC_KBITE/{name}/KBITE_PURPOSE.md` and `KBITE_INDEX.md`, then load the
-   top 3-5 highest-relevance chewed files. Explore freely with Bash (`find`,
-   `cat`, `rg`) — you have read-only run of the ckfs tree.
+3. For each inherited/added kbite, load its context: the purpose lives at the
+   kbite root (`$GMCC_KBITE/{name}/KBITE_PURPOSE.md`) while the index and chewed
+   content live under digested (`$GMCC_KBITE_DIGESTED/{name}/KBITE_INDEX.md`,
+   plus `primary/` and `secondary/`). Read both index files, then load the top
+   3-5 highest-relevance chewed files from `$GMCC_KBITE_DIGESTED/{name}/`.
+   Explore freely with Bash (`find`, `cat`, `rg`) — you have read-only run of
+   the ckfs tree.
 4. Update `{id}_{name}_initial.yaml`'s `kbites_loaded:` list to reflect what you
    loaded, and keep `{id}_{name}_data.gmcc.yaml`'s `kbite:` list in sync.
 

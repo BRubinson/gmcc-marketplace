@@ -63,8 +63,9 @@ When context is compacted, immediately:
 KBites are **inherited, not trigger-matched** — declared in the ckfs hierarchy's
 `kbite:` registries (project → instance → session → prompt). When work touches a
 registered kbite:
-1. Read `$GMCC_KBITE/{name}/KBITE_PURPOSE.md` + `KBITE_INDEX.md`
-2. Load relevant `*_chewed.md` files
+1. Read the purpose at the kbite root (`$GMCC_KBITE/{name}/KBITE_PURPOSE.md`) and
+   the index under digested (`$GMCC_KBITE_DIGESTED/{name}/KBITE_INDEX.md`)
+2. Load relevant chewed files from `$GMCC_KBITE_DIGESTED/{name}/` (`primary/`, `secondary/`)
 3. Cite sources when using kbite knowledge
 
 Add a kbite only when the user explicitly asks. Full protocol:
