@@ -284,7 +284,7 @@ sections:
               Audit trail of completed bot-workflow runs against prompts in this
               session. Appended by bot workflows on completion (created on first
               completion — absent in a fresh session). NOTE: the separate
-              `cleanup_actions:` list (written by /gm_cleanup) is owned and typed
+              `cleanup_actions:` list (written by the cleanup commands) is owned and typed
               by the cleanup workflow, not declared here.
 
       gmcc_session_data_file_prompt_files_entry:
@@ -328,6 +328,45 @@ sections:
           completed_at: datetime
           review_status: Enum<gmcc_phase_review_status>?
           teams_used: List<string>?
+
+      # --- Session file index ---
+      #
+      # The per-session catalog file that sits alongside session_data.gmcc.yaml
+      # (one per session). Created/maintained by the gmcc_session_creation skill
+      # and audited by /gmcc_session_cleanup.
+
+      gmcc_session_file_index_file:
+        description: |
+          Top-level shape of {session}/gmcc_session_file_index.yaml. A
+          per-session catalog that sits alongside session_data.gmcc.yaml and
+          indexes two things: the session's architecture decision records and
+          its yeeted sections. Seeded by the gmcc_session_creation skill (not
+          by detect_repo.sh) and maintained thereafter. The two payload fields
+          are flat top-level keys (no wrapper key).
+        fields:
+          unwrap_has_base_fields: Unwrap<has_base_fields>
+          unwrap_has_ckfs_paths: Unwrap<has_ckfs_paths>
+          architecture_decision_records: List<gmcc_session_file_index_adr_entry>
+          yeeted: gmcc_session_file_index_yeeted_section
+
+      gmcc_session_file_index_adr_entry:
+        description: |
+          One architecture decision record entry in a session file index.
+          Lightweight identity stub modeled on
+          gmcc_session_data_file_prompt_files_entry — id + display name +
+          a free-text description of the decision.
+        fields:
+          id: int
+          name: string
+          description: string
+
+      gmcc_session_file_index_yeeted_section:
+        description: |
+          TODO (stub): the yeeted-sections payload of a session file index.
+          Intentionally fieldless for now; a later prompt defines its shape.
+          Declared so gmcc_session_file_index_file.yeeted can reference a real
+          type today. Do not add fields without bumping the relevant schema.
+        fields: {}
 
       gmcc_prompt_data_file:
         description: |

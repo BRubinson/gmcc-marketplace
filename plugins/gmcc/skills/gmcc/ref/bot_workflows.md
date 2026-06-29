@@ -153,7 +153,8 @@ Agents are specialized personas defined in `$GMCC_PLUGIN_ROOT/prompts/`:
 | `/gm_bot_rpi` | Subagent Research/Plan/Implement workflow |
 | `/gm_bot_team` | Agent team workflow (requires agent teams enabled) |
 | `/gm_task` | Load session context and just do the task; read-only — no ckfs writes unless you explicitly ask for a retroactive write-back |
-| `/gm_cleanup` | Audit CKFS for non-compliant structure, interactively resolve |
+| `/gmcc_environment_cleanup` | Audit the whole CKFS environment for non-compliant structure, interactively resolve |
+| `/gmcc_session_cleanup` | Audit only the current session ($GMCC_SESSION_PATH): prompt-folder integrity, index-file consistency, changed_files/phase_history, schema drift |
 | `/gm_crunch_open_maw` | Create maw for collecting kbite crunchables |
 | `/gm_crunch_chew` | Process crunchables into analyzed knowledge |
 | `/gm_crunch_digest` | Finalize kbite from chewed resources |
@@ -164,6 +165,6 @@ Agents are specialized personas defined in `$GMCC_PLUGIN_ROOT/prompts/`:
 If ckfs is missing or corrupted:
 1. Run `/gm_init` to recreate the projects root + registry
 2. Restart Claude Code so `detect_repo.sh` re-provisions the current project/instance/session
-3. Use `/gm_cleanup` to surface any remaining non-compliance
+3. Use `/gmcc_environment_cleanup` to surface any remaining non-compliance
 
 If `$GMCC_SESSION_PATH` is missing at command time, that means the SessionStart hook didn't run. Restart Claude Code.

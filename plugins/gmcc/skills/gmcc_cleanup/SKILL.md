@@ -10,7 +10,7 @@ allowed-tools: Read, Write, Bash, Glob, AskUserQuestion
 
 Audits `$GMCC_CKFS_ROOT` for state that doesn't conform to the current (v6.0.0+) layout and interactively resolves each finding.
 
-This skill exists because v6.0.0 ships **no migration tool** from v5.x — the old FAM hierarchy (`{repo}/fam/{branch}/`) is ignored by the new runtime, not deleted. Users with v5.x data run `/gm_cleanup` to deliberately decide what to do with each piece of legacy state.
+This skill exists because v6.0.0 ships **no migration tool** from v5.x — the old FAM hierarchy (`{repo}/fam/{branch}/`) is ignored by the new runtime, not deleted. Users with v5.x data run `/gmcc_environment_cleanup` to deliberately decide what to do with each piece of legacy state.
 
 The skill is also useful steady-state: catching orphan registry entries, missing required files, and accidental cruft.
 
@@ -52,7 +52,7 @@ The skill is also useful steady-state: catching orphan registry entries, missing
 
 ## Legacy Deprecated — No Longer Supported Concepts
 
-This section is the **only** place in the live plugin that mentions these concepts. They are not part of the v6.0.0+ runtime and exist solely as cleanup targets when `/gm_cleanup` encounters them on a user's disk.
+This section is the **only** place in the live plugin that mentions these concepts. They are not part of the v6.0.0+ runtime and exist solely as cleanup targets when `/gmcc_environment_cleanup` encounters them on a user's disk.
 
 | Concept | What it was | Where it can appear | Detection signature |
 |---------|-------------|---------------------|---------------------|
@@ -71,7 +71,7 @@ This section is the **only** place in the live plugin that mentions these concep
 
 A separate-but-related artifact: `*_chewed.md` files under `$GMCC_KBITE_DIGESTED/{name}/...` were produced by the chew agent from a maw source file, and they record where that source lived via a `**Source**:` or `**Location**:` line at the top of the file. When the underlying maw is retired (digested + deleted, or archived to cold storage), those absolute paths go stale — the chewed file remains the canonical artifact but the line is misleading.
 
-Canonical rewrite (applied by `/gm_cleanup` and by hand here):
+Canonical rewrite (applied by `/gmcc_environment_cleanup` and by hand here):
 
 - Strip the dead absolute prefix (typically `/Users/.../gmcc_ckfs/{anything}/fam/{branch}/maw/`).
 - Prepend `(retired maw source) ` to the remaining slug-relative path.
@@ -88,7 +88,7 @@ Detection: any `*_chewed.md` under `kbites/digested/` whose `**Source**:` / `**L
 **Detection rules** (run during the walk; one finding max from this category):
 
 1. If `$GMCC_PLUGIN_ROOT` is unset (cleanup invoked outside a booted Claude session) → skip this check entirely. Log `[GMB] Skipping GMCC_PLUGIN_ROOT check — session not booted`. Do NOT emit a finding.
-2. If `~/.zshrc` does not exist, or the `# >>> gmcc env >>>` marker is absent → no finding. `/gm_init` owns block creation; `/gm_cleanup` does not create the block from scratch.
+2. If `~/.zshrc` does not exist, or the `# >>> gmcc env >>>` marker is absent → no finding. `/gm_init` owns block creation; `/gmcc_environment_cleanup` does not create the block from scratch.
 3. Otherwise, extract the block between the markers:
    - If it contains no `export GMCC_PLUGIN_ROOT=` line → finding **kind: missing**.
    - If it contains a line whose value (after stripping surrounding quotes) differs from `$GMCC_PLUGIN_ROOT` → finding **kind: stale**, include both values in the finding text.
@@ -126,7 +126,7 @@ Drift causes: user manually edited `~/.claude/settings.json`, `$GMCC_CKFS_ROOT` 
 **Detection rules** (run during the walk; one finding max from this category):
 
 1. If `$GMCC_CKFS_ROOT` is unset (cleanup invoked outside a booted Claude session) → skip this check entirely. Log `[GMB] Skipping CKFS permission grant check — session not booted`. Do NOT emit a finding.
-2. If `~/.claude/settings.json` does not exist or is unparseable JSON → no finding. `/gm_init` owns creation; `/gm_cleanup` does not create from scratch.
+2. If `~/.claude/settings.json` does not exist or is unparseable JSON → no finding. `/gm_init` owns creation; `/gmcc_environment_cleanup` does not create from scratch.
 3. Parse settings.json. Compute the expected entries from `$GMCC_CKFS_ROOT`:
    - dir: `$GMCC_CKFS_ROOT`
    - allow: `Read($GMCC_CKFS_ROOT/**)`, `Edit($GMCC_CKFS_ROOT/**)`, `Write($GMCC_CKFS_ROOT/**)`, `Glob($GMCC_CKFS_ROOT/**)`
@@ -178,7 +178,7 @@ jq \
   ' "$SETTINGS" > "$TMP" && mv "$TMP" "$SETTINGS"
 ```
 
-If `jq` is unavailable on the user's machine: do NOT attempt a manual JSON edit. Instead, downgrade the resolution to a printed instruction telling the user to install jq (`brew install jq`) and re-run `/gm_cleanup`, plus echo the exact key/value entries they would otherwise need to hand-add.
+If `jq` is unavailable on the user's machine: do NOT attempt a manual JSON edit. Instead, downgrade the resolution to a printed instruction telling the user to install jq (`brew install jq`) and re-run `/gmcc_environment_cleanup`, plus echo the exact key/value entries they would otherwise need to hand-add.
 
 After applying, remind the user that the new grant takes effect on the **next** Claude Code restart — the currently running session has its permission set already loaded.
 
@@ -208,7 +208,7 @@ If the on-disk version is **missing**: treat as version 0 (i.e., outdated).
 When an "Outdated schema" finding is resolved with the default action, the cleanup skill does NOT apply a hardcoded migration function. Instead it asks the running model (you) to migrate the file content, using all available context. This means:
 
 - No migration code needs to be pre-written when a schema is bumped.
-- A schema bump is just: edit the template's `version:` + change its fields, and update `ckfs_details.md` to describe the new schema. The next `/gm_cleanup` run handles in-the-wild files automatically.
+- A schema bump is just: edit the template's `version:` + change its fields, and update `ckfs_details.md` to describe the new schema. The next `/gmcc_environment_cleanup` run handles in-the-wild files automatically.
 - Each migration is reviewed by the user before being written.
 
 ### Per-finding migration flow
@@ -234,7 +234,7 @@ For each "Outdated schema" finding the user chose to migrate:
    - **Re-roll** — ask the model to produce a different migration (useful if the first attempt mishandled a field). The user can provide a hint.
    - **Backup + recreate from template** — drop the user's data, write a fresh file at the current version. Last resort.
 
-4. **On Apply**, record the migration in `session_data.gmcc.yaml` of the **current** session (the one running `/gm_cleanup`) under a `cleanup_actions:` list. Each entry: `{path, action: "schema_migration", from_version, to_version, timestamp}`. This is the audit trail.
+4. **On Apply**, record the migration in `session_data.gmcc.yaml` of the **current** session (the one running `/gmcc_environment_cleanup`) under a `cleanup_actions:` list. Each entry: `{path, action: "schema_migration", from_version, to_version, timestamp}`. This is the audit trail.
 
 ### What the user sees per migration
 
@@ -280,7 +280,7 @@ Workflow when you want to introduce a new schema version:
 
 1. Edit the template file: change its `version:` field and modify its structure.
 2. Update `$GMCC_PLUGIN_ROOT/skills/gmcc/ref/ckfs_details.md` to describe the new schema (this is the LLM's spec at migration time — be precise about field meanings).
-3. Ship. Existing in-the-wild files will be flagged as "Outdated schema" on the user's next `/gm_cleanup` run; the LLM handles them per-file.
+3. Ship. Existing in-the-wild files will be flagged as "Outdated schema" on the user's next `/gmcc_environment_cleanup` run; the LLM handles them per-file.
 
 No `if version == 1: ...` branches to write or maintain.
 

@@ -140,9 +140,9 @@ Track per-kbite outcome: `migrated`, `phase1a-skipped`, `phase1b-moved`, `phase1
 
 ## Phase 2: (removed in v6.0.0)
 
-Phase 2 used to migrate legacy per-branch FAM maws (`$GMCC_CKFS_ROOT/{repo}/fam/{branch}/maw/`) into `$GMCC_KBITE_OPEN/`. That code path is removed in v6.0.0: FAM directories no longer exist as a runtime concept, and any leftover `fam/` data is now handled by `/gm_cleanup` (which can archive or delete it interactively).
+Phase 2 used to migrate legacy per-branch FAM maws (`$GMCC_CKFS_ROOT/{repo}/fam/{branch}/maw/`) into `$GMCC_KBITE_OPEN/`. That code path is removed in v6.0.0: FAM directories no longer exist as a runtime concept, and any leftover `fam/` data is now handled by `/gmcc_environment_cleanup` (which can archive or delete it interactively).
 
-If you have a pre-v5.3 install with FAM maws still on disk, run `/gm_cleanup` after this command — it surfaces every legacy `fam/` tree as a finding.
+If you have a pre-v5.3 install with FAM maws still on disk, run `/gmcc_environment_cleanup` after this command — it surfaces every legacy `fam/` tree as a finding.
 
 ---
 
@@ -160,7 +160,7 @@ KBite Migration Complete
 
 - Verify with: ls $GMCC_KBITE_DIGESTED/ and ls $GMCC_KBITE/
 - Re-run safely: this command is idempotent.
-- Run `/gm_cleanup` to audit any remaining legacy state (FAM dirs, etc.)
+- Run `/gmcc_environment_cleanup` to audit any remaining legacy state (FAM dirs, etc.)
 - Update ~/.zshrc gmcc env block (see plugins/gmcc/MIGRATION.md).
 ```
 

@@ -1,5 +1,51 @@
 # GMCC Migration Guide
 
+## v14.0.0 to v15.0.0 — session-file toolkit + cleanup command split
+
+A toolkit for maintaining per-session files, plus a rename of the cleanup
+command. One additive schema change; no on-disk data migration is required.
+
+### New YEETS type: `gmcc_session_file_index_file`
+
+`gmcc.yeet.yaml` gains a per-session index file type and two supporting structs
+(`yeet_version` unchanged at `"6.3"` — the grammar did not change):
+
+- `gmcc_session_file_index_file` — top-level shape of a new
+  `{session}/gmcc_session_file_index.yaml`. Composes `has_base_fields` +
+  `has_ckfs_paths` and carries two **flat** top-level sections:
+  `architecture_decision_records` (a list) and `yeeted`.
+- `gmcc_session_file_index_adr_entry` — one ADR serial index entry
+  (`id` / `name` / `description`), modeled on
+  `gmcc_session_data_file_prompt_files_entry`.
+- `gmcc_session_file_index_yeeted_section` — an intentional **TODO stub**
+  (`fields: {}`); a later release defines the yeeted-section shape.
+
+### New skill: `gmcc_session_creation`
+
+A standalone, idempotent session bootstrapper (`user-invocable`). Creates or
+repairs the **current** session folder — `prompts/`, `session_data.gmcc.yaml`,
+and the new `gmcc_session_file_index.yaml` — independent of the SessionStart
+hook (`detect_repo.sh` is unchanged). It is the canonical writer of the session
+file index; older sessions get the index lazily here or via session cleanup.
+
+### New command: `/gmcc_session_cleanup`
+
+A **session-scoped** cleanup auditor (skill `gmcc_session_cleanup`). It walks
+only `$GMCC_SESSION_PATH` and resolves four finding categories: prompt-folder
+integrity, index-file consistency, `changed_files`/`phase_history` integrity, and
+schema drift (outdated files are **archived to
+`$GMCC_CKFS_ROOT/_archive/cold_storage/`**, never migrated in place). This fills
+the gap left by the environment auditor, which explicitly excludes the running
+session's paths from its walk.
+
+### Command rename: `gm_cleanup` → `/gmcc_environment_cleanup`
+
+The whole-CKFS cleanup command is renamed to make its environment-wide scope
+explicit and to pair with the new session-scoped command. The delegated skill
+keeps its name (`gmcc_cleanup`); only the command (and all references to it)
+changed. **Migration:** invoke `/gmcc_environment_cleanup` wherever the old
+command name was used; the behavior is identical.
+
 ## v12.0.0 to v13.0.0 — run-a-drafted-prompt contract + external authoring (GMVibes)
 
 One behavioral change to how the bot commands parse a numeric first argument — no
@@ -69,7 +115,7 @@ components, the initial and clarified prompt files become typed YEETS documents,
 the Clarify phase clarifies `goal` and `detail` with separate question suites, and
 its first step detects YEETS types in the prompt. Every change is additive at the
 type level; runtime data under existing v10.0.0 prompt folders is migrated by
-`/gm_cleanup` (prompt-file schema `2 → 3`).
+`/gmcc_environment_cleanup` (prompt-file schema `2 → 3`).
 
 ### Type additions in `gmcc.yeet.yaml`
 
@@ -133,8 +179,8 @@ prompt's backstory may then diverge.
 1. Update the plugin to v11.0.0 and restart Claude Code. Fresh sessions get the
    `backstory:` field and new-shape prompt files automatically.
 2. Existing `session_data.gmcc.yaml` files gain `backstory: ""` the next time
-   `/gm_cleanup` migrates them (or add it by hand).
-3. Run `/gm_cleanup`. It detects v2 prompt folders as **Outdated schema** and
+   `/gmcc_environment_cleanup` migrates them (or add it by hand).
+3. Run `/gmcc_environment_cleanup`. It detects v2 prompt folders as **Outdated schema** and
    migrates each per-file: the initial file's `content:` is split into
    `backstory`/`goal`/`detail` and gains `yeet:`/`yeet_type:` headers; the
    clarified file is mapped to the new split shape with `detected_yeet_types: []`.
@@ -146,7 +192,7 @@ prompt's backstory may then diverge.
 
 A follow-on within the v6.2.0 release that closes the v6.1.x typing gap
 end-to-end. Every change is additive at the type level; runtime data
-under existing v6.1 trees is migrated by `/gm_cleanup`.
+under existing v6.1 trees is migrated by `/gmcc_environment_cleanup`.
 
 ### Type additions in `gmcc.yeet.yaml`
 
@@ -202,8 +248,8 @@ persisted — individual teammate reports are not. See
 1. Update the plugin to v6.2.0 (typing finalization).
 2. Restart Claude Code. `detect_repo.sh` will produce new code-based
    instance directories for fresh trees; existing v6.1 instances are
-   untouched until `/gm_cleanup` runs.
-3. Run `/gm_cleanup`. It detects:
+   untouched until `/gmcc_environment_cleanup` runs.
+3. Run `/gmcc_environment_cleanup`. It detects:
    - Legacy slugified-abs-path instance directories → renames to
      `{basename}_{hash4}` and rewrites `gmcc_ckfs_absolute_path` /
      `gmcc_ckfs_relative_path` in the instance_data + every session_data
@@ -215,7 +261,7 @@ persisted — individual teammate reports are not. See
      present). Prompt-file schema version bumps `1 → 2`.
 4. Existing session entries gain `branch:` automatically the next time
    `detect_repo.sh` registers a new session in that instance; legacy
-   session entries are left alone until `/gm_cleanup` patches them.
+   session entries are left alone until `/gmcc_environment_cleanup` patches them.
 
 ---
 
@@ -371,7 +417,7 @@ fields.
 2. `detect_repo.sh` provisions the new file shape automatically on next
    SessionStart for any new project / instance / session.
 3. Existing v6.0.x `*.yaml` runtime files are NOT auto-migrated. Run
-   `/gm_cleanup` (or invoke the prompt that did the live migration) to
+   `/gmcc_environment_cleanup` (or invoke the prompt that did the live migration) to
    rewrite them.
 
 ---
@@ -401,7 +447,7 @@ Adds the YEETS (YAML Expositional Estimated Typing System) language to GMCC.
 
 ## v5.5.0 to v6.0.0 — Projects / Instances / Sessions (HARD CUT)
 
-**This release replaces the per-branch FAM (`fam/{branch}/`) with a three-tier `projects/instances/sessions` hierarchy. There is no migration tool — v5.5.0 FAM data is left untouched on disk and ignored by v6.** Use the new `/gm_cleanup` command to audit your `$GMCC_CKFS_ROOT` for legacy state and choose what to do with it.
+**This release replaces the per-branch FAM (`fam/{branch}/`) with a three-tier `projects/instances/sessions` hierarchy. There is no migration tool — v5.5.0 FAM data is left untouched on disk and ignored by v6.** Use the new `/gmcc_environment_cleanup` command to audit your `$GMCC_CKFS_ROOT` for legacy state and choose what to do with it.
 
 ### New on-disk layout
 
@@ -452,7 +498,7 @@ Adds the YEETS (YAML Expositional Estimated Typing System) language to GMCC.
 1. Update the plugin to v6.0.0.
 2. Restart Claude Code (so the new `detect_repo.sh` runs and provisions the projects tree for your current repo).
 3. Run `/gm_init --force` if you want a clean `~/gmcc_ckfs/` (else the new dirs simply land alongside the old `fam/` data).
-4. Run `/gm_cleanup` to audit your CKFS for legacy state. The command walks `$GMCC_CKFS_ROOT`, surfaces non-compliant paths (old `fam/` dirs, orphan registry entries, missing required files), and prompts you per-finding for an action (archive / delete / keep / fix).
+4. Run `/gmcc_environment_cleanup` to audit your CKFS for legacy state. The command walks `$GMCC_CKFS_ROOT`, surfaces non-compliant paths (old `fam/` dirs, orphan registry entries, missing required files), and prompts you per-finding for an action (archive / delete / keep / fix).
 5. Re-source your shell or open a new terminal — `/gm_init` re-writes the `~/.zshrc` env block to include `GMCC_PROJECTS` and `GMCC_PROJECTS_INDEX`.
 
 ### Deferred schemas

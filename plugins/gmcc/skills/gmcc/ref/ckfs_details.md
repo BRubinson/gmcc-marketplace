@@ -36,6 +36,7 @@ Read this file on-demand when performing ckfs operations.
 │               └── sessions/
 │                   └── {sanitized_branch}/                   # $GMCC_SESSION_PATH
 │                       ├── session_data.gmcc.yaml
+│                       ├── gmcc_session_file_index.yaml         # per-session catalog (gmcc_session_creation)
 │                       └── prompts/
 │                           └── {id}_{name}/                  # one folder per prompt (v10.0.0)
 │                               ├── {id}_{name}_data.gmcc.yaml
@@ -76,7 +77,7 @@ INSTANCE_CODE = "{basename($REPO_ROOT)}_{first 4 chars of md5($REPO_ROOT)}"
 - `instance_data.gmcc.yaml`'s `name:` field is the human-readable repo basename; `code:` is the hash-suffixed form.
 
 Pre-v6.2 instances used the slugified absolute path (e.g.
-`Users__brycerubinson__Dev__gmcc-marketplace`). `/gm_cleanup` migrates
+`Users__brycerubinson__Dev__gmcc-marketplace`). `/gmcc_environment_cleanup` migrates
 those to the new code-based directory + rewrites paths.
 
 ### Branch Slugification Rules
@@ -161,7 +162,8 @@ changed_files:
 # Optional audit trail of completed bot runs (absent until first completion;
 # conforms to gmcc_session_data_file_phase_history_entry). review_status is
 # null for the lightweight /gm_bot tier; teams_used is /gm_bot_team only.
-# (The separate cleanup_actions: list is owned + typed by /gm_cleanup.)
+# (The separate cleanup_actions: list is owned by the cleanup commands —
+#  /gmcc_environment_cleanup and /gmcc_session_cleanup — not declared here.)
 phase_history:
   - prompt_id: {int}
     command: /gm_bot_rpi
@@ -235,7 +237,7 @@ it resolved), `key_files`, `constraints`, `kbites_loaded`
 
 | File | Purpose | Maintained by |
 |------|---------|---------------|
-| `project_index.gmcc.yaml` | Flat registry of all projects (identity only) | `detect_repo.sh` (registers); `/gm_cleanup` (prunes) |
+| `project_index.gmcc.yaml` | Flat registry of all projects (identity only) | `detect_repo.sh` (registers); `/gmcc_environment_cleanup` (prunes) |
 | `project_data.gmcc.yaml` | Per-project identity, repo metadata, instance list | `detect_repo.sh` (creates + appends instances) |
 | `instance_data.gmcc.yaml` | Per-instance identity, system path, session list | `detect_repo.sh` (creates + appends sessions, each with `branch:`) |
 | `session_data.gmcc.yaml` | Per-branch session state (typed prompts, typed changed_files) | Bot workflows (continuous updates) |

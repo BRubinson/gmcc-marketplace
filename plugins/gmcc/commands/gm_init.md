@@ -140,7 +140,7 @@ Export the stable GMCC paths from `~/.zshrc` so they are available in every shel
 - `GMCC_KBITE` — kbites root
 - `GMCC_KBITE_DIGESTED` — digested-kbites root
 - `GMCC_KBITE_OPEN` — open-maw root
-- `GMCC_PLUGIN_ROOT` — installed-plugin directory (version-dependent; updated on plugin upgrade via `/gm_cleanup`)
+- `GMCC_PLUGIN_ROOT` — installed-plugin directory (version-dependent; updated on plugin upgrade via `/gmcc_environment_cleanup`)
 
 Per-session resolved paths (`GMCC_PROJECT_PATH`, `GMCC_INSTANCE_PATH`, `GMCC_SESSION_PATH`) are NOT persisted here — they are set dynamically by `detect_repo.sh` on SessionStart based on the current repo + branch.
 
@@ -192,10 +192,10 @@ if [ -f "$ZSHRC" ] && grep -qF "$MARKER_OPEN" "$ZSHRC"; then
         echo "[GMB] Upgraded ~/.zshrc gmcc env block — added GMCC_PLUGIN_ROOT"
     else
         # Block has a GMCC_PLUGIN_ROOT line (possibly with a different value) or
-        # an unexpected diff. Don't overwrite — /gm_cleanup handles stale values
+        # an unexpected diff. Don't overwrite — /gmcc_environment_cleanup handles stale values
         # per-finding so the user is in the loop.
         echo "[GMB] WARNING: existing GMCC env block in ~/.zshrc differs from expected"
-        echo "       Leaving in place. Run /gm_cleanup to repair, or inspect manually:"
+        echo "       Leaving in place. Run /gmcc_environment_cleanup to repair, or inspect manually:"
         echo "       sed -n \"/$MARKER_OPEN/,/$MARKER_CLOSE/p\" ~/.zshrc"
         echo "       Expected block:"
         printf '%s\n' "$EXPECTED_BLOCK" | sed 's/^/         /'
@@ -206,7 +206,7 @@ else
 fi
 ```
 
-The check stays conservative for unknown diffs: an existing block whose `GMCC_PLUGIN_ROOT` value diverges is left in place (it might be hand-tuned), and `/gm_cleanup` surfaces it as a per-finding interactive choice. The one diff `gm_init` heals automatically is the well-known "old block has every other line but no `GMCC_PLUGIN_ROOT` export" upgrade path.
+The check stays conservative for unknown diffs: an existing block whose `GMCC_PLUGIN_ROOT` value diverges is left in place (it might be hand-tuned), and `/gmcc_environment_cleanup` surfaces it as a per-finding interactive choice. The one diff `gm_init` heals automatically is the well-known "old block has every other line but no `GMCC_PLUGIN_ROOT` export" upgrade path.
 
 ---
 
@@ -266,7 +266,7 @@ Notes:
 - `//=` only initializes missing keys; existing `permissions.deny`, `permissions.ask`, and unrelated top-level keys (`env`, `enabledPlugins`, etc.) are untouched.
 - Falls back to a warning (not a hard error) if `jq` is missing — the rest of `/gm_init` still completes.
 - Takes effect on the **next** Claude Code restart. The current session has its permission set already loaded.
-- `/gm_cleanup` detects drift on this grant (missing entries, moved `$GMCC_CKFS_ROOT`) and offers to repair using the same merge.
+- `/gmcc_environment_cleanup` detects drift on this grant (missing entries, moved `$GMCC_CKFS_ROOT`) and offers to repair using the same merge.
 
 ---
 
@@ -289,8 +289,8 @@ Created:
 - ~/gmcc_ckfs/README.md
 - ~/gmcc_ckfs/projects/
 - ~/gmcc_ckfs/projects/project_index.gmcc.yaml
-- ~/.zshrc: GMCC env block including GMCC_PLUGIN_ROOT (run `source ~/.zshrc` or open a new terminal). After future plugin upgrades the persisted GMCC_PLUGIN_ROOT will go stale — run /gm_cleanup to refresh it.
-- ~/.claude/settings.json: CKFS permission grant — additionalDirectories + Read/Edit/Write/Glob on $GMCC_CKFS_ROOT/**. Takes effect on next Claude Code restart; covers plugin subagents automatically. Run /gm_cleanup if these ever drift.
+- ~/.zshrc: GMCC env block including GMCC_PLUGIN_ROOT (run `source ~/.zshrc` or open a new terminal). After future plugin upgrades the persisted GMCC_PLUGIN_ROOT will go stale — run /gmcc_environment_cleanup to refresh it.
+- ~/.claude/settings.json: CKFS permission grant — additionalDirectories + Read/Edit/Write/Glob on $GMCC_CKFS_ROOT/**. Takes effect on next Claude Code restart; covers plugin subagents automatically. Run /gmcc_environment_cleanup if these ever drift.
 
 Next steps:
 1. Navigate to a git repository
@@ -298,5 +298,5 @@ Next steps:
    instance, and session directories for that repo automatically
 3. Run /gm_bot, /gm_bot_rpi, or /gm_bot_team to start a workflow
 
-Migrating from v5.x? Run /gm_cleanup to audit your CKFS for legacy state.
+Migrating from v5.x? Run /gmcc_environment_cleanup to audit your CKFS for legacy state.
 ```

@@ -1,12 +1,12 @@
 ---
-name: gm_cleanup
-description: Audit $GMCC_CKFS_ROOT for non-compliant structure (legacy v5.x FAM, orphan registry entries, missing required files, malformed yaml) and interactively resolve each finding with the user.
+name: gmcc_environment_cleanup
+description: Audit the whole $GMCC_CKFS_ROOT environment for non-compliant structure (legacy v5.x FAM, orphan registry entries, missing required files, malformed yaml) and interactively resolve each finding with the user. Environment-wide counterpart to /gmcc_session_cleanup.
 argument-hint: ""
 disable-model-invocation: true
 allowed-tools: Read, Write, Bash, Glob, AskUserQuestion
 ---
 
-# /gm_cleanup
+# /gmcc_environment_cleanup
 
 Run the GM-CDE CKFS cleanup auditor. Walks `$GMCC_CKFS_ROOT`, reports non-compliant state, prompts per-finding for an action. Full spec in `$GMCC_PLUGIN_ROOT/skills/gmcc_cleanup/SKILL.md`.
 
@@ -52,7 +52,7 @@ You have {N} legacy v5.x FAM branches remaining. How would you like to handle th
 - Skip all - Leave them in place
 ```
 
-**Dry-run mode** (`/gm_cleanup --dry-run`): walks and reports findings, but skips the interactive resolution loop entirely. Useful for auditing without committing to changes.
+**Dry-run mode** (`/gmcc_environment_cleanup --dry-run`): walks and reports findings, but skips the interactive resolution loop entirely. Useful for auditing without committing to changes.
 
 ---
 

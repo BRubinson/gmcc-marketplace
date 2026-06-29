@@ -4,7 +4,7 @@
 # instance lists live in each project's project_data.gmcc.yaml, and
 # per-instance session lists live in each instance's instance_data.gmcc.yaml.
 #
-# Maintained by detect_repo.sh (lazy registration on SessionStart) and /gm_cleanup.
+# Maintained by detect_repo.sh (lazy registration on SessionStart) and /gmcc_environment_cleanup.
 #
 # Conforms to gmcc.gmcc_project_index_file (see $GMCC_PLUGIN_ROOT/gmcc.yeet.yaml).
 
