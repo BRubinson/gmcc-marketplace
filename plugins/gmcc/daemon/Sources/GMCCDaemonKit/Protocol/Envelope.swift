@@ -7,7 +7,7 @@ import Foundation
 /// rejected — the daemon stays up (an old pinned-Kit GMVibes must never be
 /// able to kill-loop a fresh daemon).
 public enum GMCCWireProtocol {
-    public static let version = 4
+    public static let version = 5
 }
 
 /// Discriminator for every NDJSON message on the socket. One case per spec
@@ -52,6 +52,8 @@ public enum MessageType: String, Codable, Hashable, CaseIterable, Sendable {
     case kbiteFileGet = "KBITE_FILE_GET"
     case kbiteSearch = "KBITE_SEARCH"
     case kbiteKeywordTag = "KBITE_KEYWORD_TAG"
+    // Catalog search (instances + sessions, the GMVibes search bar)
+    case catalogSearch = "CATALOG_SEARCH"
     // Audit
     case eventList = "EVENT_LIST"
     // Daemon → client only

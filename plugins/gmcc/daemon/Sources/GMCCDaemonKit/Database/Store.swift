@@ -13,6 +13,9 @@ public enum StoreError: Error, Sendable {
     case emptyUpdate(entity: String)
     /// A row holds a value the schema CHECKs should have made impossible.
     case corruptState(entity: String, detail: String)
+    /// A request whose payload decoded fine but is semantically unusable
+    /// (e.g. a whitespace-only search query).
+    case badRequest(detail: String)
 
     public var errorPayload: ErrorPayload {
         switch self {
@@ -38,6 +41,8 @@ public enum StoreError: Error, Sendable {
             return ErrorPayload(
                 code: .internalError,
                 message: "\(entity) holds an impossible value: \(detail)")
+        case .badRequest(let detail):
+            return ErrorPayload(code: .badRequest, message: detail)
         }
     }
 }

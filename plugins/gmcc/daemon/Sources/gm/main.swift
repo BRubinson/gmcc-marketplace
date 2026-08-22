@@ -4,7 +4,7 @@ import GMCCDaemonKit
 
 // gm — the single GMCC CLI. A socket client of gmcc_daemon; never touches
 // the db file directly (single-writer invariant). One subcommand per wire
-// message (wire v4), grouped by family.
+// message (wire v5), grouped by family.
 //
 // Exit codes: 0 ok · 1 generic/db error · 2 daemon unreachable after
 // autostart · 3 unrecoverable protocol mismatch.
@@ -15,7 +15,7 @@ struct GM: ParsableCommand {
         abstract: "GMCC daemon client — context, sessions, prompts, artifacts, file changes, events.",
         subcommands: [
             Setup.self, Status.self, Ping.self, Daemon.self, Backup.self, Events.self,
-            Context.self, Project.self, Instance.self, Session.self, Prompt.self,
+            Context.self, Project.self, Instance.self, Session.self, Catalog.self, Prompt.self,
             Artifact.self, FileChange.self,
             Kbite.self,
         ]

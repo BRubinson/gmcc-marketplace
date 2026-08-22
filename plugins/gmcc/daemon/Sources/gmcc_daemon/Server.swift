@@ -212,6 +212,8 @@ final class Server: @unchecked Sendable {
                 return try InstanceListHandler.handle(line: line, head: head, store: store)
             case .sessionList:
                 return try SessionListHandler.handle(line: line, head: head, store: store)
+            case .catalogSearch:
+                return try CatalogSearchHandler.handle(line: line, head: head, store: store)
 
             case .sessionGet:
                 return try SessionGetHandler.handle(line: line, head: head, store: store)

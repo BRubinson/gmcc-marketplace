@@ -1251,6 +1251,39 @@ public struct KbiteSearchResponse: Codable, Hashable, Sendable {
     }
 }
 
+// MARK: - CATALOG_SEARCH
+
+/// Tokenized OR name/code search across instances + sessions, optionally
+/// scoped to one project. Returns matched sessions plus every parent
+/// instance needed to group them; the client orders by created/updated.
+public struct CatalogSearchRequest: Codable, Hashable, Sendable {
+    public let query: String
+    public let projectUuid: String?
+    public let limit: Int?
+
+    private enum CodingKeys: String, CodingKey {
+        case query
+        case projectUuid = "project_uuid"
+        case limit
+    }
+
+    public init(query: String, projectUuid: String? = nil, limit: Int? = nil) {
+        self.query = query
+        self.projectUuid = projectUuid
+        self.limit = limit
+    }
+}
+
+public struct CatalogSearchResponse: Codable, Hashable, Sendable {
+    public let instances: [InstanceRow]
+    public let sessions: [SessionStub]
+
+    public init(instances: [InstanceRow], sessions: [SessionStub]) {
+        self.instances = instances
+        self.sessions = sessions
+    }
+}
+
 // MARK: - KBITE_KEYWORD_TAG
 
 /// Attach or detach normalized keywords at kbite level or resource-file

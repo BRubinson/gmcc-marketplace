@@ -18,7 +18,7 @@ shipping three products:
   via `DaemonEventSubscription`).
 
 Transport: NDJSON over a unix socket at `~/gmcc/daemon.sock` (wire protocol
-v4, one spec-named message per handler). Clients autostart the daemon when
+v5, one spec-named message per handler). Clients autostart the daemon when
 the socket is dead. The protocol handshake is DIRECTIONAL: a newer client
 makes a stale daemon self-exit after rebuilds; an older client is rejected
 while the daemon stays up — you never need to manage daemon lifecycle
@@ -52,6 +52,7 @@ message family):
 | `gm project list` | All projects (full rows incl. ckfs paths), ordered by code — the Landing browse entry point. |
 | `gm instance list [--project-uuid U]` | Instances, ordered by code. Omit the filter to list ALL instances (rows carry their project uuid); an unknown supplied uuid ⇒ NOT_FOUND. |
 | `gm session list [--instance-uuid U]` | Session stubs (full scalars minus backstory/goal bodies), ordered by code. Same optional-filter contract as `gm instance list`. |
+| `gm catalog search <query> [--project-uuid U] [--limit N]` | Tokenized OR name/code search over instances + sessions (case-insensitive literal substrings; wildcards escaped). An instance match returns ALL its sessions; every returned session's parent instance rides along. Unknown supplied project uuid ⇒ NOT_FOUND; whitespace-only query ⇒ BAD_REQUEST. |
 | `gm session get [--session-uuid U]` | Session row + prompt stubs + change summaries (per-prompt where attributed). |
 | `gm session update --expected-version N [--session-uuid U] [--name] [--backstory] [--goal] [--status active\|closed]` | Guarded scalar update (at least one field required); stale version ⇒ VERSION_CONFLICT. |
 | `gm prompt create --name N [--session-uuid U] [--code] [--backstory] [--goal] [--detail] [--command] [--uuid]` | Create a prompt; the daemon allocates the next per-session seq atomically. Session defaults to the current repo/branch. |

@@ -47,6 +47,12 @@ extension DaemonClient {
         try request(type: .sessionList, payload: req, responseType: SessionListResponse.self)
     }
 
+    // MARK: - Catalog search
+
+    public func searchCatalog(_ req: CatalogSearchRequest) throws -> CatalogSearchResponse {
+        try request(type: .catalogSearch, payload: req, responseType: CatalogSearchResponse.self)
+    }
+
     // MARK: - Session
 
     public func getSession(_ req: SessionGetRequest) throws -> SessionGetResponse {
