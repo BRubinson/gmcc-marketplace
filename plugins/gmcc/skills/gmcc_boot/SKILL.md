@@ -5,7 +5,7 @@ user-invocable: true
 allowed-tools: Bash, Read
 ---
 
-# GMCC Boot System
+# GMCC Boot System (v16.3.0)
 
 The GMCC boot system runs automatically on SessionStart via the `detect_repo.sh` hook.
 
@@ -13,11 +13,11 @@ The GMCC boot system runs automatically on SessionStart via the `detect_repo.sh`
 
 When Claude Code starts a session:
 
-1. **SessionStart hook fires** (defined in `hooks.json`)
+1. **SessionStart hooks fire** (defined in `hooks.json`): `detect_repo.sh` then `check_daemon_stale.sh` (which warns when the daemon binaries are missing/stale).
 2. **detect_repo.sh executes**
    - Detects if in a git repository
    - If not in git repo: exits silently (no GMCC vars set)
-   - If in git repo: resolves project / instance / session for the current repo + branch, **lazily creates** any missing directories from `templates/projects/`, idempotently registers the project in `project_index.gmcc.yaml`, and sets all GMCC environment variables (including the boot signal `GMCC_BOOTED=1`)
+   - If in git repo: resolves project / instance / session for the current repo + branch, `mkdir -p`s `$GMCC_SESSION_PATH/prompts/` (the artifact home), best-effort calls `~/gmcc/bin/gm context ensure` to upsert the db rows (warns and continues if the daemon is unavailable), and sets all GMCC environment variables (including the boot signal `GMCC_BOOTED=1`)
 3. **Environment variables written to `$CLAUDE_ENV_FILE`** — `detect_repo.sh` is the single source of truth for the full set. Read `${CLAUDE_PLUGIN_ROOT}/scripts/detect_repo.sh` directly for the authoritative export list. The diagnostics in this skill echo whatever is actually set at runtime.
 
 ## Boot Validation for Commands
@@ -85,13 +85,16 @@ echo ""
 ```bash
 echo "Prerequisites:"
 echo "  Git repository: $(git rev-parse --git-dir > /dev/null 2>&1 && echo 'YES' || echo 'NO')"
-echo "  System initialized: $([ -d "$HOME/gmcc_ckfs" ] && echo 'YES' || echo 'NO')"
-echo "  Projects root: $([ -d "$GMCC_PROJECTS" ] && echo 'YES - '$GMCC_PROJECTS || echo 'NO')"
-echo "  Projects registry: $([ -f "$GMCC_PROJECTS_INDEX" ] && echo 'YES' || echo 'NO')"
-echo "  Project provisioned: $([ -f "$GMCC_PROJECT_PATH/project_data.gmcc.yaml" ] && echo 'YES - '$GMCC_PROJECT_PATH || echo 'NO')"
-echo "  Instance provisioned: $([ -f "$GMCC_INSTANCE_PATH/instance_data.gmcc.yaml" ] && echo 'YES - '$GMCC_INSTANCE_PATH || echo 'NO')"
-echo "  Session provisioned: $([ -f "$GMCC_SESSION_PATH/session_data.gmcc.yaml" ] && echo 'YES - '$GMCC_SESSION_PATH || echo 'NO')"
+echo "  Ckfs root: $([ -d "$HOME/gmcc_ckfs" ] && echo 'YES' || echo 'NO — run /gm_init')"
+echo "  gm binary: $([ -x "$HOME/gmcc/bin/gm" ] && echo 'YES' || echo 'NO — run build_daemon.sh')"
+echo "  Session artifact home: $([ -d "$GMCC_SESSION_PATH/prompts" ] && echo 'YES - '$GMCC_SESSION_PATH || echo 'NO')"
 echo ""
+echo "Daemon / DB:"
+"$HOME/gmcc/bin/gm" ping 2>&1 | sed 's/^/  /'
+"$HOME/gmcc/bin/gm" status 2>&1 | sed 's/^/  /'
+echo ""
+echo "Context rows (null uuids => rows not ensured):"
+"$HOME/gmcc/bin/gm" context get --json 2>&1 | sed 's/^/  /'
 ```
 
 ### Step 3: Provide Guidance
@@ -110,18 +113,27 @@ Most likely causes:
 To fix: Restart Claude Code from within a git repository.
 ```
 
-**If GMCC_BOOTED is SET but projects root not initialized**:
+**If the gm binary is missing or `gm ping` fails**:
 ```
-Issue: GMCC projects root not initialized.
+Issue: daemon system unavailable.
 
-Run /gm_init to create ~/gmcc_ckfs/projects/ and the project registry.
+Run: bash $GMCC_PLUGIN_ROOT/scripts/build_daemon.sh
+Then: ~/gmcc/bin/gm setup && ~/gmcc/bin/gm context ensure
+(See skills/gmcc_daemon/SKILL.md — self-heal rule.)
+```
+
+**If `gm context get` returns null uuids**:
+```
+Issue: db rows not ensured for this repo/branch.
+
+Run: ~/gmcc/bin/gm context ensure
 ```
 
 **If all checks pass**:
 ```
 GMCC boot status: READY
 
-All systems operational. You can run any gm_ command.
+Daemon reachable, db rows present. You can run any gm_ command.
 ```
 
 ---
@@ -153,9 +165,9 @@ This usually means the SessionStart hook ran but there was a problem:
 - Verify git repository is accessible
 - Run `/gmcc_boot` for full diagnostics
 
-### Boot works but project/session paths point at nonexistent dirs
+### Boot works but gm calls fail
 
-`detect_repo.sh` should lazily create project / instance / session dirs on every SessionStart. If they're missing, the templates dir (`$GMCC_PLUGIN_ROOT/templates/projects/`) is likely missing too:
-1. Verify the plugin install includes `templates/projects/PROJECT_TEMPLATE/...`
-2. Run `/gm_init` to recreate the projects root + registry
-3. Restart Claude Code so the SessionStart hook runs again
+The env can boot fine while the daemon system is missing or stale:
+1. Heed the `check_daemon_stale.sh` SessionStart warning — run `bash $GMCC_PLUGIN_ROOT/scripts/build_daemon.sh`
+2. `~/gmcc/bin/gm setup` creates `~/gmcc/` runtime dirs; `gm daemon status` / `/gmcc_daemon` for lifecycle
+3. `gm context ensure` (idempotent) recreates missing db rows for the current repo/branch

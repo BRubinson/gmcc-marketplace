@@ -4,7 +4,7 @@ description: Green Mountain Compiler Collection - Core rules and behaviors for t
 user-invocable: false
 ---
 
-# GMCC - Green Mountain Compiler Collection (v13.0.0)
+# GMCC - Green Mountain Compiler Collection (v16.3.0)
 
 You are the **Green Mountain Bot (GMB)** in the **GM-CDE** environment.
 
@@ -12,22 +12,22 @@ You are the **Green Mountain Bot (GMB)** in the **GM-CDE** environment.
 
 When `CLAUDE_MODE = GM-CDE`, you MUST:
 1. Follow all GMCC rules
-2. Maintain the ckfs (Context Knowledge File System) — projects / instances / sessions hierarchy
-3. Load the kbites declared in the session's `kbite:` registry
+2. Maintain GMCC state: runtime data in the daemon db (via the `gm` CLI — `skills/gmcc_daemon/SKILL.md`) and phase artifacts in the ckfs (Context Knowledge File System)
+3. Load the kbites declared in the session's active kbite registry
 
 ---
 
 ## Environment Variables (Set by SessionStart Hook)
 
-All GMCC env vars are exported by `${CLAUDE_PLUGIN_ROOT}/scripts/detect_repo.sh` on every session start. That script is the single source of truth — read it directly for the authoritative list. The vars commonly referenced by skills and commands include `GMCC_CKFS_ROOT`, `GMCC_PROJECTS`, `GMCC_PROJECTS_INDEX`, `GMCC_PROJECT_PATH`, `GMCC_INSTANCE_PATH`, `GMCC_SESSION_PATH`, `GMCC_KBITE`, `GMCC_KBITE_DIGESTED`, `GMCC_KBITE_OPEN`, and `GMCC_PLUGIN_ROOT`.
+All GMCC env vars are exported by `${CLAUDE_PLUGIN_ROOT}/scripts/detect_repo.sh` on every session start. That script is the single source of truth — read it directly for the authoritative list. The vars commonly referenced by skills and commands include `GMCC_CKFS_ROOT`, `GMCC_PROJECTS`, `GMCC_PROJECT_PATH`, `GMCC_INSTANCE_PATH`, `GMCC_SESSION_PATH`, `GMCC_KBITE`, `GMCC_KBITE_DIGESTED`, `GMCC_KBITE_OPEN`, and `GMCC_PLUGIN_ROOT`.
 
 ---
 
 ## GM-CDE Three-Tier Architecture
 
-1. **Plugin (static)**: `$GMCC_PLUGIN_ROOT/` — Skills, commands, prompts, hooks, scripts, templates.
-2. **Per-Project CKFS**: `$GMCC_PROJECTS/{project_name}/` — project_data.gmcc.yaml + instances. Each instance is a unique filesystem path to a checkout of that project's repo; each instance holds sessions (one per git branch).
-3. **System KBites**: `$GMCC_KBITE/` (= `$GMCC_CKFS_ROOT/kbites/`) — Shared knowledge across projects, split into `$GMCC_KBITE_DIGESTED/` (active indexes) and `$GMCC_KBITE_OPEN/` (in-progress maws). KBITE_PURPOSE.md lives at the kbite root, above the lifecycle split.
+1. **Plugin (static)**: `$GMCC_PLUGIN_ROOT/` — Skills, commands, prompts, hooks, scripts, and the daemon Swift package.
+2. **Runtime data + artifacts**: project/instance/session/prompt rows live in the daemon db at `~/gmcc/gmcc.db` (single-writer; all access via `~/gmcc/bin/gm`). The ckfs tree at `$GMCC_PROJECTS/{project}/instances/{instance}/sessions/{branch}/prompts/{seq}_{name}/memory/` holds only phase artifacts (`explore/qualified/architecture/review.md`), each registered as a db pointer via `gm artifact add`.
+3. **System KBites**: `$GMCC_KBITE/` (= `$GMCC_CKFS_ROOT/kbites/`) — Shared knowledge across projects. Digested text/keywords/search are db-canonical (`gm kbite`); the filesystem splits into `$GMCC_KBITE_DIGESTED/` (raw-source archive) and `$GMCC_KBITE_OPEN/` (in-progress maws). KBITE_PURPOSE.md lives at the kbite root, above the lifecycle split.
 
 For detailed structures, read: `$GMCC_PLUGIN_ROOT/skills/gmcc/ref/ckfs_details.md`
 
@@ -37,35 +37,40 @@ For detailed structures, read: `$GMCC_PLUGIN_ROOT/skills/gmcc/ref/ckfs_details.m
 
 ### Always Do
 1. Trust the SessionStart hook for project / instance / session resolution — never recompute the paths yourself
-2. Load current session context (`$GMCC_SESSION_PATH/session_data.gmcc.yaml` + relevant `prompts/`) before starting work
-3. Record significant prompts to `$GMCC_SESSION_PATH/prompts/` and update `session_data.gmcc.yaml`'s `prompts:` and `changed_files:` sections
-4. Load the kbites declared in the session's `kbite:` registry (read `ref/kbite_awareness.md` for protocol)
+2. Load current session context (`gm session get --json` + relevant `prompts/*/memory/` artifacts) before starting work
+3. Record significant prompts as db rows (`gm prompt create`) and record file edits with `gm file-change add` as you make them
+4. Register every `memory/*.md` artifact you write with `gm artifact add` (pointer + one-sentence note)
+5. Load the kbites declared in the session's active registry (read `ref/kbite_awareness.md` for protocol)
 
 ### Never Do
-1. Modify a clarified prompt file after creation — author a new prompt instead
-2. Skip session_data.gmcc.yaml updates when changing tracked state
-3. Ignore ckfs maintenance
+1. Modify a prompt row's content after it leaves `draft` (the daemon enforces CONTENT_LOCKED) — author a new prompt instead
+2. Skip `gm` bookkeeping (prompt rows, artifact pointers, file changes) when changing tracked state
+3. Write the db directly (`sqlite3` writes) — all writes go through `gm`
+4. Create or update the retired runtime yamls (session_data, prompt yaml triad, registries) — they are legacy; see `/import_legacy_yaml_gmcc`
 
 ---
 
 ## On Context Compaction
 
 When context is compacted, immediately:
-1. Re-read `$GMCC_SESSION_PATH/session_data.gmcc.yaml` for the prompt + changed-files summary
-2. Re-read the most recent clarified prompts under `$GMCC_SESSION_PATH/prompts/`
-3. Restore awareness of current task state
-4. Re-read the session `kbite:` registry for active kbites
+1. Re-run `gm session get --json` for the prompt stubs + change summary
+2. Re-read the most recent `memory/qualified.md` / `memory/architecture.md` artifacts under `$GMCC_SESSION_PATH/prompts/`
+3. Restore awareness of current task state (including the active prompt's `uuid` and current `version` via `gm prompt get`)
+4. Re-read the active kbite list (`gm context get --json`)
 
 ---
 
 ## KBite Awareness
 
-KBites are **inherited, not trigger-matched** — declared in the ckfs hierarchy's
-`kbite:` registries (project → instance → session → prompt). When work touches a
+KBites are **inherited, not trigger-matched** — seeded down the chain
+(project → instance → session → prompt) into the db's active-kbite
+registries, readable via `gm context get` / `gm prompt get`
+(`kbite_codes`). Digested knowledge is db-canonical. When work touches a
 registered kbite:
-1. Read the purpose at the kbite root (`$GMCC_KBITE/{name}/KBITE_PURPOSE.md`) and
-   the index under digested (`$GMCC_KBITE_DIGESTED/{name}/KBITE_INDEX.md`)
-2. Load relevant chewed files from `$GMCC_KBITE_DIGESTED/{name}/` (`primary/`, `secondary/`)
+1. Read the purpose at the kbite root (`$GMCC_KBITE/{name}/KBITE_PURPOSE.md`)
+   and the overview from the db (`gm kbite get --code {name} --json`)
+2. Load relevant content via `gm kbite search "<topic>" --json` (ranked
+   stubs) then `gm kbite file-get --file-uuid U --json` (full text)
 3. Cite sources when using kbite knowledge
 
 Add a kbite only when the user explicitly asks. Full protocol:
@@ -243,7 +248,7 @@ structs:
 </YEET>
 ```
 
-`/gm_compile` discovers `<YEET>` tags case-insensitively and flags any opening tag that is not exactly `<YEET>` as a violation. Matches inside fenced code blocks (```...```) are ignored — that is how this very SKILL.md and MIGRATION.md can describe the tag without triggering the validator.
+`/gm_compile` discovers `<YEET>` tags case-insensitively and flags any opening tag that is not exactly `<YEET>` as a violation. Matches inside fenced code blocks (```...```) are ignored — that is how this very SKILL.md can describe the tag without triggering the validator.
 
 ### Standalone `.yeet.yaml` files
 
@@ -325,7 +330,7 @@ Two distinct import contracts:
 
 2. **Inside `.gmcc.yaml` files** — the `.gmcc.yaml` suffix declares a yaml as YEETS-enabled. Two top-level keys cooperate. `yeet:` lists imported packages; `yeet_type:` names the dotted struct path this yaml's body conforms to. `/gm_compile` reads both to drive validation. Plain `.yaml` files are unvalidated; the suffix is the opt-in signal.
 
-   The four core GMCC runtime yamls all use this suffix: `project_index.gmcc.yaml`, `project_data.gmcc.yaml`, `instance_data.gmcc.yaml`, `session_data.gmcc.yaml`. Their canonical types live in `gmcc.yeet.yaml`.
+   (Historical note: the retired pre-v16 runtime yamls — `project_index.gmcc.yaml`, `project_data.gmcc.yaml`, `instance_data.gmcc.yaml`, `session_data.gmcc.yaml` — used this suffix; their types remain in `gmcc.yeet.yaml` for legacy-import purposes. Runtime data now lives in the daemon db.)
 
    ```yaml
    yeet:

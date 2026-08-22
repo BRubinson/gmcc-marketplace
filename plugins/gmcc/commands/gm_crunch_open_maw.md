@@ -8,7 +8,7 @@ allowed-tools: Read, Write, Bash, Glob
 
 # /gm_crunch_open_maw {kbite_name}
 
-Opens a "maw" (processing directory) under the kbite for collecting crunchable resources that will be processed into the digested index.
+Opens a "maw" (processing directory) under the kbite for collecting crunchable resources that will be digested into the daemon db.
 
 ---
 
@@ -62,8 +62,9 @@ fi
 ```
 
 If maw exists, ask user:
-- **Continue**: Use existing maw (report current status)
-- **Reset**: Delete and recreate maw
+- **Continue**: Use existing maw (report current status; the maw-open call
+  below is idempotent — it only fills in missing dirs/index)
+- **Reset**: Delete the maw directory first, then recreate
 
 ### Step 2: Check for Parent KBite Purpose
 
@@ -75,52 +76,20 @@ if [ ! -f "$GMCC_KBITE/{kbite_name}/KBITE_PURPOSE.md" ]; then
 fi
 ```
 
-### Step 3: Create Directory Structure
+### Step 3: Create the Maw Skeleton
 
-Create the maw directory tree:
+One call — the daemon creates the two-axis directory tree and `MAW_INDEX.md`
+(per the **gmcc_kbite** skill format) at `$GMCC_KBITE_OPEN/{kbite_name}/`.
+No db rows are written; maws are filesystem-only until digest:
 
 ```bash
-mkdir -p "$GMCC_KBITE_OPEN/{kbite_name}/primary/documentation"
-mkdir -p "$GMCC_KBITE_OPEN/{kbite_name}/primary/example_project"
-mkdir -p "$GMCC_KBITE_OPEN/{kbite_name}/primary/api_reference"
-mkdir -p "$GMCC_KBITE_OPEN/{kbite_name}/primary/blogs"
-mkdir -p "$GMCC_KBITE_OPEN/{kbite_name}/primary/all_others"
-mkdir -p "$GMCC_KBITE_OPEN/{kbite_name}/secondary/documentation"
-mkdir -p "$GMCC_KBITE_OPEN/{kbite_name}/secondary/example_project"
-mkdir -p "$GMCC_KBITE_OPEN/{kbite_name}/secondary/api_reference"
-mkdir -p "$GMCC_KBITE_OPEN/{kbite_name}/secondary/blogs"
-mkdir -p "$GMCC_KBITE_OPEN/{kbite_name}/secondary/all_others"
+~/gmcc/bin/gm kbite maw-open --name {kbite_name} --json
 ```
 
-### Step 4: Create MAW_INDEX.md
+The response reports `created_dirs` and `created_index` — both empty/false
+when the maw already existed (idempotent).
 
-Per the **gmcc_kbite** skill MAW_INDEX format:
-
-```markdown
-# Maw Index: {kbite_name}
-
-**Target KBite**: {kbite_name}
-**Opened**: {ISO timestamp}
-**Status**: open
-
-## Crunchable Index
-
-| Resource | Path | Status | Keywords | Relevance | Uniqueness | Unique Keywords | Expansion Weight |
-|----------|------|--------|----------|-----------|------------|-----------------|------------------|
-| *No crunchables yet* | - | - | - | - | - | - | - |
-
-## Status Legend
-- **pending**: Resource added, not yet analyzed
-- **chewing**: Agent currently processing
-- **chewed**: Analysis complete, ready for digest
-
-## Next Steps
-1. Add raw source files to appropriate `{axis1}/{axis2}/{resource_name}/` directories
-2. Run `/gm_crunch_chew {kbite_name}` to process crunchables
-3. Run `/gm_crunch_digest {kbite_name}` to finalize the kbite
-```
-
-### Step 5: Create KBITE_PURPOSE.md (If New KBite)
+### Step 4: Create KBITE_PURPOSE.md (If New KBite)
 
 If the target kbite doesn't yet have a purpose file at `$GMCC_KBITE/{kbite_name}/KBITE_PURPOSE.md`, create it at the kbite root (above the digested/open lifecycle split):
 
@@ -156,8 +125,8 @@ Then create `$GMCC_KBITE/{kbite_name}/KBITE_PURPOSE.md`:
 
 ## Success Criteria
 - [ ] Contains primary documentation sources
-- [ ] Chewed files cover all key concepts
-- [ ] KBITE_INDEX accurately reflects the digested resources
+- [ ] Chewed analysis covers all key concepts
+- [ ] `gm kbite get --code {kbite_name}` accurately reflects the digested resources
 ```
 
 ---
@@ -169,7 +138,7 @@ Maw Opened: {kbite_name}
 
 **Location**: $GMCC_KBITE_OPEN/{kbite_name}/
 **KBite Root** (purpose): $GMCC_KBITE/{kbite_name}/
-**Digested Index** (created on first digest): $GMCC_KBITE_DIGESTED/{kbite_name}/
+**Raw-Source Archive** (populated on first digest): $GMCC_KBITE_DIGESTED/{kbite_name}/
 
 ## Directory Structure Created
 

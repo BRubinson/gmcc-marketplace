@@ -1,16 +1,20 @@
 ---
 name: gm_init
-description: Initialize the GM-CDE system at the user level. Creates ~/gmcc_ckfs/ with the projects root + empty registry. Run once per machine; per-project / per-instance / per-session directories are auto-created by the SessionStart hook on first encounter.
+description: Initialize the GM-CDE system at the user level. Creates ~/gmcc_ckfs/, builds the daemon + gm CLI, and runs gm setup. Run once per machine; per-project / per-instance / per-session state is auto-ensured by the SessionStart hook on first encounter.
 argument-hint: [--force]
 disable-model-invocation: true
 allowed-tools: Bash, Read, Write, Glob, AskUserQuestion
 ---
 
-# Initialize GM-CDE System (v13.0.0)
+# Initialize GM-CDE System (v16.3.0)
 
 You are initializing the GM-CDE system at the user level.
 
-**IMPORTANT**: This command creates the system-level `~/gmcc_ckfs/` directory plus the `projects/` root and its empty `project_index.gmcc.yaml` registry. Per-project / per-instance / per-session directories are auto-created lazily by `scripts/detect_repo.sh` on every SessionStart.
+**IMPORTANT**: This command creates the system-level `~/gmcc_ckfs/` file
+tree, builds/installs the daemon + `gm` CLI into `~/gmcc/bin/`, and runs
+`gm setup` (which creates the `~/gmcc/` runtime dirs + SQLite db).
+Per-project / per-instance / per-session db rows are ensured lazily by
+`scripts/detect_repo.sh` (`gm context ensure`) on every SessionStart.
 
 ---
 
@@ -28,6 +32,9 @@ What would you like to do?
 - Keep existing (exit without changes)
 ```
 
+(Reinitializing never touches `~/gmcc/` — the db is managed separately;
+use `gm backup` before any destructive db work.)
+
 ---
 
 ## Directory Structure Creation
@@ -37,76 +44,38 @@ Create the system-level structure:
 ```
 ~/gmcc_ckfs/
 ├── README.md
-└── projects/
-    └── project_index.gmcc.yaml          # empty registry, copied from plugin template
+├── _archive/cold_storage/               # universal archive bucket
+└── projects/                            # artifact tree root (memory/*.md homes)
 ```
-
-The `kbites/` subtree is created lazily by `/gm_crunch_open_maw` on first kbite work. Per-project directories under `projects/{project_name}/` are created lazily by `detect_repo.sh` on first SessionStart in a git repo.
-
-### Create the projects root + registry
 
 ```bash
-mkdir -p "$HOME/gmcc_ckfs/projects"
-
-# Copy the empty registry from the plugin template.
-TEMPLATES_DIR="${CLAUDE_PLUGIN_ROOT}/templates/projects"
-if [ -f "$TEMPLATES_DIR/project_index.gmcc.yaml" ]; then
-    cp "$TEMPLATES_DIR/project_index.gmcc.yaml" "$HOME/gmcc_ckfs/projects/project_index.gmcc.yaml"
-else
-    echo "[GMB] Warning: template not found at $TEMPLATES_DIR/project_index.gmcc.yaml — writing inline fallback"
-    NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-    if command -v uuidgen >/dev/null 2>&1; then
-        INDEX_UUID=$(uuidgen | tr 'A-Z' 'a-z')
-    else
-        INDEX_UUID="00000000-0000-0000-0000-000000000000"
-    fi
-    cat > "$HOME/gmcc_ckfs/projects/project_index.gmcc.yaml" <<EOF
-yeet:
-  - gmcc
-yeet_type: gmcc.gmcc_project_index_file
-
-id: 1
-code: gmcc_runtime_project_index_file
-uuid: $INDEX_UUID
-name: Project Index Runtime File
-description: "Authoritative GMCC project registry."
-created_time: $NOW
-updated_time: $NOW
-gmcc_ckfs_absolute_path: $HOME/gmcc_ckfs/projects/project_index.gmcc.yaml
-gmcc_ckfs_relative_path: projects/project_index.gmcc.yaml
-
-projects: []
-EOF
-fi
+mkdir -p "$HOME/gmcc_ckfs/projects" "$HOME/gmcc_ckfs/_archive/cold_storage"
 ```
+
+The `kbites/` subtree is created lazily by `/gm_crunch_open_maw` on first
+kbite work. Per-project directories under `projects/{project_name}/` are
+created lazily by `detect_repo.sh` on first SessionStart in a git repo.
+There is no yaml registry — project/instance/session data lives in the
+daemon db.
 
 ### README.md
 ```markdown
-# GMCC CKFS (Context Knowledge File System) — v13.0.0
+# GMCC CKFS (Context Knowledge File System) — v16
 
-This directory contains GM-CDE runtime data for all repositories.
+This directory contains GM-CDE file artifacts for all repositories.
+Runtime DATA (projects/instances/sessions/prompts, file changes, artifact
+pointers) lives in the daemon db at ~/gmcc/gmcc.db, accessed via
+~/gmcc/bin/gm.
 
 ## Structure
 
 ```
 ~/gmcc_ckfs/
 ├── README.md                                  # This file
-├── projects/                                  # All tracked projects
-│   ├── project_index.gmcc.yaml                     # Project registry
-│   └── {project_name}/                        # One per git repo (auto-detected)
-│       ├── project_data.gmcc.yaml
-│       └── instances/
-│           └── {basename}_{hash4}/            # One per physical checkout
-│               ├── instance_data.gmcc.yaml
-│               └── sessions/
-│                   └── {sanitized_branch}/    # One per branch
-│                       ├── session_data.gmcc.yaml
-│                       └── prompts/
-│                           └── {id}_{name}/             # One folder per prompt
-│                               ├── {id}_{name}_data.gmcc.yaml   # index
-│                               ├── {id}_{name}_initial.yaml     # backstory/goal/detail
-│                               ├── {id}_{name}_clarified.yaml   # when Clarified
-│                               └── memory/                      # bot artifacts
+├── _archive/cold_storage/                     # archived legacy material (structure-preserving)
+├── projects/                                  # Artifact tree (auto-created per repo)
+│   └── {project_name}/instances/{basename}_{hash4}/sessions/{sanitized_branch}/
+│       └── prompts/{seq}_{name}/memory/       # explore/qualified/architecture/review.md
 └── kbites/                                    # System-wide kbites (created on first kbite op)
     ├── {kbite_name}/KBITE_PURPOSE.md          # identity-level
     ├── digested/{kbite_name}/...              # persisted indexes
@@ -115,9 +84,9 @@ This directory contains GM-CDE runtime data for all repositories.
 
 ## Usage
 
-1. Run `/gm_init` once to create this directory (already done)
+1. Run `/gm_init` once to create this directory + build the daemon (already done)
 2. Open Claude Code from any git repository — the SessionStart hook
-   automatically provisions the project / instance / session directories
+   ensures the db rows + artifact dirs automatically
 3. Run `/gm_bot` to start a workflow
 
 ## Environment Variables
@@ -125,8 +94,26 @@ This directory contains GM-CDE runtime data for all repositories.
 See `${CLAUDE_PLUGIN_ROOT}/scripts/detect_repo.sh` for the authoritative list of `GMCC_*` variables set on SessionStart.
 
 ---
-*Generated by GM-CDE v13.0.0*
+*Generated by GM-CDE v16*
 ```
+
+---
+
+## Build the daemon + gm CLI
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/build_daemon.sh"
+"$HOME/gmcc/bin/gm" setup
+"$HOME/gmcc/bin/gm" status
+```
+
+`build_daemon.sh` release-builds `gmcc_daemon` + `gm` and installs them to
+`~/gmcc/bin/` (staleness-checked; `--force` to override). `gm setup`
+creates the `~/gmcc/` runtime dirs and autostarts the daemon, creating the
+db with the current schema. Surface `gm status` output so the user sees
+daemon pid + schema version. If the build fails (e.g. no Swift toolchain),
+warn and continue — the rest of init still completes; the SessionStart
+staleness hook will keep reminding.
 
 ---
 
@@ -136,7 +123,6 @@ Export the stable GMCC paths from `~/.zshrc` so they are available in every shel
 
 - `GMCC_CKFS_ROOT` — base CKFS path
 - `GMCC_PROJECTS` — projects root
-- `GMCC_PROJECTS_INDEX` — projects registry file
 - `GMCC_KBITE` — kbites root
 - `GMCC_KBITE_DIGESTED` — digested-kbites root
 - `GMCC_KBITE_OPEN` — open-maw root
@@ -167,7 +153,6 @@ read -r -d '' EXPECTED_BLOCK <<EOF
 # >>> gmcc env >>>
 export GMCC_CKFS_ROOT="\$HOME/gmcc_ckfs"
 export GMCC_PROJECTS="\$GMCC_CKFS_ROOT/projects"
-export GMCC_PROJECTS_INDEX="\$GMCC_PROJECTS/project_index.gmcc.yaml"
 export GMCC_KBITE="\$GMCC_CKFS_ROOT/kbites"
 export GMCC_KBITE_DIGESTED="\$GMCC_CKFS_ROOT/kbites/digested"
 export GMCC_KBITE_OPEN="\$GMCC_CKFS_ROOT/kbites/open"
@@ -179,9 +164,10 @@ if [ -f "$ZSHRC" ] && grep -qF "$MARKER_OPEN" "$ZSHRC"; then
     CURRENT_BLOCK=$(awk "/$MARKER_OPEN/,/$MARKER_CLOSE/" "$ZSHRC")
     if [ "$CURRENT_BLOCK" = "$EXPECTED_BLOCK" ]; then
         echo "[GMB] GMCC env block in ~/.zshrc is up to date — skipping"
-    elif ! printf '%s\n' "$CURRENT_BLOCK" | grep -qF "export GMCC_PLUGIN_ROOT="; then
-        # Known-old shape: block exists but predates the GMCC_PLUGIN_ROOT addition.
-        # Safe to upgrade in place — every other line is stable.
+    else
+        # Old shape (extra GMCC_PROJECTS_INDEX line, missing GMCC_PLUGIN_ROOT,
+        # or stale plugin root). Replace the whole block in place — every line
+        # is machine-owned.
         TMP="$ZSHRC.gmcc.tmp.$$"
         awk -v open="$MARKER_OPEN" -v close="$MARKER_CLOSE" -v block="$EXPECTED_BLOCK" '
             $0 == open { print block; inblock=1; next }
@@ -189,16 +175,7 @@ if [ -f "$ZSHRC" ] && grep -qF "$MARKER_OPEN" "$ZSHRC"; then
             inblock { next }
             { print }
         ' "$ZSHRC" > "$TMP" && mv "$TMP" "$ZSHRC"
-        echo "[GMB] Upgraded ~/.zshrc gmcc env block — added GMCC_PLUGIN_ROOT"
-    else
-        # Block has a GMCC_PLUGIN_ROOT line (possibly with a different value) or
-        # an unexpected diff. Don't overwrite — /gmcc_environment_cleanup handles stale values
-        # per-finding so the user is in the loop.
-        echo "[GMB] WARNING: existing GMCC env block in ~/.zshrc differs from expected"
-        echo "       Leaving in place. Run /gmcc_environment_cleanup to repair, or inspect manually:"
-        echo "       sed -n \"/$MARKER_OPEN/,/$MARKER_CLOSE/p\" ~/.zshrc"
-        echo "       Expected block:"
-        printf '%s\n' "$EXPECTED_BLOCK" | sed 's/^/         /'
+        echo "[GMB] Refreshed ~/.zshrc gmcc env block"
     fi
 else
     printf '\n%s\n' "$EXPECTED_BLOCK" >> "$ZSHRC"
@@ -206,13 +183,11 @@ else
 fi
 ```
 
-The check stays conservative for unknown diffs: an existing block whose `GMCC_PLUGIN_ROOT` value diverges is left in place (it might be hand-tuned), and `/gmcc_environment_cleanup` surfaces it as a per-finding interactive choice. The one diff `gm_init` heals automatically is the well-known "old block has every other line but no `GMCC_PLUGIN_ROOT` export" upgrade path.
-
 ---
 
 ## Persist CKFS permission grant in ~/.claude/settings.json
 
-Grants the plugin (and any subagent it spawns) unconstrained Read/Edit/Write/Glob access to everything under `$GMCC_CKFS_ROOT`. Without this the user is prompted for permission on every new file path the plugin touches outside the current project cwd — `~/gmcc_ckfs/` is always outside cwd, so the prompts never end.
+Grants the plugin (and any subagent it spawns) unconstrained read/edit access to everything under `$GMCC_CKFS_ROOT`. `Read(path)` rules cover all file-reading tools (Read, Glob, Grep, …) and `Edit(path)` rules cover all file-editing tools (Edit, Write, NotebookEdit) — do NOT write separate `Write(...)` or `Glob(...)` rules; Claude Code ignores them and warns on startup. Without this grant the user is prompted for permission on every new file path the plugin touches outside the current project cwd — `~/gmcc_ckfs/` is always outside cwd, so the prompts never end.
 
 This is a one-time grant at **user scope** (`~/.claude/settings.json`). It applies to every repo on this machine and is inherited by subagents.
 
@@ -220,10 +195,9 @@ This is a one-time grant at **user scope** (`~/.claude/settings.json`). It appli
 
 - `permissions.additionalDirectories` — must include `$GMCC_CKFS_ROOT` (Claude Code refuses file ops outside cwd without this, even with allow rules).
 - `permissions.allow` — must include:
-    - `Read($GMCC_CKFS_ROOT/**)`
-    - `Edit($GMCC_CKFS_ROOT/**)`
-    - `Write($GMCC_CKFS_ROOT/**)`
-    - `Glob($GMCC_CKFS_ROOT/**)`
+    - `Read($GMCC_CKFS_ROOT/**)` — covers all file-reading tools (Read, Glob, Grep, …)
+    - `Edit($GMCC_CKFS_ROOT/**)` — covers all file-editing tools (Edit, Write, NotebookEdit)
+    - `Bash(~/gmcc/bin/gm *)` — the gm CLI is invoked constantly by bot workflows
 
 `$GMCC_CKFS_ROOT` is expanded to its absolute value at write time — no `~` literal in the JSON.
 
@@ -247,6 +221,7 @@ else
       --arg e "Edit($CKFS_ABS/**)" \
       --arg w "Write($CKFS_ABS/**)" \
       --arg g "Glob($CKFS_ABS/**)" \
+      --arg b "Bash($HOME/gmcc/bin/gm *)" \
       '
         .permissions //= {}
         | .permissions.additionalDirectories //= []
@@ -254,7 +229,7 @@ else
         | .permissions.additionalDirectories =
             (.permissions.additionalDirectories + [$dir] | unique)
         | .permissions.allow =
-            (.permissions.allow + [$r, $e, $w, $g] | unique)
+            (.permissions.allow - [$w, $g] + [$r, $e, $b] | unique)
       ' "$SETTINGS" > "$TMP" && mv "$TMP" "$SETTINGS"
 
     echo "[GMB] CKFS permission grant present in ~/.claude/settings.json"
@@ -263,6 +238,7 @@ fi
 
 Notes:
 - `unique` makes the merge idempotent — re-running never duplicates entries.
+- `- [$w, $g]` scrubs stale `Write(...)`/`Glob(...)` rules written by older /gm_init versions — Claude Code ignores those rule types for file permission checks and warns about them on startup.
 - `//=` only initializes missing keys; existing `permissions.deny`, `permissions.ask`, and unrelated top-level keys (`env`, `enabledPlugins`, etc.) are untouched.
 - Falls back to a warning (not a hard error) if `jq` is missing — the rest of `/gm_init` still completes.
 - Takes effect on the **next** Claude Code restart. The current session has its permission set already loaded.
@@ -273,30 +249,27 @@ Notes:
 ## Post-Initialization
 
 1. **Verify Creation**:
-   - Check that `~/gmcc_ckfs/` exists
-   - Check that `~/gmcc_ckfs/projects/` exists
-   - Check that `~/gmcc_ckfs/projects/project_index.gmcc.yaml` exists
-   - Check that `~/gmcc_ckfs/README.md` exists
+   - Check that `~/gmcc_ckfs/`, `~/gmcc_ckfs/projects/`, `~/gmcc_ckfs/_archive/cold_storage/`, and `~/gmcc_ckfs/README.md` exist
+   - Check that `~/gmcc/bin/gm` exists and `gm ping` succeeds (skip if the build was skipped — already warned)
    - Check that `~/.zshrc` contains the `# >>> gmcc env >>>` marker
    - Check that `~/.claude/settings.json` contains `Read($GMCC_CKFS_ROOT/**)` in `permissions.allow` and `$GMCC_CKFS_ROOT` in `permissions.additionalDirectories` (skip if jq was missing — already warned above)
 
 2. **Report Success**:
 ```
-[GMB] GM-CDE v13.0.0 system initialized!
+[GMB] GM-CDE v16 system initialized!
 
 Created:
-- ~/gmcc_ckfs/
-- ~/gmcc_ckfs/README.md
-- ~/gmcc_ckfs/projects/
-- ~/gmcc_ckfs/projects/project_index.gmcc.yaml
+- ~/gmcc_ckfs/ (+ projects/, _archive/cold_storage/, README.md)
+- ~/gmcc/bin/{gm, gmcc_daemon} + ~/gmcc/gmcc.db (gm setup)
 - ~/.zshrc: GMCC env block including GMCC_PLUGIN_ROOT (run `source ~/.zshrc` or open a new terminal). After future plugin upgrades the persisted GMCC_PLUGIN_ROOT will go stale — run /gmcc_environment_cleanup to refresh it.
-- ~/.claude/settings.json: CKFS permission grant — additionalDirectories + Read/Edit/Write/Glob on $GMCC_CKFS_ROOT/**. Takes effect on next Claude Code restart; covers plugin subagents automatically. Run /gmcc_environment_cleanup if these ever drift.
+- ~/.claude/settings.json: CKFS permission grant + gm allowlist. Takes effect on next Claude Code restart; covers plugin subagents automatically.
 
 Next steps:
 1. Navigate to a git repository
-2. Restart Claude Code — the SessionStart hook will create the project,
-   instance, and session directories for that repo automatically
+2. Restart Claude Code — the SessionStart hook will ensure the db rows
+   and artifact directories for that repo automatically
 3. Run /gm_bot, /gm_bot_rpi, or /gm_bot_team to start a workflow
 
-Migrating from v5.x? Run /gmcc_environment_cleanup to audit your CKFS for legacy state.
+Have a legacy yaml-based ckfs? Run /import_legacy_yaml_gmcc to import it
+into the db, then /archive_legacy_yaml_gmcc to cold-store the yamls.
 ```

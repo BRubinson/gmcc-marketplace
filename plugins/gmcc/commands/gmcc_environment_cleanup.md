@@ -1,14 +1,16 @@
 ---
 name: gmcc_environment_cleanup
-description: Audit the whole $GMCC_CKFS_ROOT environment for non-compliant structure (legacy v5.x FAM, orphan registry entries, missing required files, malformed yaml) and interactively resolve each finding with the user. Environment-wide counterpart to /gmcc_session_cleanup.
-argument-hint: ""
+description: Audit the GMCC environment — daemon/db health, db-vs-disk drift, leftover legacy yaml runtime files, archive hygiene, host config drift — and interactively resolve each finding with the user. Environment-wide counterpart to /gmcc_session_cleanup.
+argument-hint: "[--dry-run]"
 disable-model-invocation: true
 allowed-tools: Read, Write, Bash, Glob, AskUserQuestion
 ---
 
 # /gmcc_environment_cleanup
 
-Run the GM-CDE CKFS cleanup auditor. Walks `$GMCC_CKFS_ROOT`, reports non-compliant state, prompts per-finding for an action. Full spec in `$GMCC_PLUGIN_ROOT/skills/gmcc_cleanup/SKILL.md`.
+Run the GM-CDE environment auditor. Checks daemon/db health via `gm`, walks
+`$GMCC_CKFS_ROOT` (bounded), reports non-compliant state, prompts per-finding
+for an action. Full spec in `$GMCC_PLUGIN_ROOT/skills/gmcc_cleanup/SKILL.md`.
 
 ---
 
@@ -32,25 +34,20 @@ Read the `gmcc_cleanup` skill (`$GMCC_PLUGIN_ROOT/skills/gmcc_cleanup/SKILL.md`)
 
 Follow that skill's protocol:
 
-1. Walk `$GMCC_CKFS_ROOT` per the bounded strategy in the skill.
-2. Collect findings.
-3. Print the audit report.
-4. **NEVER auto-fix.** For each finding, AskUserQuestion with the per-category options (default first, always non-destructive).
-5. Apply the user's chosen action.
-6. Print the cleanup-complete summary.
+1. Check daemon health (`gm ping` / `gm status` / `gm context get`).
+2. Walk `$GMCC_CKFS_ROOT` per the bounded strategy in the skill.
+3. Collect findings.
+4. Print the audit report.
+5. **NEVER auto-fix.** For each finding, AskUserQuestion with the per-category options (default first, always non-destructive).
+6. Apply the user's chosen action (db repairs via `gm` only; filesystem moves into `_archive/cold_storage/`).
+7. Print the cleanup-complete summary.
+
+Legacy yaml runtime trees are NOT migrated here — hand off to
+`/import_legacy_yaml_gmcc` + `/archive_legacy_yaml_gmcc`.
 
 ---
 
 ## Special Modes
-
-**Bulk action for legacy v5.x FAM**: after surfacing the first 3 `fam/` findings individually, offer:
-```
-You have {N} legacy v5.x FAM branches remaining. How would you like to handle them?
-
-- Archive all (recommended) - Move every legacy fam/ tree to ~/gmcc_ckfs/_archive/legacy_fam/
-- Continue per-finding - Decide each one individually
-- Skip all - Leave them in place
-```
 
 **Dry-run mode** (`/gmcc_environment_cleanup --dry-run`): walks and reports findings, but skips the interactive resolution loop entirely. Useful for auditing without committing to changes.
 

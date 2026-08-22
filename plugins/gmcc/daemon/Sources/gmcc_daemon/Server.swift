@@ -1,0 +1,412 @@
+import Foundation
+import Network
+import GMCCDaemonKit
+
+/// What the connection should do after writing a handler's response.
+enum PostAction {
+    case none
+    /// Stop the whole daemon after the response is flushed (gm daemon stop,
+    /// or a protocol-mismatch self-exit).
+    case shutdown
+}
+
+struct HandlerResult {
+    /// Empty line = the handler already sent everything itself (SUBSCRIBE
+    /// sends ack + replay directly); the connection skips the write.
+    let line: Data
+    let postAction: PostAction
+
+    init(line: Data, postAction: PostAction = .none) {
+        self.line = line
+        self.postAction = postAction
+    }
+}
+
+/// NWListener accept loop + NDJSON framing. All state is confined to `queue`.
+///
+/// Concurrency invariant (load-bearing): every dispatch turn, every db write,
+/// and every event-sink firing happens synchronously on this ONE serial queue.
+/// That is what makes SUBSCRIBE's replay-then-register step gapless and
+/// duplicate-free — no commit can interleave with it.
+final class Server: @unchecked Sendable {
+    private let listener: NWListener
+    private let store: Store
+    private let queue = DispatchQueue(label: "gmcc.daemon.server")
+    private let startedAt = Store.isoNow()
+    private let startedDate = Date()
+    private var connections: [ObjectIdentifier: ClientConnection] = [:]
+    private var subscribers: [ObjectIdentifier] = []
+    /// Non-nil only inside performShutdown: broadcast tracks the DAEMON_STOP
+    /// goodbye sends so exit(0) waits for delivery instead of racing it.
+    private var goodbyeGroup: DispatchGroup?
+
+    init(store: Store) throws {
+        self.store = store
+        // A leftover socket inode from a previous run makes bind fail with
+        // "Address already in use" — always unlink first.
+        unlink(Paths.socket.path)
+        let params = NWParameters.tcp
+        params.allowLocalEndpointReuse = true
+        params.requiredLocalEndpoint = NWEndpoint.unix(path: Paths.socket.path)
+        self.listener = try NWListener(using: params)
+        // Post-commit fan-out: EVERY daemon_event kind streams to subscribers.
+        // NOTE ON QUEUES: GRDB fires afterNextTransaction(onCommit:) on the
+        // DATABASE's serialized queue, not this one — mutual exclusion holds
+        // only because the server-queue turn that issued the write is blocked
+        // inside dbQueue.write for the duration. Do NOT add a
+        // dispatchPrecondition(.onQueue(queue)) here; it would trap.
+        store.eventSink = { [weak self] event in
+            self?.broadcast(event.notification)
+        }
+    }
+
+    func start() {
+        listener.newConnectionHandler = { [weak self] connection in
+            guard let self else { return }
+            let client = ClientConnection(connection: connection, server: self)
+            self.queue.async {
+                self.connections[ObjectIdentifier(client)] = client
+                client.start(on: self.queue)
+            }
+        }
+        listener.stateUpdateHandler = { state in
+            if case .failed(let error) = state {
+                FileHandle.standardError.write(Data("[gmcc_daemon] listener failed: \(error)\n".utf8))
+                exit(1)
+            }
+        }
+        listener.start(queue: queue)
+    }
+
+    func remove(_ client: ClientConnection) {
+        queue.async {
+            let key = ObjectIdentifier(client)
+            self.connections.removeValue(forKey: key)
+            self.subscribers.removeAll { $0 == key }
+        }
+    }
+
+    /// Push an EVENT line to every subscriber.
+    func broadcast(_ notification: EventNotification) {
+        let envelope = ResponseEnvelope<EventNotification>(
+            type: .event, requestId: "", ok: true, payload: notification)
+        guard let line = try? NDJSON.encodeLine(envelope) else { return }
+        let group = goodbyeGroup
+        for key in subscribers {
+            if let group {
+                group.enter()
+                connections[key]?.send(line) { group.leave() }
+            } else {
+                connections[key]?.send(line)
+            }
+        }
+    }
+
+    /// SHUTDOWN contract: drain in-flight work, checkpoint the WAL, remove
+    /// pidfile + socket, exit 0. Always hops onto the server queue so signal
+    /// handlers (main queue) and connection callbacks take the same clean
+    /// path, and the DAEMON_STOP goodbye event broadcasts to subscribers
+    /// before EOF. "Drain" is structural: this runs as one serial-queue turn,
+    /// so every previously received line has already completed.
+    func shutdown() {
+        queue.async { self.performShutdown() }
+    }
+
+    private func performShutdown() {
+        listener.cancel()
+        // The DAEMON_STOP goodbye is subscribers' clean-termination signal —
+        // gate exit(0) on its send completions (with a timeout fallback)
+        // instead of racing the async sends.
+        let group = DispatchGroup()
+        goodbyeGroup = group
+        try? store.recordDaemonStop()   // sink → subscribers see DAEMON_STOP, then EOF
+        goodbyeGroup = nil
+        try? store.checkpointTruncate()
+        try? store.closeDatabase()
+        unlink(Paths.socket.path)
+        unlink(Paths.pidfile.path)
+        // Completions fire on this queue, so notify (never wait) here.
+        group.notify(queue: queue) { exit(0) }
+        queue.asyncAfter(deadline: .now() + 1.0) { exit(0) }
+    }
+
+    // MARK: - Dispatch
+
+    /// Route one decoded NDJSON line. Handshake enforcement happens before
+    /// payload decoding and is DIRECTIONAL: a newer client means THIS daemon
+    /// is the stale binary — reply, then self-exit so the client's retry
+    /// autostarts the fresh build. An older client (a pinned-Kit GMVibes) is
+    /// rejected but the daemon stays up — it must never be kill-loopable.
+    func dispatch(line: Data, from client: ClientConnection) -> HandlerResult {
+        // Version-FIRST: the pre-head keeps `type` raw so a newer client
+        // invoking a message name this build doesn't know still reaches the
+        // mismatch branch (and its directional self-exit) instead of dying as
+        // an undecodable envelope.
+        let rawHead: RawEnvelopeHead
+        do {
+            rawHead = try NDJSON.decode(RawEnvelopeHead.self, from: line)
+        } catch {
+            return errorResult(
+                type: .error, requestId: "",
+                payload: ErrorPayload(code: .badRequest, message: "undecodable envelope: \(error)"))
+        }
+
+        guard rawHead.protocolVersion == GMCCWireProtocol.version else {
+            let clientNewer = rawHead.protocolVersion > GMCCWireProtocol.version
+            let message = clientNewer
+                ? "daemon speaks v\(GMCCWireProtocol.version), client spoke newer v\(rawHead.protocolVersion) — daemon exiting for restart"
+                : "daemon speaks v\(GMCCWireProtocol.version), client spoke older v\(rawHead.protocolVersion) — rejected, daemon stays up"
+            let result = errorResult(
+                type: rawHead.type ?? .error, requestId: rawHead.requestId ?? "",
+                payload: ErrorPayload(
+                    code: .protocolMismatch, message: message,
+                    daemonProtocolVersion: GMCCWireProtocol.version))
+            return HandlerResult(line: result.line, postAction: clientNewer ? .shutdown : .none)
+        }
+
+        guard let resolvedType = rawHead.type else {
+            return errorResult(
+                type: .error, requestId: rawHead.requestId ?? "",
+                payload: ErrorPayload(
+                    code: .unknownType,
+                    message: "unknown message type \(rawHead.typeRaw) at matching protocol v\(GMCCWireProtocol.version)"))
+        }
+        let head = EnvelopeHead(
+            protocolVersion: rawHead.protocolVersion,
+            type: resolvedType,
+            requestId: rawHead.requestId ?? "")
+
+        do {
+            switch head.type {
+            case .hello:
+                if let hello = try? NDJSON.decode(RequestEnvelope<Hello>.self, from: line) {
+                    print("[\(Store.isoNow())] client connected: \(hello.payload.clientName) pid \(hello.payload.pid)")
+                    fflush(stdout)
+                }
+                let ack = HelloAck(daemonPid: getpid(), protocolVersion: GMCCWireProtocol.version)
+                let envelope = ResponseEnvelope<HelloAck>(
+                    type: .hello, requestId: head.requestId, ok: true, payload: ack)
+                return HandlerResult(line: try NDJSON.encodeLine(envelope))
+
+            case .ping:
+                return try PingHandler.handle(head: head, startedAt: startedAt, startedDate: startedDate)
+            case .status:
+                return try StatusHandler.handle(
+                    head: head, store: store, startedAt: startedAt, startedDate: startedDate)
+            case .shutdown:
+                return try ShutdownHandler.handle(head: head)
+            case .backup:
+                return try BackupHandler.handle(line: line, head: head, store: store)
+
+            case .subscribe:
+                return try handleSubscribe(line: line, head: head, client: client)
+
+            case .contextEnsure:
+                return try ContextEnsureHandler.handle(line: line, head: head, store: store)
+            case .contextGet:
+                return try ContextGetHandler.handle(line: line, head: head, store: store)
+
+            case .projectList:
+                return try ProjectListHandler.handle(line: line, head: head, store: store)
+            case .instanceList:
+                return try InstanceListHandler.handle(line: line, head: head, store: store)
+            case .sessionList:
+                return try SessionListHandler.handle(line: line, head: head, store: store)
+
+            case .sessionGet:
+                return try SessionGetHandler.handle(line: line, head: head, store: store)
+            case .sessionUpdate:
+                return try SessionUpdateHandler.handle(line: line, head: head, store: store)
+
+            case .promptCreate:
+                return try PromptCreateHandler.handle(line: line, head: head, store: store)
+            case .promptList:
+                return try PromptListHandler.handle(line: line, head: head, store: store)
+            case .promptGet:
+                return try PromptGetHandler.handle(line: line, head: head, store: store)
+            case .promptUpdateContent:
+                return try PromptUpdateContentHandler.handle(line: line, head: head, store: store)
+            case .promptSetStatus:
+                return try PromptSetStatusHandler.handle(line: line, head: head, store: store)
+
+            case .artifactAdd:
+                return try ArtifactAddHandler.handle(line: line, head: head, store: store)
+            case .artifactList:
+                return try ArtifactListHandler.handle(line: line, head: head, store: store)
+
+            case .fileChangeAdd:
+                return try FileChangeHandler.handle(line: line, head: head, store: store)
+            case .fileChangeList:
+                return try FileChangeListHandler.handle(line: line, head: head, store: store)
+
+            case .kbiteList:
+                return try KbiteListHandler.handle(line: line, head: head, store: store)
+            case .kbiteAdd:
+                return try KbiteAddHandler.handle(line: line, head: head, store: store)
+            case .kbiteRemove:
+                return try KbiteRemoveHandler.handle(line: line, head: head, store: store)
+            case .kbiteMawOpen:
+                return try KbiteMawOpenHandler.handle(line: line, head: head)
+            case .kbiteDigest:
+                return try KbiteDigestHandler.handle(line: line, head: head, store: store)
+            case .kbiteGet:
+                return try KbiteGetHandler.handle(line: line, head: head, store: store)
+            case .kbiteFileGet:
+                return try KbiteFileGetHandler.handle(line: line, head: head, store: store)
+            case .kbiteSearch:
+                return try KbiteSearchHandler.handle(line: line, head: head, store: store)
+            case .kbiteKeywordTag:
+                return try KbiteKeywordTagHandler.handle(line: line, head: head, store: store)
+
+            case .eventList:
+                return try EventListHandler.handle(line: line, head: head, store: store)
+
+            case .event, .error:
+                return errorResult(
+                    type: head.type, requestId: head.requestId,
+                    payload: ErrorPayload(
+                        code: .unknownType, message: "\(head.type.rawValue) is daemon → client only"))
+            }
+        } catch let error as StoreError {
+            return errorResult(type: head.type, requestId: head.requestId, payload: error.errorPayload)
+        } catch let error as DecodingError {
+            return errorResult(
+                type: head.type, requestId: head.requestId,
+                payload: ErrorPayload(code: .badRequest, message: "undecodable payload: \(error)"))
+        } catch {
+            return errorResult(
+                type: head.type, requestId: head.requestId,
+                payload: ErrorPayload(code: .dbError, message: "\(error)"))
+        }
+    }
+
+    /// SUBSCRIBE — replay → ack-ordering is: ack (with the replay horizon),
+    /// then replayed EVENT lines (ids ≤ horizon), then live events. The whole
+    /// step runs inside this single dispatch turn on the serial queue, and
+    /// commits only happen in other turns on the same queue, so an event is
+    /// either ≤ the horizon (replayed) or broadcast live after registration —
+    /// gap and duplicate are structurally impossible.
+    private func handleSubscribe(line: Data, head: EnvelopeHead, client: ClientConnection) throws -> HandlerResult {
+        // Strict decode: a malformed since_id must be BAD_REQUEST, not a
+        // silent live-only subscription that loses the caller's replay.
+        let sinceId = try decodePayload(Subscribe.self, from: line).sinceId
+        let replayed: [EventNotification]
+        if let sinceId {
+            // Cap at 10k rows; the ack's last_event_id lets a client detect a
+            // capped replay (last replayed id < last_event_id) and re-subscribe.
+            replayed = try store.listEvents(EventListRequest(sinceId: sinceId, limit: 10_000)).events
+        } else {
+            replayed = []
+        }
+        let ack = SubscribeAck(lastEventId: try store.lastEventId(), replayCount: replayed.count)
+        let ackEnvelope = ResponseEnvelope<SubscribeAck>(
+            type: .subscribe, requestId: head.requestId, ok: true, payload: ack)
+        client.send(try NDJSON.encodeLine(ackEnvelope))
+        for event in replayed {
+            let envelope = ResponseEnvelope<EventNotification>(
+                type: .event, requestId: "", ok: true, payload: event)
+            if let eventLine = try? NDJSON.encodeLine(envelope) {
+                client.send(eventLine)
+            }
+        }
+        // Register directly — we are on the server queue; deferring via async
+        // would open a window for another turn's commit to slip between
+        // replay and registration. Deduped: a repeat SUBSCRIBE must not make
+        // the connection receive every event twice.
+        let key = ObjectIdentifier(client)
+        if !subscribers.contains(key) {
+            subscribers.append(key)
+        }
+        return HandlerResult(line: Data())
+    }
+
+    func errorResult(type: MessageType, requestId: String, payload: ErrorPayload) -> HandlerResult {
+        let envelope = ResponseEnvelope<EmptyPayload>(
+            type: type, requestId: requestId, ok: false, error: payload)
+        // Encoding a payload-less envelope of concrete types cannot realistically
+        // fail; the fallback is still a decodable error line rather than a
+        // bare newline the client would report as a contextless wire error.
+        let fallback = Data(
+            #"{"protocol_version":\#(GMCCWireProtocol.version),"type":"ERROR","request_id":"","ok":false,"error":{"code":"INTERNAL_ERROR","message":"error-envelope encoding failed"}}"#
+                .utf8) + Data([0x0A])
+        let line = (try? NDJSON.encodeLine(envelope)) ?? fallback
+        return HandlerResult(line: line)
+    }
+}
+
+/// One accepted socket connection: buffers bytes, splits on \n, hands each
+/// line to the server's dispatcher, writes the response back.
+final class ClientConnection: @unchecked Sendable {
+    private let connection: NWConnection
+    private weak var server: Server?
+    private var buffer = Data()
+
+    init(connection: NWConnection, server: Server) {
+        self.connection = connection
+        self.server = server
+    }
+
+    func start(on queue: DispatchQueue) {
+        connection.stateUpdateHandler = { [weak self] state in
+            switch state {
+            case .failed, .cancelled:
+                self?.teardown()
+            default:
+                break
+            }
+        }
+        connection.start(queue: queue)
+        receiveLoop()
+    }
+
+    func send(_ data: Data, completion: (() -> Void)? = nil) {
+        connection.send(content: data, completion: .contentProcessed { _ in completion?() })
+    }
+
+    /// A client that streams bytes without ever sending a newline must not
+    /// grow daemon memory without bound.
+    private static let maxBufferedBytes = 10 * 1024 * 1024
+
+    private func receiveLoop() {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, isComplete, error in
+            guard let self else { return }
+            if let data, !data.isEmpty {
+                self.buffer.append(data)
+                self.drainLines()
+                if self.buffer.count > Self.maxBufferedBytes {
+                    self.teardown()
+                    return
+                }
+            }
+            if isComplete || error != nil {
+                self.teardown()
+                return
+            }
+            self.receiveLoop()
+        }
+    }
+
+    private func drainLines() {
+        while let newlineIndex = buffer.firstIndex(of: 0x0A) {
+            let line = buffer.subdata(in: buffer.startIndex..<newlineIndex)
+            buffer.removeSubrange(buffer.startIndex...newlineIndex)
+            guard !line.isEmpty, let server else { continue }
+            let result = server.dispatch(line: line, from: self)
+            switch result.postAction {
+            case .none:
+                if !result.line.isEmpty {
+                    send(result.line)
+                }
+            case .shutdown:
+                connection.send(content: result.line, completion: .contentProcessed { _ in
+                    server.shutdown()
+                })
+            }
+        }
+    }
+
+    private func teardown() {
+        connection.cancel()
+        server?.remove(self)
+    }
+}

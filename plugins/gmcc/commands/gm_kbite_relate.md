@@ -34,16 +34,16 @@ To fix: Restart Claude Code from within a git repository.
 Exit without proceeding.
 
 1. Verify GM-CDE is initialized (`$GMCC_KBITE` is set)
-2. Verify source kbite exists at `$GMCC_KBITE_DIGESTED/{kbite_from}/`
-3. Verify target kbite exists at `$GMCC_KBITE_DIGESTED/{kbite_to}/`
-4. Parse relationship description to determine type
+2. Verify both kbites exist: known to the db (`gm kbite list --all --json`)
+   or present at `$GMCC_KBITE/{name}/` (identity root)
+3. Parse relationship description to determine type
 
 ### If Source KBite Missing
 ```
 [GMB] Error: Source kbite not found: {kbite_from}
 
 Available kbites:
-- {list of kbites in $GMCC_KBITE_DIGESTED/}
+- {codes from gm kbite list --all}
 ```
 Exit without changes.
 
@@ -52,7 +52,7 @@ Exit without changes.
 [GMB] Error: Target kbite not found: {kbite_to}
 
 Available kbites:
-- {list of kbites in $GMCC_KBITE_DIGESTED/}
+- {codes from gm kbite list --all}
 ```
 Exit without changes.
 
@@ -94,12 +94,15 @@ What type of relationship is this?
 
 ### Step 2: Read Existing KBITE_RELATIONSHIPS.md
 
-Read from source kbite:
+Relationships live at the kbite root (identity-level, like KBITE_PURPOSE.md):
 ```
-$GMCC_KBITE_DIGESTED/{kbite_from}/KBITE_RELATIONSHIPS.md
+$GMCC_KBITE/{kbite_from}/KBITE_RELATIONSHIPS.md
 ```
 
-If doesn't exist, create from template per **gmcc_kbite** skill.
+If it doesn't exist there but a legacy copy sits at
+`$GMCC_KBITE_DIGESTED/{kbite_from}/KBITE_RELATIONSHIPS.md`, move the legacy
+copy to the root first. If neither exists, create from template per
+**gmcc_kbite** skill.
 
 ### Step 3: Update Source KBite Outgoing Relationships
 
@@ -113,7 +116,8 @@ Add or update entry in "Outgoing Relationships" table:
 
 ### Step 4: Update Target KBite Incoming Relationships
 
-Read `$GMCC_KBITE_DIGESTED/{kbite_to}/KBITE_RELATIONSHIPS.md`
+Read `$GMCC_KBITE/{kbite_to}/KBITE_RELATIONSHIPS.md` (same legacy-move rule
+as Step 2)
 
 Add or update entry in "Incoming Relationships" table:
 
@@ -163,8 +167,8 @@ Relationship Created
 
 ## Updated Files
 
-- $GMCC_KBITE_DIGESTED/{kbite_from}/KBITE_RELATIONSHIPS.md (outgoing)
-- $GMCC_KBITE_DIGESTED/{kbite_to}/KBITE_RELATIONSHIPS.md (incoming)
+- $GMCC_KBITE/{kbite_from}/KBITE_RELATIONSHIPS.md (outgoing)
+- $GMCC_KBITE/{kbite_to}/KBITE_RELATIONSHIPS.md (incoming)
 
 ## Relationship Graph (for {kbite_from})
 
@@ -218,7 +222,7 @@ Continue?
 ```
 [GMB] Error: Failed to update KBITE_RELATIONSHIPS.md
 
-Check permissions on $GMCC_KBITE_DIGESTED/{kbite_name}/
+Check permissions on $GMCC_KBITE/{kbite_name}/
 ```
 
 ---

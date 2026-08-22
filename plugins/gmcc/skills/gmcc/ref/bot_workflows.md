@@ -1,4 +1,4 @@
-# Bot Workflow System Reference (v13.0.0)
+# Bot Workflow System Reference (v16.3.0)
 
 Read this file when executing bot workflow commands.
 
@@ -10,49 +10,95 @@ Read this file when executing bot workflow commands.
 | `/gm_bot_rpi` | Subagent RPI | 1 per phase (explore, architect, review) | Medium complexity |
 | `/gm_bot_team` | Agent Teams | Teammates per phase (true agent teams) | Complex features, thorough exploration |
 
-## Session + Prompt Model (v10.0.0)
+## Session + Prompt Model (v16)
 
-All bot workflows operate inside the **current session** — automatically resolved by `detect_repo.sh` from `$PWD` + active git branch, exported as `$GMCC_SESSION_PATH`.
-
-A bot run does NOT create a new session — it adds a new **prompt** to the existing session. Each prompt is a FOLDER under `$GMCC_SESSION_PATH/prompts/`:
+All bot workflows operate inside the **current session** — resolved by
+`detect_repo.sh` from `$PWD` + active git branch (env: `$GMCC_SESSION_PATH`
+for the file home) and registered in the daemon db by `gm context ensure`
+at SessionStart. All prompt/session DATA lives on db rows accessed through
+the `gm` CLI (see `skills/gmcc_daemon/SKILL.md`); the prompt folder on disk
+holds ONLY phase artifacts:
 
 ```
-$GMCC_SESSION_PATH/prompts/{id}_{name}/
-    {id}_{name}_data.gmcc.yaml      # gmcc_prompt_data_file (index/status, version: 3)
-    {id}_{name}_initial.yaml        # gmcc_initial_prompt_file: detail (verbatim) + empty goal/backstory + kbite context
-    {id}_{name}_clarified.yaml      # gmcc_clarified_prompt_file (absent until Clarified)
+$GMCC_SESSION_PATH/prompts/{seq}_{name}/
     memory/
         explore.md                   # exploration report (Phase 2)
+        qualified.md                 # clarify output (Phase 3)
         architecture.md              # approved architecture (Phase 4)
         review.md                    # review report (Phase 6)
 ```
 
-Both content files keep the `.yaml` suffix but carry `yeet:` + `yeet_type:`
-headers (v11.0.0) so `/gm_compile` validates them. See the Prompt Style section
-below.
+A bot run does NOT create a new session — it adds a new **prompt row** to
+the existing session. The canonical lifecycle every tier follows:
 
-1. On invocation, the bot reads `$GMCC_SESSION_PATH/session_data.gmcc.yaml`.
-2. It picks the next prompt id (max existing id + 1, or 1 if none).
-3. It creates `prompts/{id}_{name}/` with the `memory/` subdir, writes `{id}_{name}_data.gmcc.yaml` (conforms to `gmcc_prompt_data_file`, `version: 3`, `prompt_status: Draft`, kbite seeded from `session_data.kbite`) and `{id}_{name}_initial.yaml` (conforms to `gmcc_initial_prompt_file`; the passed prompt is written **verbatim** to `detail`, `goal` left empty `""`, `backstory` inherited verbatim from `session_data.backstory` — all three are human-input only, never split or authored).
-4. It appends a lightweight stub to `session_data.gmcc.yaml`'s `prompts:` list (conforms to `gmcc_session_data_file_prompt_files_entry`): `id`, `name`, `status: Draft`, `path: prompts/{id}_{name}/{id}_{name}_data.gmcc.yaml`.
-5. The Clarify phase flips `prompt_status` to `Clarifying`. Its **first** step is YEET-type detection over the initial prompt (see Prompt Style below); it then runs **separate** goal and detail clarification suites, and on completion writes `{id}_{name}_clarified.yaml` (conforms to `gmcc_clarified_prompt_file`), sets `clarified_prompt_path`, flips `prompt_status` to `Clarified`, and updates the session_data stub.
-6. Implementation runs. Each file edit appends to `session_data.gmcc.yaml`'s `changed_files:` list (conforms to `gmcc_session_data_file_changed_files_entry`): `file`, `timestamp`, `lines`, `commit`, `note`.
+1. **State load** — `gm session get --json` (session row + prompt stubs) —
+   never read yamls. `gm context ensure` is idempotent and may be re-run if
+   the db has no session yet (e.g. daemon was down at SessionStart).
+2. **Create** —
+   ```bash
+   ~/gmcc/bin/gm prompt create --name {name} \
+     --detail "<the entire passed prompt, verbatim>" \
+     --backstory "<session row's backstory, verbatim>" \
+     --command /gm_bot{,_rpi,_team} --json
+   ```
+   Capture `uuid`, `seq`, and `version` (0 on create) from the JSON.
+   STAY TRUE (see Prompt Style). Then
+   `mkdir -p "$GMCC_SESSION_PATH/prompts/{seq}_{name}/memory"`.
+3. **Explore** — write `memory/explore.md`, then
+   `gm artifact add --prompt-uuid U --file-path <abs> --kind explore --note "<one sentence>"`.
+4. **Clarify** — while the prompt is still `draft` (content unlocked):
+   YEET-type detection, then the two clarification suites; write
+   `memory/qualified.md` and register it (`--kind qualified`); then
+   ```bash
+   gm prompt update-content --prompt-uuid U --expected-version {v} --goal "<refined_goal>" --json   # → v+1
+   gm prompt set-status     --prompt-uuid U --expected-version {v+1} --status clarifying --json     # → v+2 (locks content)
+   gm prompt set-status     --prompt-uuid U --expected-version {v+2} --status clarified  --json     # → v+3
+   ```
+   Goal only — `detail` stays the verbatim original; `refined_detail`
+   lives in `qualified.md` (the from-Clarify source of truth).
+5. **Plan** — after user approval, write `memory/architecture.md` +
+   `gm artifact add --kind architecture`.
+6. **Implement** — after each Edit/Write to a tracked file:
+   ```bash
+   gm file-change add --path <repo-relative> --kind edit|create|delete|rename \
+     [--range start:end]... [--content "<short note>"] --prompt-uuid U
+   ```
+7. **Review** — write `memory/review.md` + `gm artifact add --kind review`.
+   There is NO phase-history step: completion is represented by status
+   `clarified` + registered artifacts (+ `gm file-change list` for the
+   change trail).
+
+### `--expected-version` threading (every mutation)
+
+`update-content` / `set-status` / `session update` are guarded by
+optimistic concurrency. Always capture `.version` from the `--json` of the
+previous `create`/`get`/mutation and pass it as `--expected-version`. On
+`VERSION_CONFLICT`, re-run `gm prompt get` and retry with the fresh
+version. Transitions are forward-only (`INVALID_TRANSITION`), content
+edits draft-only (`CONTENT_LOCKED`).
 
 ### Resume Logic
 
-To resume an in-progress prompt, invoke with the prompt id as the first argument:
+To resume an in-progress prompt, invoke with the prompt seq as the first argument:
 
 ```
 /gm_bot 3 continue with the login endpoint
-         ^prompt id  ^continuation
+         ^prompt seq  ^continuation
 ```
 
 The bot:
-1. Reads `session_data.gmcc.yaml`, finds the stub with `id: 3`, follows `path:` to read `{id}_{name}_data.gmcc.yaml`.
-2. If `prompt_status: Clarified`, reads the clarified file and proceeds to Plan/Implement.
-3. If `prompt_status: Clarifying`, re-enters Clarify from where it stalled.
-4. If `prompt_status: Draft`, reads the initial file and proceeds to Phase 2.
-5. If id not found, errors.
+1. `gm prompt list --json`, finds the stub with `seq: 3`, then
+   `gm prompt get --prompt-uuid U --json` for full content + artifacts.
+2. If status `clarified`, reads `memory/qualified.md` (+ architecture if
+   present) and proceeds to Plan/Implement.
+3. If status `clarifying`, re-enters Clarify from where it stalled
+   (content is locked — clarify output goes to `qualified.md` only).
+4. If status `draft`, proceeds to Phase 2 on the row's verbatim content.
+   A bare seq (no continuation) runs an externally-authored draft (e.g.
+   from the GMVibes editor) as written. Note: `command` is create-time-only
+   in the db (no gm write path) — if the row's `command` is empty, record
+   the executing command in `qualified.md`'s header during Clarify instead.
+5. If seq not found, errors.
 
 ### New-Prompt Mode
 
@@ -63,75 +109,77 @@ If the first argument is non-numeric, it's treated as a slug name for a new prom
          ^name         ^prompt content
 ```
 
-## Prompt Style (v11.0.0)
+## Prompt Style
 
-Prompt content is split into named components across two typed files. Both keep
-the `.yaml` suffix and carry `yeet:` + `yeet_type:` headers for `/gm_compile`.
-
-### Initial file — `gmcc_initial_prompt_file`
+Prompt content is the `backstory`/`goal`/`detail` triple on the prompt row.
 
 | Field | Meaning |
 |-------|---------|
-| `backstory` | **Human input.** Inherited verbatim from the session's `backstory:` at draft-create time (empty `""` unless a session backstory was set). May diverge per prompt. A future editor lets humans write it. |
-| `goal` | **Human input.** The generally desired outcome / acceptance criteria. Left empty (`""`) at create time. |
-| `detail` | **Human input.** How to accomplish the goal — the specifics. |
-| `kbites_loaded` (+ `kbite_context_summary?`) | KBites loaded in Phase 1; summary is subagent/team-only. |
+| `backstory` | **Human input.** Inherited verbatim from the session row's `backstory` at create time (empty `""` unless set). May diverge per prompt. |
+| `goal` | **Human input.** The desired outcome / acceptance criteria. Empty (`""`) at create time; filled with `refined_goal` at the end of Clarify (the ONE bot write to content). |
+| `detail` | **Human input.** How to accomplish the goal — the passed prompt verbatim, never modified. |
 
-**STAY TRUE — never split, infer, or author `backstory`/`goal`/`detail`.** These
-three are human-authored only (an editor is coming). When creating a NEW prompt
-from a passed argument, the entire passed prompt is assumed to be `detail` and is
-written there **verbatim**; `goal` is left empty (`""`); `backstory` is inherited
-from the session (`""` if unset). Never split a blob into goal vs detail and never
-invent an outcome — the Clarify phase fleshes out the goal later via human Q&A.
+**STAY TRUE — never split, infer, or author `backstory`/`goal`/`detail`.**
+When creating a NEW prompt from a passed argument, the entire passed prompt
+goes to `--detail` **verbatim**; `goal` is omitted (empty); `backstory` is
+the session's, verbatim. Never split a blob into goal vs detail and never
+invent an outcome — the Clarify phase fleshes out the goal later via human
+Q&A, and the only content write-back is `--goal "<refined_goal>"` before
+the status locks.
 
 ### Clarify phase — detection first, then split suites
 
-When `prompt_status` moves to `Clarifying`, the **first** action is **YEET-type
-detection** over the initial prompt's `goal` + `detail`:
+When Clarify begins, the **first** action is **YEET-type detection** over
+the prompt row's `goal` + `detail`:
 
 - **Declared** types — named explicitly in the prose (e.g. "a new yeet type for X").
 - **Inferred** types — data shapes described structurally without naming a type.
 
-Each detection is resolved confidently (to an existing struct/enum, a new type to
-create, or a clear action) or — when it cannot be — the user is asked via
-AskUserQuestion to clarify the intended typing behavior. Every detection is
-recorded in the clarified file's `detected_yeet_types` (with `source:` and
-`confidence:`).
+Each detection is resolved confidently (to an existing struct/enum, a new
+type to create, or a clear action) or — when it cannot be — the user is
+asked via AskUserQuestion to clarify the intended typing behavior. Every
+detection is recorded in `qualified.md`'s `detected_yeet_types` section
+(with `source:` and `confidence:`).
 
 The bot then runs **two separate clarification suites** — one for `goal`
-(outcome/acceptance criteria) and one for `detail` (approach/edge cases) —
-recorded under `goal_clarifications` and `detail_clarifications`.
+(outcome/acceptance criteria) and one for `detail` (approach/edge cases).
 
-### Clarified file — `gmcc_clarified_prompt_file`
+### `memory/qualified.md` — the clarify artifact
 
-Carries the through-`backstory`, the two clarification suites, `refined_goal` /
-`refined_detail`, `detected_yeet_types`, `key_files`, `constraints`,
-`kbites_loaded` (+ `patterns_to_follow` for subagent/team tiers; team adds
-per-clarification `rating` and `key_files[].consensus`). It is the single source
-of truth from Clarify onward; the initial file is never modified.
+Markdown, registered via `gm artifact add --kind qualified`. Sections:
+the through-`backstory` note, `goal_clarifications` / `detail_clarifications`
+(Q/A), `refined_goal`, `refined_detail`, `detected_yeet_types`, `key_files`,
+`patterns_to_follow`, `constraints` (+ team tier adds per-clarification
+`rating` and key-file `consensus`). It is the single source of truth from
+Clarify onward; the row's `detail` is never modified.
 
 ## KBite Integration
 
-All bot workflows load kbites during initialization:
-1. List available kbites from `$GMCC_KBITE_DIGESTED/`
-2. For each, read `$GMCC_KBITE/{name}/KBITE_PURPOSE.md` for the one-line summary
-3. Ask user to select relevant kbites
-4. Load chewed files for selected kbites
-5. Pass kbite context to all spawned agents
+Kbites are **inherited, not auto-detected** — read the prompt's active
+list from `gm prompt get` (`kbite_codes`). Kbites are added only on
+explicit user request. For each active kbite: read
+`$GMCC_KBITE/{name}/KBITE_PURPOSE.md`, get the db overview
+(`gm kbite get --code {name}`), rank relevant files (`gm kbite search`),
+pull the top files' content (`gm kbite file-get`), compile a kbite
+context summary, and pass it to all spawned agents.
 
-## Intermediate Artifacts Persisted to `prompts/{id}_{name}/memory/` (v10.0.0)
+## Intermediate Artifacts Persisted to `prompts/{seq}_{name}/memory/`
 
-v10.0.0 **reverses** the earlier v6.0.0 "no persistence" policy. All three bots persist their per-phase artifacts to a `memory/` subdirectory inside the prompt folder:
+All three bots persist their per-phase artifacts to the `memory/` subdir
+and register each with `gm artifact add` (upsert on
+`(prompt_uuid, file_path)`; re-running a phase overwrites the file —
+last-run-wins — and refreshes the note):
 
-| File | Written by | Source |
-|------|------------|--------|
-| `explore.md` | Phase 2 | `/gm_bot_rpi`: verbatim subagent report. `/gm_bot_team`: synthesized 4-methodology report (teammate originals are NOT persisted). `/gm_bot`: condensed primary-context exploration notes. |
-| `architecture.md` | Phase 4 (after user approval) | `/gm_bot_rpi`: verbatim architect subagent output. `/gm_bot_team`: synthesized unified architecture (teammate originals are NOT persisted). `/gm_bot`: the approved plan from EnterPlanMode. |
-| `review.md` | Phase 6 | `/gm_bot_rpi`: verbatim reviewer subagent report. `/gm_bot_team`: synthesized 4-methodology review. `/gm_bot`: a brief primary-context review note covering what was built, deferred, and known limitations. |
+| File | Kind | Written by | Source |
+|------|------|------------|--------|
+| `explore.md` | `explore` | Phase 2 | `/gm_bot_rpi`: verbatim subagent report. `/gm_bot_team`: synthesized 4-methodology report (teammate originals are NOT persisted). `/gm_bot`: condensed primary-context exploration notes. |
+| `qualified.md` | `qualified` | Phase 3 | All tiers: the clarify artifact (see Prompt Style). |
+| `architecture.md` | `architecture` | Phase 4 (after user approval) | `/gm_bot_rpi`: verbatim architect subagent output. `/gm_bot_team`: synthesized unified architecture. `/gm_bot`: the approved plan from EnterPlanMode. |
+| `review.md` | `review` | Phase 6 | `/gm_bot_rpi`: verbatim reviewer subagent report. `/gm_bot_team`: synthesized 4-methodology review. `/gm_bot`: a brief primary-context review note. |
 
-Re-running a phase overwrites the file (last-run-wins). The audit trail of phase completion is in `session_data.gmcc.yaml`'s `phase_history:`.
-
-These memory files are intended to survive across sessions, give the user something to grep, and provide context if a prompt is resumed days later.
+These memory files survive across sessions, give the user something to
+grep, and provide context if a prompt is resumed days later; the db keeps
+the pointer + caption (`gm artifact list`).
 
 ## Agent System
 
@@ -148,13 +196,16 @@ Agents are specialized personas defined in `$GMCC_PLUGIN_ROOT/prompts/`:
 
 | Command | Purpose |
 |---------|---------|
-| `/gm_init` | Initialize GM-CDE system (creates `~/gmcc_ckfs/` + `projects/` + registry) |
+| `/gm_init` | Initialize GM-CDE system (creates `~/gmcc_ckfs/`, builds the daemon, `gm setup`) |
 | `/gm_bot` | Lightweight bot workflow (primary context) |
 | `/gm_bot_rpi` | Subagent Research/Plan/Implement workflow |
 | `/gm_bot_team` | Agent team workflow (requires agent teams enabled) |
-| `/gm_task` | Load session context and just do the task; read-only — no ckfs writes unless you explicitly ask for a retroactive write-back |
-| `/gmcc_environment_cleanup` | Audit the whole CKFS environment for non-compliant structure, interactively resolve |
-| `/gmcc_session_cleanup` | Audit only the current session ($GMCC_SESSION_PATH): prompt-folder integrity, index-file consistency, changed_files/phase_history, schema drift |
+| `/gm_task` | Load session context (via gm reads) and just do the task; read-only — no db writes unless you explicitly ask for a retroactive write-back |
+| `/gmcc_daemon` | Daemon build/status/lifecycle |
+| `/import_legacy_yaml_gmcc` | Import legacy ckfs yaml prompts into the db (inert until invoked) |
+| `/archive_legacy_yaml_gmcc` | Move imported legacy prompt folders to `_archive/cold_storage/` |
+| `/gmcc_environment_cleanup` | Audit the environment (db-vs-disk drift, daemon health, archive hygiene), interactively resolve |
+| `/gmcc_session_cleanup` | Audit only the current session: memory/ folders vs db rows, artifact + file-change drift |
 | `/gm_crunch_open_maw` | Create maw for collecting kbite crunchables |
 | `/gm_crunch_chew` | Process crunchables into analyzed knowledge |
 | `/gm_crunch_digest` | Finalize kbite from chewed resources |
@@ -162,9 +213,9 @@ Agents are specialized personas defined in `$GMCC_PLUGIN_ROOT/prompts/`:
 
 ## Error Recovery
 
-If ckfs is missing or corrupted:
-1. Run `/gm_init` to recreate the projects root + registry
-2. Restart Claude Code so `detect_repo.sh` re-provisions the current project/instance/session
-3. Use `/gmcc_environment_cleanup` to surface any remaining non-compliance
+If the daemon/db is unreachable (`gm` exit code 2):
+1. `bash $GMCC_PLUGIN_ROOT/scripts/build_daemon.sh` (self-heal rule in `skills/gmcc_daemon/SKILL.md`)
+2. Re-run `gm context ensure`
+3. If the ckfs file tree is missing, run `/gm_init` and restart Claude Code so `detect_repo.sh` re-exports the env
 
-If `$GMCC_SESSION_PATH` is missing at command time, that means the SessionStart hook didn't run. Restart Claude Code.
+If `$GMCC_SESSION_PATH` is missing at command time, the SessionStart hook didn't run. Restart Claude Code.

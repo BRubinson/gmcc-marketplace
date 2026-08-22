@@ -1,14 +1,16 @@
 ---
 name: gm_bot_team
-description: Agent-teams-based workflow. Spawns 4-teammate teams (each on a different methodology) for exploration, planning, and review. Authors prompts into the current session. Requires CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS.
-argument-hint: <prompt-name|id> <task/prompt content>
+description: Agent-teams-based workflow. Spawns 4-teammate teams (each on a different methodology) for exploration, planning, and review. Authors prompts into the current session over the daemon. Requires CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS.
+argument-hint: <prompt-name|seq> <task/prompt content>
 disable-model-invocation: true
 allowed-tools: Read, Write, Edit, Grep, Glob, Bash, Task, AskUserQuestion
 ---
 
-# GM-CDE Bot Team (Agent Teams, v13.0.0)
+# GM-CDE Bot Team (Agent Teams, v16.3.0)
 
-You are coordinating real agent teams (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`) to attack a single prompt with 4 parallel methodologies per phase. Same prompt-into-session model as `/gm_bot` and `/gm_bot_rpi`. The synthesized output of each team phase is persisted to `prompts/{id}_{name}/memory/`.
+You are coordinating real agent teams (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`) to attack a single prompt with 4 parallel methodologies per phase. Same prompt-into-session model as `/gm_bot` and `/gm_bot_rpi`. The synthesized output of each team phase is persisted to `prompts/{seq}_{name}/memory/` and registered in the daemon db.
+
+All persistence goes through the `gm` CLI — see `skills/gmcc_daemon/SKILL.md` and `skills/gmcc/ref/bot_workflows.md`. Never read or write ckfs yamls. **`gm_bot_rpi.md` is the reference for the exact gm-call sequence** (creation, clarify transitions, artifact registration, file-change tracking) — this file only documents what differs for teams.
 
 ---
 
@@ -33,50 +35,23 @@ Or use /gm_bot_rpi for subagent-based workflow.
 ```
 Exit without proceeding.
 
-1. Read `$GMCC_SESSION_PATH/session_data.gmcc.yaml` for current session state.
-2. Skim recent clarified prompts for context.
+1. `~/gmcc/bin/gm session get --json` for current session state. On exit 2, self-heal per `gm_bot_rpi.md`.
+2. Skim recent prompts' `memory/qualified.md` files for context.
 
 ---
 
 ## Argument Parsing
 
 Identical to `/gm_bot` and `/gm_bot_rpi`. Quick summary:
-- **Run / Resume** (`/gm_bot_team 3` or `/gm_bot_team 3 ...`): find prompt id 3; run/resume by status. A bare id (no continuation) runs an externally-authored draft (e.g. from the GMVibes editor) as written. If `command:` is empty, stamp it `/gm_bot_team` and bump `updated_time`.
-- **New** (`/gm_bot_team auth-refactor ...`): assign next id, write draft yaml, append session_data entry.
+- **Run / Resume** (`/gm_bot_team 3` or `/gm_bot_team 3 ...`): `gm prompt list --json` → stub with `seq: 3` → `gm prompt get`. Run/resume by status (`clarified` → Phase 4, `clarifying` → Phase 3, `draft` → Phase 2). A bare seq runs an externally-authored draft as written; `command` is create-time-only — if empty, note the tier in `qualified.md`.
+- **New** (`/gm_bot_team auth-refactor ...`): `gm prompt create --name ... --detail "<verbatim>" --command /gm_bot_team --json` (STAY TRUE — see `gm_bot_rpi.md`), then `mkdir -p .../prompts/{seq}_{name}/memory`.
 - **No args**: AskUserQuestion.
-
----
-
-## Draft Prompt Folder Layout (v10.0.0)
-
-Same folder shape as `/gm_bot_rpi`:
-
-```
-$GMCC_SESSION_PATH/prompts/{id}_{name}/
-    {id}_{name}_data.gmcc.yaml      # gmcc_prompt_data_file (index, version: 3)
-    {id}_{name}_initial.yaml        # prompt style: detail (verbatim) + empty goal/backstory
-    memory/                          # synthesized explore/architecture/review
-```
-
-`{id}_{name}_data.gmcc.yaml` conforms to `gmcc.gmcc_prompt_data_file` (`version: 3`)
-with `command: /gm_bot_team` and `prompt_status: Draft`. Seed `kbite:` from parent
-session_data. `{id}_{name}_initial.yaml` conforms to `gmcc.gmcc_initial_prompt_file`
-— it keeps the `.yaml` suffix but carries `yeet:` + `yeet_type:` headers. Its three
-prompt-style fields are **human-authored only** — **STAY TRUE, do NOT split, infer,
-or author them.** When creating a NEW prompt from a passed argument, the entire
-passed prompt is assumed to be `detail:` and written there **verbatim**; `goal:` is
-left empty (`""`); `backstory:` is inherited verbatim from the parent
-`session_data.gmcc.yaml`'s `backstory:` (empty `""` if unset; may diverge). Never
-split a blob into goal vs detail or invent an outcome — the Phase 3 Clarify suite
-fleshes out the goal later. Also write `kbites_loaded:` + `kbite_context_summary:`.
-session_data prompts[] entry uses the lightweight stub shape (`id`, `name`,
-`status`, `path`). See `gm_bot_rpi.md` for the exact yaml templates.
 
 ---
 
 ## Phase 1: KBite Loading (New Prompt Only)
 
-Same as `/gm_bot_rpi`. Update `{id}_{name}_initial.yaml` with `kbites_loaded:` + `kbite_context_summary:`; merge selections into `{id}_{name}_data.gmcc.yaml`'s `kbite:` list. The summary is passed into every teammate spawn.
+Same as `/gm_bot_rpi`: read `kbite_codes` from `gm prompt get`; explicit add only (`gm kbite add --scope prompt`); read the purpose at the kbite root, then load content from the db (`gm kbite get` → `search` → `file-get`); compile the kbite context summary. The summary is passed into every teammate spawn.
 
 ---
 
@@ -92,12 +67,12 @@ Per teammate spawn prompt (substitute `{methodology}` per teammate):
 Read and follow your agent identity from: $GMCC_PLUGIN_ROOT/prompts/gmcc_agent_code_explorer.prompt.md
 
 ## Task Context
-**Exploration Target**: {initial prompt's goal + detail}
+**Exploration Target**: {prompt row's goal + detail}
 **Repository**: Explore from the current working directory
 **Branch**: $(basename $GMCC_SESSION_PATH)
 
 ## KBite Knowledge
-{kbite_context_summary}
+{kbite context summary}
 
 ## Methodology Assignment: {methodology}
 {methodology-specific guidance — see below}
@@ -133,65 +108,28 @@ Synthesize the 4 reports into a unified mental model:
 - Identify consensus (high-confidence) vs divergence (needs discussion)
 - Compile rated open questions (1-8 scale, where 8 = critical unknown)
 
-**Write the synthesized report** to `$GMCC_SESSION_PATH/prompts/{id}_{name}/memory/explore.md`. This informs Clarify directly.
+**Write the synthesized report** to `$GMCC_SESSION_PATH/prompts/{seq}_{name}/memory/explore.md` and register it (`gm artifact add --kind explore --note "..."`). This informs Clarify directly.
 
 ---
 
 ## Phase 3: Clarify
 
-1. Flip `{id}_{name}_data.gmcc.yaml`'s `prompt_status` to `Clarifying` and the session_data prompts[] entry's `status: Clarifying`.
+Runs while the prompt is still `draft`. Same canonical sequence as `gm_bot_rpi.md`, with team-specific additions:
 
-2. **YEET-type detection (FIRST clarify step).** Before resolving open questions, scan the initial prompt's `goal` + `detail` (cross-referenced with the 4-methodology synthesis) for YEETS types:
-   - **Declared** — types named explicitly in the prose.
-   - **Inferred** — data shapes the prompt describes structurally without naming a type.
+1. **YEET-type detection (FIRST clarify step)** over the prompt row's `goal` + `detail`, cross-referenced with the 4-methodology synthesis. Resolve each confidently, or AskUserQuestion when you cannot. Record in `qualified.md`'s `detected_yeet_types` with `source:` + `confidence:`.
 
-   Resolve each confidently, or AskUserQuestion when you cannot. Record every detection under `detected_yeet_types:` with `source:` + `confidence:`. Use `detected_yeet_types: []` if none.
+2. **Goal clarification suite.** Extract the rated open questions about the *outcome* from the synthesis — highest first (start with 8s and 7s). AskUserQuestion → `goal_clarifications` (carry each item's `rating:`).
 
-3. **Goal clarification suite.** Extract the rated open questions about the *outcome* (acceptance criteria, scope) from the synthesis — highest first (start with 8s and 7s). AskUserQuestion → `goal_clarifications:` (carry each item's `rating:`).
+3. **Detail clarification suite.** Extract the rated open questions about the *approach* — highest first. AskUserQuestion → `detail_clarifications` (carry each item's `rating:`).
 
-4. **Detail clarification suite.** Extract the rated open questions about the *approach* (uncertainties, integration, edge cases) from the synthesis — highest first. AskUserQuestion → `detail_clarifications:` (carry each item's `rating:`).
+4. Write `memory/qualified.md` (team flavor: per-clarification `rating`, `key_files[].consensus` listing which methodologies flagged each file) and register it (`gm artifact add --kind qualified --note "..."`).
 
-5. Write `$GMCC_SESSION_PATH/prompts/{id}_{name}/{id}_{name}_clarified.yaml` (conforms to `gmcc.gmcc_clarified_prompt_file`):
-
-```yaml
-yeet:
-  - gmcc
-yeet_type: gmcc.gmcc_clarified_prompt_file
-
-clarified_at: {ISO 8601}
-backstory: |
-  {carried through from the initial file's backstory; "" if unset}
-goal_clarifications:
-  - rating: 8
-    q: {question about the outcome}
-    a: {answer}
-detail_clarifications:
-  - rating: 7
-    q: {question about the approach}
-    a: {answer}
-refined_goal: |
-  {initial goal + goal clarifications + synthesis, integrated — acceptance criteria}
-refined_detail: |
-  {initial detail + detail clarifications + 4-methodology synthesis, integrated}
-detected_yeet_types:
-  - type: {detected type token or described shape}
-    resolved_to: {what it means / type to create / user's clarified intent}
-    source: declared            # declared | inferred
-    confidence: confident       # confident | needs_clarification
-key_files:
-  - path: {file}
-    relevance: {why}
-    consensus: {agents that flagged it}
-patterns_to_follow:
-  - {pattern}
-constraints:
-  - {constraint}
-kbites_loaded:
-  - {kbite name}
-```
-
-6. Update `{id}_{name}_data.gmcc.yaml`: `prompt_status: Clarified`, set `clarified_prompt_path`, bump `updated_time`.
-7. Update `session_data.gmcc.yaml` prompts[] entry: `status: Clarified`.
+5. Write back + transition, threading `--expected-version`:
+   ```bash
+   gm prompt update-content --prompt-uuid U --expected-version {v}   --goal "<refined_goal>" --json
+   gm prompt set-status     --prompt-uuid U --expected-version {v+1} --status clarifying --json
+   gm prompt set-status     --prompt-uuid U --expected-version {v+2} --status clarified  --json
+   ```
 
 ---
 
@@ -207,17 +145,17 @@ Per teammate spawn prompt:
 Read and follow your agent identity from: $GMCC_PLUGIN_ROOT/prompts/gmcc_agent_code_architect.prompt.md
 
 ## Architecture Context
-**Goal**: {refined_goal from clarified prompt}
-**Detail**: {refined_detail from clarified prompt}
+**Goal**: {refined_goal from qualified.md}
+**Detail**: {refined_detail from qualified.md}
 
-## Clarified Prompt
-{full clarified yaml contents}
+## Qualified Prompt
+{full qualified.md contents}
 
 ## Exploration Synthesis
 {the unified synthesis from Phase 2}
 
 ## KBite Knowledge
-{kbite_context_summary}
+{kbite context summary}
 
 ## Methodology Assignment: {methodology}
 Commit FULLY to this methodology. Propose the architecture YOUR methodology would build.
@@ -229,7 +167,7 @@ Format: Goal, Approach Summary, Components, Files to Modify/Create, Build Sequen
 
 ### Step 2: Wait + Synthesize + Persist
 
-Wait for all 4 proposals. In primary context, synthesize into a unified architecture (resolve methodology disagreements explicitly — pick a direction with rationale). **Write the synthesized architecture** to `$GMCC_SESSION_PATH/prompts/{id}_{name}/memory/architecture.md` (individual teammate proposals are NOT persisted).
+Wait for all 4 proposals. In primary context, synthesize into a unified architecture (resolve methodology disagreements explicitly — pick a direction with rationale). **Write the synthesized architecture** to `$GMCC_SESSION_PATH/prompts/{seq}_{name}/memory/architecture.md` and register it (`gm artifact add --kind architecture --note "..."`); individual teammate proposals are NOT persisted.
 
 ### Step 3: User Approval
 
@@ -251,13 +189,10 @@ How would you like to proceed?
 
 1. Follow the approved unified architecture's build sequence.
 2. Make edits with Read/Edit/Write.
-3. After each file write, append to `session_data.gmcc.yaml`'s `changed_files:` list (conforms to `gmcc_session_data_file_changed_files_entry`):
-   ```yaml
-   - file: {path}
-     timestamp: {ISO 8601}
-     lines: [[start, end], ...]
-     commit: {short sha or "uncommitted"}
-     note: ""
+3. After each file write, record it:
+   ```bash
+   gm file-change add --path <repo-relative path> --kind edit|create|delete|rename \
+     [--range start:end]... [--content "<short note>"] --prompt-uuid U
    ```
 
 ---
@@ -274,16 +209,16 @@ Per teammate spawn prompt:
 Read and follow your agent identity from: $GMCC_PLUGIN_ROOT/prompts/gmcc_agent_code_quality_reviewer.prompt.md
 
 ## Review Context
-**Task**: {refined_goal + refined_detail from clarified prompt}
+**Task**: {refined_goal + refined_detail from qualified.md}
 
-## Clarified Prompt
-{clarified yaml contents}
+## Qualified Prompt
+{qualified.md contents}
 
 ## Approved Architecture
 {unified architecture from Phase 4}
 
 ## Files Changed
-{list from session_data.gmcc.yaml changed_files}
+{output of: gm file-change list --prompt-uuid U}
 
 ## Methodology Assignment: {methodology}
 Apply YOUR methodology's lens. Conservatives look for stability risks; aggressives look for missed simplifications; pragmatists check value-vs-effort; alternatives challenge assumptions.
@@ -294,7 +229,7 @@ Return your review report as your final message.
 
 ### Step 2: Synthesize Findings + Persist
 
-In primary context, merge the 4 reviews into a deduplicated list of findings, weighted by how many methodologies surfaced each one. **Write the synthesized review** to `$GMCC_SESSION_PATH/prompts/{id}_{name}/memory/review.md` (individual teammate reviews are NOT persisted).
+In primary context, merge the 4 reviews into a deduplicated list of findings, weighted by how many methodologies surfaced each one. **Write the synthesized review** to `$GMCC_SESSION_PATH/prompts/{seq}_{name}/memory/review.md` and register it (`gm artifact add --kind review --note "..."`); individual teammate reviews are NOT persisted.
 
 ### Step 3: User Decides
 
@@ -315,21 +250,15 @@ Implement requested fixes.
 
 1. Present a complete summary.
 2. Wait for feedback. Iterate until satisfied.
-3. On completion, append to `session_data.gmcc.yaml`'s `phase_history:` list (each entry conforms to `gmcc_session_data_file_phase_history_entry`):
-   ```yaml
-   phase_history:
-     - prompt_id: {id}
-       command: /gm_bot_team
-       completed_at: {ISO 8601}
-       review_status: {pass | pass_with_issues}
-       teams_used: [explore, architect, review]
-   ```
+
+There is no phase-history record — completion is represented by prompt
+status `clarified` plus the registered artifacts and file-change trail.
 
 ```
-Bot Team Complete: prompt {id} ({name})
+Bot Team Complete: prompt {seq} ({name})
 
 **Session**: {GMCC_SESSION_PATH relative to GMCC_PROJECTS}
-**Files Modified**: {count}
+**Files Modified**: {count from gm file-change list --prompt-uuid U}
 **Teams Used**: explore, architect, review (4 teammates each)
 **Review Status**: {pass / pass_with_issues}
 ```
@@ -345,9 +274,11 @@ Bot Team Complete: prompt {id} ({name})
 Falling back to /gm_bot_rpi single-subagent flow for this phase.
 ```
 
+**Daemon unreachable / VERSION_CONFLICT:** same recovery as `gm_bot_rpi.md`.
+
 **Session paused:**
 ```
-State preserved at: $GMCC_SESSION_PATH/prompts/{id}_{name}/
+State preserved: prompt row (gm prompt get) + $GMCC_SESSION_PATH/prompts/{seq}_{name}/memory/
 
-To resume: /gm_bot_team {id} <continuation prompt>
+To resume: /gm_bot_team {seq} <continuation prompt>
 ```

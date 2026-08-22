@@ -1,6 +1,6 @@
 ---
 name: gmcc_session_cleanup
-description: Audit the CURRENT session folder ($GMCC_SESSION_PATH) for non-compliant state — prompt-folder integrity, index-file consistency, changed_files/phase_history integrity, and schema drift — and interactively resolve each finding. Session-scoped counterpart to /gmcc_environment_cleanup.
+description: Audit the CURRENT session — the prompts/ artifact tree vs the daemon db rows (prompt stubs, artifact pointers, file changes) — and interactively resolve each finding. Session-scoped counterpart to /gmcc_environment_cleanup.
 argument-hint: "[--dry-run]"
 disable-model-invocation: true
 allowed-tools: Read, Write, Bash, Glob, AskUserQuestion
@@ -8,11 +8,11 @@ allowed-tools: Read, Write, Bash, Glob, AskUserQuestion
 
 # /gmcc_session_cleanup
 
-Run the GM-CDE **session-scoped** cleanup auditor. Walks only the current
-session at `$GMCC_SESSION_PATH` (not the whole CKFS — that is
-`/gmcc_environment_cleanup`), reports non-compliant state, and prompts
-per-finding for an action. Full spec in
-`$GMCC_PLUGIN_ROOT/skills/gmcc_session_cleanup/SKILL.md`.
+Run the GM-CDE **session-scoped** cleanup auditor. Cross-checks only the
+current session — `$GMCC_SESSION_PATH` on disk vs this session's db rows via
+`gm` (not the whole environment — that is `/gmcc_environment_cleanup`),
+reports non-compliant state, and prompts per-finding for an action. Full
+spec in `$GMCC_PLUGIN_ROOT/skills/gmcc_session_cleanup/SKILL.md`.
 
 ---
 
@@ -40,14 +40,13 @@ session-scoped walk strategy and finding categories.
 
 Follow that skill's protocol:
 
-1. Walk **only** `$GMCC_SESSION_PATH` per the bounded strategy in the skill.
-2. Collect findings across the four categories (prompt folder integrity, index
-   file consistency, changed_files & phase_history integrity, schema drift).
+1. Health first: `gm ping`, `gm context get --json`.
+2. Cross-check db → disk and disk → db per the skill (prompt rows vs
+   folders, artifact pointers vs `memory/*.md`, file-change trail).
 3. Print the audit report.
 4. **NEVER auto-fix.** For each finding, AskUserQuestion with the per-category
    options (default first, always non-destructive).
-5. Apply the user's chosen action; append a `cleanup_actions` entry to
-   `$GMCC_SESSION_PATH/session_data.gmcc.yaml`.
+5. Apply the user's chosen action (db repairs via `gm` only).
 6. Print the cleanup-complete summary.
 
 ---

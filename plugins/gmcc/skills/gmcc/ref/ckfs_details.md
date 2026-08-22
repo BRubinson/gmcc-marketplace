@@ -1,56 +1,74 @@
-# CKFS Detailed Structure Reference (v13.0.0)
+# CKFS Detailed Structure Reference (v16.3.0)
 
 Read this file on-demand when performing ckfs operations.
+
+**v16 model**: prompt/session/instance/project DATA lives in the daemon's
+SQLite db at `~/gmcc/gmcc.db`, accessed exclusively through the `gm` CLI
+(see `skills/gmcc_daemon/SKILL.md`). The ckfs on disk is now a **file
+artifact tree only** — bot phase artifacts under `memory/`, plus the kbite
+content store. The runtime yamls (`session_data.gmcc.yaml`, the prompt
+yaml triad, `project_index`/`project_data`/`instance_data`,
+`gmcc_session_file_index.yaml`) are RETIRED: nothing creates or updates
+them anymore. Legacy trees are imported/archived by
+`/import_legacy_yaml_gmcc` + `/archive_legacy_yaml_gmcc`.
 
 ## Static Plugin Files (Installed to ~/.claude/plugins/gmcc/)
 ```
 ~/.claude/plugins/gmcc/
-├── .claude-plugin/plugin.json     # Plugin manifest (currently v13.0.0)
+├── .claude-plugin/plugin.json     # Plugin manifest
 ├── skills/
 │   ├── gmcc/SKILL.md              # Core rules (slim)
 │   ├── gmcc/ref/                  # Reference files (read on-demand)
 │   ├── gmcc_agent/                # Agent system definition
+│   ├── gmcc_daemon/               # gm CLI + daemon invocation reference
 │   ├── gmcc_kbite/                # KBite knowledge system
 │   ├── gmcc_maw/                  # KBite web-fetch skill
 │   ├── gmcc_boot/                 # Boot validation
-│   └── gmcc_cleanup/              # CKFS structure auditing
+│   ├── gmcc_cleanup/              # Environment auditing
+│   └── gmcc_migrate_legacy/       # Legacy yaml → db import/archive (inert)
 ├── commands/gm_*.md               # All GM commands
 ├── prompts/gmcc_agent_*.md        # Agent prompt files
 ├── scripts/detect_repo.sh         # SessionStart hook script
+├── scripts/build_daemon.sh        # Daemon/gm build + install
+├── scripts/check_daemon_stale.sh  # SessionStart staleness warning
+├── daemon/                        # Swift package: gmcc_daemon + gm + GMCCDaemonKit
 ├── hooks/hooks.json               # Hook configuration
-├── output-styles/                 # Methodology output styles
-└── templates/projects/            # Runtime-tree templates (copied lazily by detect_repo.sh)
+└── output-styles/                 # Methodology output styles
 ```
 
-## Runtime CKFS (Per-User, Per-Project)
+## Runtime Layout (Per-User)
 ```
-~/gmcc_ckfs/                                                  # $GMCC_CKFS_ROOT
+~/gmcc/                                                       # daemon runtime (NOT in git)
+├── bin/{gm, gmcc_daemon}
+├── gmcc.db                                                   # SQLite — single source of truth for runtime data
+├── daemon.sock · daemon.log · daemon.pid · backups/
+
+~/gmcc_ckfs/                                                  # $GMCC_CKFS_ROOT — file artifacts only
 ├── README.md
+├── _archive/cold_storage/                                    # universal archive bucket (structure-preserving)
 ├── projects/                                                 # $GMCC_PROJECTS
-│   ├── project_index.gmcc.yaml                                    # $GMCC_PROJECTS_INDEX
 │   └── {project_name}/                                       # $GMCC_PROJECT_PATH
-│       ├── project_data.gmcc.yaml
 │       └── instances/
-│           └── {project_name}_{hash4}/                       # $GMCC_INSTANCE_PATH  (v10.0.0)
-│               ├── instance_data.gmcc.yaml
+│           └── {project_name}_{hash4}/                       # $GMCC_INSTANCE_PATH
 │               └── sessions/
 │                   └── {sanitized_branch}/                   # $GMCC_SESSION_PATH
-│                       ├── session_data.gmcc.yaml
-│                       ├── gmcc_session_file_index.yaml         # per-session catalog (gmcc_session_creation)
 │                       └── prompts/
-│                           └── {id}_{name}/                  # one folder per prompt (v10.0.0)
-│                               ├── {id}_{name}_data.gmcc.yaml
-│                               ├── {id}_{name}_initial.yaml
-│                               ├── {id}_{name}_clarified.yaml      # when Clarified
+│                           └── {id}_{name}/                  # one folder per prompt
 │                               └── memory/
-│                                   ├── explore.md
-│                                   ├── architecture.md
-│                                   └── review.md
+│                                   ├── explore.md            # Phase 2 artifact
+│                                   ├── qualified.md          # Phase 3 (Clarify) artifact
+│                                   ├── architecture.md       # Phase 4 artifact
+│                                   └── review.md             # Phase 6 artifact
 └── kbites/                                                   # $GMCC_KBITE
     ├── {kbite_name}/KBITE_PURPOSE.md                         # identity-level
-    ├── digested/{kbite_name}/...                             # $GMCC_KBITE_DIGESTED
-    └── open/{kbite_name}/...                                 # $GMCC_KBITE_OPEN
+    ├── digested/{kbite_name}/...                             # $GMCC_KBITE_DIGESTED — raw-source archive (text is db-canonical)
+    └── open/{kbite_name}/...                                 # $GMCC_KBITE_OPEN — in-progress maws
 ```
+
+The db stores **pointers + captions** to the `memory/*.md` files
+(`prompt_artifact` rows) — never their bodies. The daemon never writes
+files; bot workflows create the folders and write the markdown, then
+register each file with `gm artifact add`.
 
 ## Identity Resolution (How a path becomes a session)
 
@@ -59,13 +77,10 @@ Read this file on-demand when performing ckfs operations.
 | Concept | Source | Derived value |
 |---------|--------|---------------|
 | `project_name` | `basename $(git rev-parse --show-toplevel)` | e.g. `gmcc-marketplace` |
-| `instance_id` (v10.0.0) | `{project_name}_{4-char hash of abs path}` | e.g. `gmcc-marketplace_a3f2` |
-| `session_branch` | Sanitized current git branch | e.g. `v4_2`, `feature__login` |
+| `instance_code` | `{project_name}_{4-char hash of abs path}` | e.g. `gmcc-marketplace_a3f2` |
+| `session_code` | Sanitized current git branch | e.g. `v4_2`, `feature__login` |
 
-### Instance Code Algorithm (v10.0.0)
-
-Instances use a machine-safe hash-suffixed code instead of the legacy
-slugified-absolute-path form. The code IS the directory name:
+### Instance Code Algorithm
 
 ```
 INSTANCE_CODE = "{basename($REPO_ROOT)}_{first 4 chars of md5($REPO_ROOT)}"
@@ -74,11 +89,10 @@ INSTANCE_CODE = "{basename($REPO_ROOT)}_{first 4 chars of md5($REPO_ROOT)}"
 - Deterministic from `$REPO_ROOT` (the hook can always re-derive it).
 - Collision-resistant: requires two repos with the same basename AND the same 4-char hash.
 - Machine-safe by construction: only `[a-z0-9\-_]` characters from the basename + hex hash.
-- `instance_data.gmcc.yaml`'s `name:` field is the human-readable repo basename; `code:` is the hash-suffixed form.
 
-Pre-v6.2 instances used the slugified absolute path (e.g.
-`Users__brycerubinson__Dev__gmcc-marketplace`). `/gmcc_environment_cleanup` migrates
-those to the new code-based directory + rewrites paths.
+The `gm` CLI independently re-derives the same codes in Swift
+(`GitContext`/`ContextBuilder`) — the bash and Swift implementations MUST
+stay in lockstep.
 
 ### Branch Slugification Rules
 - Replace every `/` with `__` (literal two underscores).
@@ -86,172 +100,135 @@ those to the new code-based directory + rewrites paths.
 
 A project corresponds to exactly one git repo (by basename). An instance is a unique filesystem checkout of that repo — moving the checkout to a new path creates a new instance. A session is one git branch within an instance.
 
-## Lazy Creation by `detect_repo.sh`
+## Lazy Creation on SessionStart
 
-On every SessionStart, the hook ensures the following exist for the current git context. All steps are idempotent:
+On every SessionStart, `detect_repo.sh`:
 
-1. `$GMCC_PROJECTS/` (created if missing — `/gm_init` does this normally; the hook is a safety net)
-2. `$GMCC_PROJECTS_INDEX` (copied from `templates/projects/project_index.gmcc.yaml`)
-3. `$GMCC_PROJECT_PATH/{project_data.gmcc.yaml, instances/}` (filled from `templates/projects/PROJECT_TEMPLATE/project_data.gmcc.yaml` with placeholder substitution; `kbite:` seeded from `$GMCC_PROJECTS_INDEX.kbite`)
-4. `$GMCC_INSTANCE_PATH/{instance_data.gmcc.yaml, sessions/}` (filled from `templates/.../INSTANCE_TEMPLATE/instance_data.gmcc.yaml`; `kbite:` seeded from `project_data.kbite`)
-5. `$GMCC_SESSION_PATH/{session_data.gmcc.yaml, prompts/}` (filled from `templates/.../SESSION_TEMPLATE/session_data.gmcc.yaml`; `kbite:` seeded from `instance_data.kbite`)
-6. Append a project entry to `$GMCC_PROJECTS_INDEX` if new (idempotent grep-then-append)
-7. Append instance and session entries similarly. Session entries include `branch:` (raw branch name).
+1. Derives all `GMCC_*` paths (string logic only — no db round-trip) and
+   exports them to `$CLAUDE_ENV_FILE`.
+2. `mkdir -p "$GMCC_SESSION_PATH/prompts"` — the physical home for
+   prompt `memory/` folders.
+3. Calls `~/gmcc/bin/gm context ensure` (best-effort): idempotently
+   upserts the project → instance → session rows in the db, reusing
+   existing uuids and seeding kbite inheritance at create time. If the
+   daemon/binary is unavailable it warns and continues — env export is
+   never blocked.
 
-This means **commands can always assume the layout exists** — no per-command init logic is needed.
+This means **commands can always assume the env + session dir exist**;
+db rows exist whenever the daemon was reachable at SessionStart (and
+`gm context ensure` may be re-run by any command at any time — it is
+idempotent).
 
-## File-Level Kbite Inheritance (v10.0.0)
+## Db-Backed Data Model
 
-Every runtime file type unwraps `has_kbite_list`, exposing a top-level
-`kbite: List<string>` field. The list is **seeded from the parent at
-lazy-create time only**:
+Rows follow the BaseEntity wrap (`id` serial PK, `uuid` v4 join key,
+`version` optimistic-concurrency token, `created_at`/`updated_at`).
+Hierarchy: `project → instance → session → prompt`, plus
+`prompt_artifact` (file pointers), `session_file`/`file_change`/
+`file_change_range` (edit tracking), `kbite` + `*_active_kbite`
+junctions (registry), `daemon_event` (append-only audit log).
 
-```
-project_index.kbite → project_data.kbite → instance_data.kbite → session_data.kbite → prompt_data.kbite
-```
+Key reads (all support `--json`):
 
-After seeding, each level's list is fully independent. Editing
-`project_data.kbite` does **not** propagate to existing instances or
-sessions. Deletes do not propagate either — child lists keep what they
-had at creation. Bot workflows are responsible for seeding the
-prompt-level inheritance (session → prompt) at prompt-folder creation
-time; `detect_repo.sh` handles the three upper levels.
-
-## session_data.gmcc.yaml (v10.0.0 Schema)
-
-Conforms to `gmcc.gmcc_session_data_file`. Unwraps `has_base_fields`,
-`has_ckfs_paths`, `has_kbite_list`, plus branch / instance_uuid /
-project_uuid back-references and the typed prompt/changed-files lists.
-
-```yaml
-yeet:
-  - gmcc
-yeet_type: gmcc.gmcc_session_data_file
-
-id: 1
-code: {sanitized_branch}
-uuid: {v4}
-name: {display name — usually equal to code at creation}
-description: ""
-created_time: {ISO 8601}
-updated_time: {ISO 8601}
-gmcc_ckfs_absolute_path: {GMCC_SESSION_PATH}
-gmcc_ckfs_relative_path: projects/{project}/instances/{instance}/sessions/{branch}
-kbite: []                                      # seeded from instance_data.kbite at create
-branch: {raw branch name}
-instance_uuid: {v4}
-project_uuid: {v4}
-backstory: ""                                  # session-level narrative (v11.0.0); seeded empty, prompts inherit it
-
-# Lightweight stubs — follow `path:` to each prompt_data.gmcc.yaml.
-prompts:
-  - id: {monotonic int}
-    name: {kebab-case slug}
-    status: Draft | Clarifying | Clarified
-    path: prompts/{id}_{name}/{id}_{name}_data.gmcc.yaml
-
-# Typed entries (conform to gmcc_session_data_file_changed_files_entry).
-changed_files:
-  - file: {relative path inside the instance}
-    timestamp: {ISO 8601}
-    lines:
-      - [start, end]
-    commit: {short sha or "uncommitted"}
-    note: ""
-
-# Optional audit trail of completed bot runs (absent until first completion;
-# conforms to gmcc_session_data_file_phase_history_entry). review_status is
-# null for the lightweight /gm_bot tier; teams_used is /gm_bot_team only.
-# (The separate cleanup_actions: list is owned by the cleanup commands —
-#  /gmcc_environment_cleanup and /gmcc_session_cleanup — not declared here.)
-phase_history:
-  - prompt_id: {int}
-    command: /gm_bot_rpi
-    completed_at: {ISO 8601}
-    review_status: pass | pass_with_issues
+```bash
+gm context get                       # uuid triple + kbite codes for cwd
+gm session get [--session-uuid U]    # session row + prompt stubs + change summaries
+gm prompt list [--session-uuid U]    # stubs: uuid, seq, code, name, status, version
+gm prompt get --prompt-uuid U        # full content + artifacts + kbites + change summary
+gm artifact list --prompt-uuid U
+gm file-change list [--prompt-uuid U] [--path P]
 ```
 
-The other four runtime yamls share the same outer shape: `yeet:` /
-`yeet_type:` headers, base/ckfs/kbite unwraps, plus the extras declared
-by their YEETS type. The hierarchy is **owner-local** — each file owns
-its direct children, not a deep tree:
+### Optimistic concurrency (`--expected-version`)
 
-- `project_index.gmcc.yaml` → flat list of project entries (identity only).
-- `project_data.gmcc.yaml` → repo metadata + list of that project's instances.
-- `instance_data.gmcc.yaml` → `has_system_path` + `project_uuid` back-reference + list of that instance's sessions (each entry carries `branch:`).
-- `session_data.gmcc.yaml` → standalone (no children list); carries `branch`, back-references, and typed `prompts` / `changed_files` lists.
-- `prompt_data.gmcc.yaml` (new in v10.0.0) → identity + paths to sibling initial/clarified content + `prompt_status` enum.
+Every mutation (`gm session update`, `gm prompt update-content`,
+`gm prompt set-status`) requires `--expected-version N` — the row
+version the edit was based on. Capture `.version` from the `--json`
+output of the previous `create`/`get`/mutation (a fresh `create` returns
+`version: 0`; each mutation returns the incremented version). A stale
+version yields `VERSION_CONFLICT`: re-`get` and retry.
 
-## Prompt Folder Layout (v10.0.0)
+## Prompt Folder Layout (v16)
 
-Each prompt is a folder, not a loose file:
+Each prompt is a folder holding ONLY phase artifacts:
 
 ```
 prompts/{id}_{name}/
-    {id}_{name}_data.gmcc.yaml      # the gmcc_prompt_data_file (index, version: 3)
-    {id}_{name}_initial.yaml        # prompt style: detail (verbatim) + empty goal/backstory (v11.0.0)
-    {id}_{name}_clarified.yaml      # absent until prompt_status = Clarified
     memory/
         explore.md                   # Phase 2 artifact
+        qualified.md                 # Phase 3 (Clarify) output — Q/A suites, refined goal/detail, detected yeet types
         architecture.md              # Phase 4 artifact (after approval)
         review.md                    # Phase 6 artifact
 ```
 
-`{id}_{name}_data.gmcc.yaml` is the single index. It carries identity
-(`has_base_fields` + `has_ckfs_paths` + `has_kbite_list`), the two path
-fields `initial_prompt_path` / `clarified_prompt_path` (paths relative
-to the prompt folder), `prompt_status: Draft | Clarifying | Clarified`,
-and `command:` recording which bot authored it.
+`{id}` is the db prompt row's `seq`; `{name}` its `name`. All identity,
+content (`backstory`/`goal`/`detail`), status, and command live on the
+prompt row. Each `memory/*.md` write is registered with:
 
-`clarified_prompt_path` is empty-string until `prompt_status` becomes
-`Clarified`.
+```bash
+gm artifact add --prompt-uuid U --file-path <abs path> \
+  --kind explore|architecture|review|qualified|other --note "<one-sentence caption>"
+```
 
-### Typed prompt content files (v11.0.0)
+(Upserts on `(prompt_uuid, file_path)` — last-run-wins overwrite of the
+file is fine; re-register to refresh the note.)
 
-Both content files keep the plain `.yaml` suffix but carry `yeet:` +
-`yeet_type:` headers so `/gm_compile` validates them.
+## Prompt Lifecycle (v16)
 
-`{id}_{name}_initial.yaml` conforms to `gmcc.gmcc_initial_prompt_file` — the
-"prompt style". `backstory`/`goal`/`detail` are **human-input only**; the bot
-must **STAY TRUE** and never split, infer, or author them (a human editor is
-coming). At create time the entire passed prompt is written **verbatim** to
-`detail`; `goal` is left empty (`""`); `backstory` is inherited from the session.
+Statuses are lowercase: `draft → clarifying → clarified` (forward-only;
+`INVALID_TRANSITION` otherwise). Content edits are draft-only
+(`CONTENT_LOCKED` after).
 
-- **`backstory`** — human input, inherited verbatim from the parent
-  `session_data.gmcc.yaml`'s `backstory:` at draft-create time (empty `""` unless
-  a session backstory was set). May diverge per prompt afterward.
-- **`goal`** — human input; the desired outcome / acceptance criteria. Empty
-  (`""`) at create time; built up later in the Clarify phase.
-- **`detail`** — human input; the passed prompt verbatim (how to accomplish it).
-- `kbites_loaded` (+ `kbite_context_summary` for the subagent/team tiers).
+1. **draft** — `/gm_bot*` runs:
+   ```bash
+   gm prompt create --name {name} --detail "<passed prompt, verbatim>" \
+     [--backstory "<inherited session backstory>"] --command /gm_bot* --json
+   ```
+   STAY TRUE: `detail` = the entire passed prompt verbatim; `goal` = ""
+   (human/Clarify input only); `backstory` inherited from the session row.
+   Never split, infer, or author these fields. Then
+   `mkdir -p prompts/{seq}_{name}/memory/`.
+2. **clarifying/clarified** — Phase 3's first step is YEET-type detection
+   over the prompt row's `goal` + `detail`; then separate goal and detail
+   clarification suites. While still `draft` (content unlocked):
+   - write `memory/qualified.md` (clarifications, refined_goal,
+     refined_detail, detected_yeet_types, key_files, constraints) and
+     register it (`--kind qualified`);
+   - `gm prompt update-content --expected-version N --goal "<refined_goal>"`
+     — goal only; `detail` stays the verbatim original (STAY TRUE).
+     `refined_detail` lives in `qualified.md`, the from-Clarify source of
+     truth;
+   - `gm prompt set-status ... --status clarifying` then
+     `... --status clarified`, threading `--expected-version` through each
+     step.
 
-`{id}_{name}_clarified.yaml` conforms to `gmcc.gmcc_clarified_prompt_file` —
-mirrors the split: `goal_clarifications` / `detail_clarifications` (separate
-Q/A suites), `refined_goal` / `refined_detail`, the carried-through `backstory`,
-`detected_yeet_types` (every YEETS type detected in the initial prompt and how
-it resolved), `key_files`, `constraints`, `kbites_loaded`
-(+ `patterns_to_follow` for subagent/team tiers; team adds per-clarification
-`rating` and `key_files[].consensus`).
+Resume across sessions relies on `gm prompt get` (status, content,
+artifact pointers) plus the persisted `memory/` files.
 
-## Yaml Files (Editable By)
+## File Change Tracking
 
-| File | Purpose | Maintained by |
-|------|---------|---------------|
-| `project_index.gmcc.yaml` | Flat registry of all projects (identity only) | `detect_repo.sh` (registers); `/gmcc_environment_cleanup` (prunes) |
-| `project_data.gmcc.yaml` | Per-project identity, repo metadata, instance list | `detect_repo.sh` (creates + appends instances) |
-| `instance_data.gmcc.yaml` | Per-instance identity, system path, session list | `detect_repo.sh` (creates + appends sessions, each with `branch:`) |
-| `session_data.gmcc.yaml` | Per-branch session state (typed prompts, typed changed_files) | Bot workflows (continuous updates) |
-| `prompts/{id}_{name}/{id}_{name}_data.gmcc.yaml` | Per-prompt index | Bot workflows (status flips, path fills) |
-| `prompts/{id}_{name}/{id}_{name}_initial.yaml` | Prompt style (human-input backstory/goal/detail; passed prompt → detail verbatim, goal/backstory empty at create) | Bot workflows (immutable after Phase 1) |
-| `prompts/{id}_{name}/{id}_{name}_clarified.yaml` | Clarified prompt | Bot workflows (immutable once written) |
-| `prompts/{id}_{name}/memory/*.md` | Bot phase artifacts | Bot workflows (last-run-wins overwrite) |
+After each Edit/Write to a tracked file, bot workflows record:
 
-## Prompts Lifecycle (v10.0.0)
+```bash
+gm file-change add --path <repo-relative> --kind edit|create|delete|rename \
+  [--range start:end]... [--content "<note>"] --prompt-uuid <U>
+```
 
-Bot workflows author prompts in three stages:
+Run from inside the repo — git context is auto-detected. This replaces
+the retired `changed_files:` yaml list. There is no `phase_history`
+equivalent — run completion is represented by prompt status `clarified`
+plus registered artifacts.
 
-1. **Draft** — `/gm_bot*` creates `prompts/{id}_{name}/` with `memory/`, writes `{id}_{name}_data.gmcc.yaml` (`prompt_status: Draft`, kbite seeded) and `{id}_{name}_initial.yaml`. Appends the session_data stub with `status: Draft`.
-2. **Clarifying** — Phase 3 flips `prompt_status` to `Clarifying`. Its **first** step (v11.0.0) is YEET-type detection over the initial prompt's `goal` + `detail` — declared and structurally-inferred YEETS types are resolved (or the user is asked when they cannot be), then recorded in the clarified file's `detected_yeet_types`. The bot then runs **separate** goal and detail clarification suites. session_data stub follows.
-3. **Clarified** — Once the Q/A is finalized, writes `{id}_{name}_clarified.yaml` (`refined_goal` / `refined_detail` + `detected_yeet_types`), sets `clarified_prompt_path`, flips `prompt_status` to `Clarified`. session_data stub follows. The `_initial.yaml` file is **not** modified — the clarified file is the new source of truth.
+## KBite Registry
 
-Intermediate artifacts (exploration, architecture, review) are persisted under `memory/` per `bot_workflows.md`. Resume across sessions can rely on both the typed session_data stubs and the persisted memory files.
+Kbites are inherited at create time down the chain
+(project → instance → session → prompt) into the `*_active_kbite`
+junction tables; after seeding, each level is independent. The db is the
+sole registry — the only remaining yaml `kbite:` reads are inside
+`gm context ensure --from-ckfs` (the legacy-import seed). Read the
+active list from `gm context get` / `gm session get` / `gm prompt get`
+(`kbite_codes`) or `gm kbite list --scope ...` (`--all` for every kbite
+row in the db). Kbites are added only on explicit user request
+(`gm kbite add`) — see `ref/kbite_awareness.md`. Digested kbite text is
+db-canonical: load it via `gm kbite get / search / file-get`, not from
+the filesystem.

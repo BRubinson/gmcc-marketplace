@@ -1,11 +1,11 @@
 ---
 name: gmcc_kbite
-description: GM-CDE Knowledge Bite System - Defines persistent knowledge directories (kbites) that store pre-tokenized, indexed reference material for efficient lookup by GMCC agents and contexts. Includes the crunchable maw workflow for ingesting new knowledge sources.
+description: GM-CDE Knowledge Bite System - Defines persistent knowledge (kbites) stored canonically in the daemon db, with pre-analyzed reference material queried via gm kbite. Includes the crunchable maw workflow for ingesting new knowledge sources.
 user-invocable: false
 disable-model-invocation: true
 # [FIX #3] Added disable-model-invocation to prevent auto-loading on every prompt.
 # This skill is only needed during /gm_crunch_* operations, not general conversation.
-# Saves ~478 lines (~2,800 tokens) of context per message when not doing kbite work.
+# Saves ~2,800 tokens of context per message when not doing kbite work.
 ---
 
 # GMCC KBite System
@@ -16,104 +16,51 @@ The KBite (Knowledge Bite) system provides persistent, indexed knowledge storage
 
 ## What is a KBite?
 
-A **KBite** is a persisted analysis directory format that is:
+A **KBite** is a persisted body of analyzed knowledge that is:
 - **Pre-tokenized**: Content has been analyzed and summarized for efficient consumption
-- **Indexed**: Searchable via keywords and relationships
-- **Persistent**: Stored at the system level, shared across all repositories
-- **Referenced**: GMCC agents and contexts can efficiently lookup relevant information
+- **Indexed**: Full-text searchable (FTS5, bm25-ranked) with snake_case keywords
+- **Persistent**: Digested text lives in the daemon db (`~/gmcc/gmcc.db`), shared across all repositories
+- **Referenced**: GMCC agents and contexts query it via `gm kbite get / search / file-get`
 
 KBites transform raw reference materials (documentation, examples, APIs) into structured knowledge that GMB can leverage during development.
 
 ---
 
-## KBite Storage Location
+## Where KBite Data Lives
 
-KBites are stored at the **system level**, shared across all repositories. The kbites root has two top-level lifecycle subfolders — `digested/` for persisted indexes and `open/` for in-progress maws — plus one identity-level file (`KBITE_PURPOSE.md`) per kbite that lives at the kbite root, above the lifecycle split:
+Digested knowledge is **db-canonical**: `gm kbite digest` parses each chewed
+analysis into resource / file / keyword rows (full text inlined for text-type
+files) and then deletes the chewed `.md` files. The filesystem keeps only
+identity, raw sources, and in-progress maws:
 
-```
-$GMCC_KBITE/                                # = $GMCC_CKFS_ROOT/kbites/
-├── {kbite_name}/
-│   └── KBITE_PURPOSE.md                    # identity-level — defined once, lives above digested/open
-├── digested/                               # = $GMCC_KBITE_DIGESTED — canonical active indexes
-│   └── {kbite_name}/...
-└── open/                                   # = $GMCC_KBITE_OPEN — in-progress maws
-    └── {kbite_name}/...
-```
-
-Example: `~/gmcc_ckfs/kbites/claude_code_sdk/KBITE_PURPOSE.md` (purpose), `~/gmcc_ckfs/kbites/digested/claude_code_sdk/` (digested index).
+| Home | What lives there |
+|------|------------------|
+| Daemon db (`~/gmcc/gmcc.db`) | Resources, per-file summaries + full text, keywords, FTS5 search, kbite registries. Read via `gm kbite`. |
+| `$GMCC_KBITE/{name}/` (kbite root) | `KBITE_PURPOSE.md` (identity — defined once, above the lifecycle split) and `KBITE_RELATIONSHIPS.md` when relationships exist. |
+| `$GMCC_KBITE_DIGESTED/{name}/` | **Raw-source archive**: the `{axis1}/{axis2}/{resource}/` folders moved out of the maw at digest time. No indexes — `gm kbite get` is the index. |
+| `$GMCC_KBITE_OPEN/{name}/` | **In-progress maw**: raw sources being collected/chewed, plus `MAW_INDEX.md`. Deleted at digest time. |
 
 ### Env vars
 
 | Var | Value | Per-kbite usage |
 |-----|-------|-----------------|
-| `GMCC_KBITE` | `$GMCC_CKFS_ROOT/kbites` | — |
-| `GMCC_KBITE_DIGESTED` | `$GMCC_CKFS_ROOT/kbites/digested` | `$GMCC_KBITE_DIGESTED/{name}/...` |
-| `GMCC_KBITE_OPEN` | `$GMCC_CKFS_ROOT/kbites/open` | `$GMCC_KBITE_OPEN/{name}/...` |
+| `GMCC_KBITE` | `$GMCC_CKFS_ROOT/kbites` | `$GMCC_KBITE/{name}/KBITE_PURPOSE.md` |
+| `GMCC_KBITE_DIGESTED` | `$GMCC_CKFS_ROOT/kbites/digested` | `$GMCC_KBITE_DIGESTED/{name}/...` (raw archive) |
+| `GMCC_KBITE_OPEN` | `$GMCC_CKFS_ROOT/kbites/open` | `$GMCC_KBITE_OPEN/{name}/...` (open maw) |
 
-The list of known kbites is `ls $GMCC_KBITE_DIGESTED/`.
+The list of known kbites is `gm kbite list --all` (every kbite row in the db).
 
----
-
-## Directory Structure
-
-### Digested KBite Structure (Persisted, Active Index)
-
-`KBITE_PURPOSE.md` lives at `$GMCC_KBITE/{kbite_name}/KBITE_PURPOSE.md` (above the lifecycle split). The digested folder holds only generated indexes and the resource tree:
-
-```
-$GMCC_KBITE_DIGESTED/{kbite_name}/
-├── KBITE_INDEX.md                      # Master index of all digested resources
-├── KBITE_RELATIONSHIPS.md              # Relationships to other kbites
-│
-├── primary/                            # Axis 1: Primary sources
-│   ├── documentation/                  # Axis 2: Source types
-│   │   ├── {resource_name}/
-│   │   │   └── {source_files...}
-│   │   └── {resource_name}_chewed.md   # Chewed file alongside source folder
-│   ├── example_project/
-│   ├── api_reference/
-│   ├── blogs/
-│   └── all_others/
-│
-└── secondary/                          # Axis 1: Secondary sources
-    ├── documentation/
-    ├── example_project/
-    ├── api_reference/
-    ├── blogs/
-    └── all_others/
-```
-
-### Open Maw Structure (Temporary Processing)
-
-The **open maw** is a temporary holding area for resources being processed ("crunched") into the digested index. It lives under `$GMCC_KBITE_OPEN/{kbite_name}/` — there is at most one open maw per kbite, system-wide:
-
-```
-$GMCC_KBITE_OPEN/{kbite_name}/
-├── MAW_INDEX.md                        # Index of crunchables in this maw
-│
-├── primary/
-│   ├── documentation/
-│   │   ├── {crunchable_name}/
-│   │   │   └── {raw_source_files...}
-│   │   └── {crunchable_name}_chewed.md     # Chewed file alongside source folder
-│   ├── example_project/
-│   ├── api_reference/
-│   ├── blogs/
-│   └── all_others/
-│
-└── secondary/
-    ├── documentation/
-    ├── example_project/
-    ├── api_reference/
-    ├── blogs/
-    └── all_others/
-```
+> **Historical**: kbites digested before v16 may still carry `KBITE_INDEX.md`
+> and `*_chewed.md` files under `$GMCC_KBITE_DIGESTED/{name}/` and no db rows.
+> The cleanup skill detects these and backfills them (archive chewed files to
+> cold storage, then `gm kbite digest`).
 
 ---
 
 ## Two-Axis Classification System
 
-Resources are classified along two axes:
+Raw resources are classified along two axes (the folder layout inside maws
+and the raw-source archive, and the `axis1`/`axis2` columns in the db):
 
 ### Axis 1: Source Authority
 
@@ -140,33 +87,36 @@ Example: `primary/documentation/claude_code_hooks/`
 
 ---
 
-## Index File Formats
+## Open Maw Structure (Temporary Processing)
 
-### KBITE_INDEX.md (Persisted KBite)
+The **open maw** is a temporary holding area for resources being processed
+("crunched") into the db. It lives under `$GMCC_KBITE_OPEN/{kbite_name}/` —
+there is at most one open maw per kbite, system-wide. The skeleton is created
+by `gm kbite maw-open --name {kbite_name}` (idempotent, no db rows):
 
-The master index for a digested kbite:
-
-```markdown
-# KBite Index: {kbite_name}
-
-**Purpose**: {link to KBITE_PURPOSE.md}
-**Last Updated**: {ISO timestamp}
-**Total Resources**: {count}
-
-## Resource Index
-
-| Resource | Axis | Path | Keywords | Relevance | Confidence | Unique Keywords |
-|----------|------|------|----------|-----------|------------|-----------------|
-| {name} | {primary/secondary}/{type} | {full_path} | {keyword1, keyword2} | {0-100} | {0-100} | {kw1, kw2, kw3} |
-
-## Keyword Cross-Reference
-
-| Keyword | Resources | Best Resource |
-|---------|-----------|---------------|
-| {keyword} | {resource1, resource2} | {highest relevance} |
+```
+$GMCC_KBITE_OPEN/{kbite_name}/
+├── MAW_INDEX.md                        # Index of crunchables in this maw
+│
+├── primary/
+│   ├── documentation/
+│   │   ├── {crunchable_name}/
+│   │   │   └── {raw_source_files...}
+│   │   └── {crunchable_name}_chewed.md     # Chewed file alongside source folder
+│   ├── example_project/
+│   ├── api_reference/
+│   ├── blogs/
+│   └── all_others/
+│
+└── secondary/
+    ├── documentation/
+    ├── example_project/
+    ├── api_reference/
+    ├── blogs/
+    └── all_others/
 ```
 
-### MAW_INDEX.md (Temporary Processing)
+### MAW_INDEX.md
 
 Tracks crunchables during processing:
 
@@ -199,7 +149,7 @@ Tracks crunchables during processing:
 
 ## Chewed File Format
 
-When a crunchable is "chewed" by `gmcc:agent:kbite_crunch_chew()`, it produces a `{resource_name}_chewed.md` file:
+When a crunchable is "chewed" by `gmcc:agent:kbite_crunch_chew()`, it produces a `{resource_name}_chewed.md` file. This format is the **digest parser's input contract** — `gm kbite digest` scans these sections into db rows, then deletes the file:
 
 ```markdown
 # Chewed: {resource_name}
@@ -220,7 +170,7 @@ A glossary/table of contents of the raw source contents:
 | {filename} | {md/ts/json/etc} | {what this file contains} |
 
 **Full Paths**:
-- `{$GMCC_KBITE_DIGESTED}/{kbite}/{axis1}/{axis2}/{resource}/{file}`
+- `{$GMCC_KBITE_OPEN}/{kbite}/{axis1}/{axis2}/{resource}/{file}`
 
 ---
 
@@ -268,7 +218,7 @@ Each takeaway is marked as GOOD (do this) or BAD (avoid this):
 
 ## KBITE_PURPOSE.md
 
-Defines the purpose and scope of a kbite. Lives at `$GMCC_KBITE/{kbite_name}/KBITE_PURPOSE.md` (above the digested/open lifecycle split — purpose is identity-level, not lifecycle-level):
+Defines the purpose and scope of a kbite. Lives at `$GMCC_KBITE/{kbite_name}/KBITE_PURPOSE.md` (above the digested/open lifecycle split — purpose is identity-level, not lifecycle-level). Created interactively at open-maw time; it stays a filesystem file, not a db row:
 
 ```markdown
 # KBite Purpose: {kbite_name}
@@ -298,7 +248,7 @@ Defines the purpose and scope of a kbite. Lives at `$GMCC_KBITE/{kbite_name}/KBI
 
 ## KBITE_RELATIONSHIPS.md
 
-Tracks relationships between kbites:
+Tracks relationships between kbites. Managed by `/gm_kbite_relate`; lives at the kbite root:
 
 ```markdown
 # KBite Relationships: {kbite_name}
@@ -327,68 +277,15 @@ Tracks relationships between kbites:
 
 ---
 
-## Export / Import Archive Format
-
-KBites can be moved between ckfs installations as a single zip archive via
-`/gm_kbite_export` and `/gm_kbite_import`. The archive is **self-describing and
-ckfs-relocatable**: it stores no absolute source paths, so import rebuilds every
-path from the *importing* machine's `$GMCC_KBITE` / `$GMCC_KBITE_DIGESTED`.
-
-Export carries each kbite's **root** (identity files such as `KBITE_PURPOSE.md`)
-and its **digested** index. **Open maws are not exported** — only finalized
-knowledge travels.
-
-Because raw `example_project` sources and `.git` history can make a kbite many GB,
-export asks for a **payload scope** each run (default **everything_minus_git**):
-
-| Scope | Includes | Excludes |
-|-------|----------|----------|
-| `knowledge_only` | indexes, `KBITE_PURPOSE.md`, all `*_chewed.md` | raw sources, `.git` |
-| `everything_minus_git` *(default)* | raw sources + chewed analysis + indexes | `.git` |
-| `everything` | byte-for-byte | nothing |
-
-```
-~/Desktop/gmcc_kbites_{YYYYMMDD-HHMMSS}.zip
-├── MANIFEST.yaml                  # exported kbites + which components are present
-└── kbites/
-    └── {kbite_name}/
-        ├── root/...               # contents of $GMCC_KBITE/{name}/ (sans digested/ open/)
-        └── digested/...           # contents of $GMCC_KBITE_DIGESTED/{name}/
-```
-
-### MANIFEST.yaml
-
-A plain index file (like `MAW_INDEX.md` / `KBITE_INDEX.md`, it is **not** a
-registered yeet type):
-
-```yaml
-gmcc_export_version: 1
-gmcc_plugin_version: "{plugin.json version}"
-exported_at: {ISO 8601}
-source_ckfs: {basename of source ckfs, informational only}
-scope: everything_minus_git       # knowledge_only | everything_minus_git | everything
-kbites:
-  - name: {kbite_name}
-    has_root: true                # true if root/ is present in the archive
-    has_digested: true            # true if digested/ is present in the archive
-```
-
-### Import collision policy
-
-When an imported kbite's name already exists in the target ckfs, the user is
-asked **per kbite**: **overwrite** (clears destination first — no stale merge),
-**skip** (leave existing untouched), or **import as renamed** (`{name}_imported`,
-deduped with a numeric suffix). Nothing is ever overwritten silently.
-
----
-
 ## Crunchable Workflow
 
 ### 1. Open Maw (`/gm_crunch_open_maw {kbite_name}`)
 
-Creates the maw structure at `$GMCC_KBITE_OPEN/{kbite_name}/` for collecting crunchables.
+Creates the maw skeleton at `$GMCC_KBITE_OPEN/{kbite_name}/` via
+`gm kbite maw-open` (two-axis tree + MAW_INDEX.md, no db rows) and, for a new
+kbite, interactively creates `KBITE_PURPOSE.md` at the kbite root.
 
-### 2. Add Crunchables (Manual)
+### 2. Add Crunchables (Manual or `/gm_maw_fetch`)
 
 User places raw source files in appropriate `{axis1}/{axis2}/{resource_name}/` directories.
 
@@ -402,12 +299,15 @@ Processes each crunchable:
 
 ### 4. Digest (`/gm_crunch_digest {kbite_name}`)
 
-Moves chewed resources from the open maw into the digested index:
-1. Reviews all chewed crunchables
-2. Spawns architects to determine optimal index structure
-3. Moves resources from `$GMCC_KBITE_OPEN/{kbite_name}/` to `$GMCC_KBITE_DIGESTED/{kbite_name}/`
-4. Updates KBITE_INDEX
-5. Deletes the `open/` folder
+Imports the maw's knowledge into the db and archives raw sources:
+1. `gm kbite digest --code {kbite_name}` — the daemon parses every
+   `*_chewed.md` into resource / file / keyword rows (full text inlined),
+   commits, then deletes the chewed files. Re-digesting a resource replaces
+   its rows.
+2. Client-side: raw source folders are moved from
+   `$GMCC_KBITE_OPEN/{kbite_name}/` to `$GMCC_KBITE_DIGESTED/{kbite_name}/`
+   (same `{axis1}/{axis2}/` layout) and the open maw is deleted.
+3. Verify with `gm kbite get --code {kbite_name}`.
 
 ---
 
@@ -415,31 +315,35 @@ Moves chewed resources from the open maw into the digested index:
 
 ### KBite Awareness (CRITICAL)
 
-KBites are **inherited, not trigger-matched**. The kbites relevant to the current
-work are declared up the ckfs hierarchy — project → instance → session → prompt —
-and recorded in each level's `kbite:` registry. When operating in GM-CDE mode,
-GMB MUST:
+KBites are **inherited, not trigger-matched**. The kbites relevant to the
+current work are seeded down the hierarchy — project → instance → session →
+prompt — into the db's active-kbite registries at row-create time. When
+operating in GM-CDE mode, GMB MUST:
 
-1. **Read the Registry**: the active kbites are listed in
-   `$GMCC_SESSION_PATH/session_data.gmcc.yaml`'s `kbite:` field (and a prompt's
-   own `kbite:` list). There is no per-prompt keyword scan.
-2. **Load Registered KBites**: for a registered kbite, read its
-   `KBITE_PURPOSE.md` (at the kbite root, `$GMCC_KBITE/{name}/`) +
-   `KBITE_INDEX.md` (under digested, `$GMCC_KBITE_DIGESTED/{name}/`) and the
-   relevant chewed files from `$GMCC_KBITE_DIGESTED/{name}/`.
+1. **Read the Registry**: the active kbites are the `kbite_codes` in
+   `gm session get --json` / `gm context get --json` (and, for a prompt,
+   `gm prompt get`); scoped listing via `gm kbite list --scope ...`, full db
+   listing via `gm kbite list --all`. There is no per-prompt keyword scan.
+2. **Load Registered KBites from the db**: read the purpose at the kbite
+   root (`$GMCC_KBITE/{name}/KBITE_PURPOSE.md`), then
+   `gm kbite get --code {name}` (resources + file stubs + keywords),
+   `gm kbite search "<query>"` (bm25-ranked stubs; scope with
+   `--kbite-uuids`), and `gm kbite file-get --file-uuid U` (full content).
 3. **Reference in Responses**: when using kbite knowledge, cite the source
    (e.g., "Per the swift_code_edit kbite...").
-4. **Explicit Add Only**: add a kbite to a registry only when the user explicitly
-   asks for it. Never add one on your own initiative.
+4. **Explicit Add Only**: add a kbite to a registry only when the user
+   explicitly asks for it (`gm kbite add`). Never add one on your own
+   initiative.
 
 ### KBite Load Protocol
 
 ```
-1. Read the kbite: registry from session_data.gmcc.yaml (and the active prompt)
-2. For each registered kbite in $GMCC_KBITE_DIGESTED/:
-   a. Read $GMCC_KBITE/{name}/KBITE_PURPOSE.md (root) + $GMCC_KBITE_DIGESTED/{name}/KBITE_INDEX.md (digested)
-   b. Load the relevant chewed files from $GMCC_KBITE_DIGESTED/{name}/ (explore with find/cat/rg as needed)
-   c. Include knowledge in context
+1. Read the active kbite codes via gm (session get / context get / prompt get)
+2. For each registered kbite:
+   a. Read $GMCC_KBITE/{name}/KBITE_PURPOSE.md (root, filesystem)
+   b. gm kbite get --code {name} --json          # overview: resources, stubs, keywords
+   c. gm kbite search "<topic>" --json           # rank what matters for the task
+   d. gm kbite file-get --file-uuid U --json     # pull full content, top files only
 3. Proceed with task using loaded knowledge
 ```
 
@@ -457,12 +361,16 @@ GMB should suggest creating a kbite when:
 
 | Command | Purpose |
 |---------|---------|
-| `/gm_crunch_open_maw {kbite_name}` | Create maw structure for collecting crunchables |
-| `/gm_crunch_chew {kbite_name}` | Process crunchables and generate analysis |
-| `/gm_crunch_digest {kbite_name}` | Move chewed resources to persistent kbite |
+| `/gm_crunch_open_maw {kbite_name}` | Create maw skeleton (gm kbite maw-open) + KBITE_PURPOSE for new kbites |
+| `/gm_maw_fetch {kbite_name}` | Download web pages into the open maw |
+| `/gm_crunch_chew {kbite_name}` | Process crunchables and generate chewed analysis |
+| `/gm_crunch_digest {kbite_name}` | Import chewed knowledge into the db, archive raw sources, delete the maw |
 | `/gm_kbite_relate {from} {to} {description}` | Define relationship between kbites |
-| `/gm_kbite_export [kbite_name ...]` | Zip selected kbites (root + digested) to a portable archive on the Desktop |
-| `/gm_kbite_import {zip_path}` | Import a kbite archive into the current ckfs (asks per name-collision) |
+
+Direct queries: `gm kbite list [--scope S | --all]`, `gm kbite get --code C`,
+`gm kbite search "<query>"`, `gm kbite file-get --file-uuid U`,
+`gm kbite keyword-tag --level kbite|file --target-uuid U --keywords K...`.
+Full CLI reference: `$GMCC_PLUGIN_ROOT/skills/gmcc_daemon/SKILL.md`.
 
 ---
 
@@ -478,10 +386,10 @@ GMB should suggest creating a kbite when:
 
 The kbite system integrates with core GMCC:
 
-1. **Environment**: Uses `$GMCC_KBITE`, `$GMCC_KBITE_DIGESTED`, `$GMCC_KBITE_OPEN` for path resolution
-2. **System-Level Storage**: Open maws live next to digested indexes under the same kbite folder — independent of FAM/branch
+1. **Environment**: Uses `$GMCC_KBITE`, `$GMCC_KBITE_DIGESTED`, `$GMCC_KBITE_OPEN` for path resolution (resolved client-side; the daemon receives absolute paths)
+2. **System-Level Storage**: Kbites are independent of FAM/branch — one db + one kbites tree per machine
 3. **Agent System**: Uses GMCC agent framework for chewing
-4. **Registry System**: Active kbites are declared in the `kbite:` registries of the project/instance/session/prompt data files
+4. **Registry System**: Active kbites live in the daemon db's `{project,instance,session,prompt}_active_kbite` registries (read via `gm`; explicit add via `gm kbite add`)
 
 ---
 
@@ -505,6 +413,6 @@ gmcc:agent:kbite_crunch_chew(
 1. **One Topic Per KBite**: Keep kbites focused on a single SDK/tool/domain
 2. **Primary First**: Prioritize official documentation over secondary sources
 3. **Quality Over Quantity**: Better to have 5 excellent chewed resources than 20 shallow ones
-4. **Keep the Index Current**: Regularly review and refine KBITE_INDEX as resources change
+4. **Search Before Browsing**: Start knowledge lookup with `gm kbite search`, then targeted `file-get` — don't bulk-load whole kbites
 5. **Cross-Reference**: Use KBITE_RELATIONSHIPS to connect related knowledge
 6. **Cite Sources**: Always reference kbite knowledge with attribution

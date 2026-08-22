@@ -31,7 +31,7 @@ Exit without proceeding.
 
 Parse `$ARGUMENTS` as exactly three positional tokens: `<project> <instance> <session>`.
 
-- `<project>` — project name (matches an entry in `$GMCC_PROJECTS_INDEX` / a directory under `$GMCC_PROJECTS/`).
+- `<project>` — project name (a directory under `$GMCC_PROJECTS/`).
 - `<instance>` — instance id (a directory under `$GMCC_PROJECTS/<project>/instances/`).
 - `<session>` — sanitized branch name (a directory under `$GMCC_PROJECTS/<project>/instances/<instance>/sessions/`).
 
@@ -52,12 +52,11 @@ Resolved paths (use these throughout):
 
 For every Glob/Grep across the four roots, exclude:
 - `.git/`, `node_modules/`, `dist/`, `build/`, `_archive/`
-- `$GMCC_PLUGIN_ROOT/templates/` (template tree may carry stub `.yeet.yaml` files in the future; not live packages)
+- `$GMCC_PLUGIN_ROOT/daemon/` (Swift package, no YEETS surface)
 
 For Phase 4 only, additionally exclude the YEETS spec docs themselves so prose mentions of `<YEET>` don't false-fail:
 - `$GMCC_PLUGIN_ROOT/skills/gmcc/SKILL.md`
 - `$GMCC_PLUGIN_ROOT/commands/gm_compile.md`
-- `$GMCC_PLUGIN_ROOT/MIGRATION.md`
 
 ---
 
