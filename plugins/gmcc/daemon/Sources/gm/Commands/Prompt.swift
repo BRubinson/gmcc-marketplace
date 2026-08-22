@@ -56,24 +56,38 @@ struct Prompt: ParsableCommand {
 
     struct List: ParsableCommand {
         static let configuration = CommandConfiguration(
-            abstract: "List prompt stubs for a session.")
+            abstract: "List prompt stubs for a session (--all for the whole db).")
 
         @OptionGroup var output: OutputOptions
 
-        @Option(name: .long, help: "Session uuid (defaults to the current repo/branch session).")
+        @Option(name: .long, help: "Session uuid (defaults to the current repo/branch session — NOT the whole db; see --all).")
         var sessionUuid: String?
+
+        @Flag(name: .long, help: "List every prompt in the db, ignoring the current-session default.")
+        var all = false
+
+        func validate() throws {
+            if all, sessionUuid != nil {
+                throw ValidationError("--all cannot be combined with --session-uuid")
+            }
+        }
 
         func run() throws {
             let response = try withClient { client in
+                if all {
+                    return try client.listPrompts(PromptListRequest(sessionUuid: nil))
+                }
                 let session = try sessionUuid ?? ContextBuilder.resolveSessionUuid(client)
                 return try client.listPrompts(PromptListRequest(sessionUuid: session))
             }
             if output.json {
                 printJSON(response)
             } else {
-                print("[gm] \(response.prompts.count) prompt(s)")
+                let where_ = all ? " in db" : ""
+                print("[gm] \(response.prompts.count) prompt(s)\(where_)")
                 for stub in response.prompts {
-                    print("  \(stub.seq). \(stub.name) [\(stub.status)] v\(stub.version) \(stub.uuid)")
+                    let session = all ? "  session \(stub.sessionUuid.prefix(8))" : ""
+                    print("  \(stub.seq). \(stub.name) [\(stub.status)] v\(stub.version) \(stub.uuid)\(session)")
                 }
             }
         }

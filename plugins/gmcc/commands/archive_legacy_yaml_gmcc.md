@@ -24,8 +24,14 @@ Restart Claude Code from within a git repository, then retry.
 Exit without proceeding.
 
 Verify the daemon is reachable (`~/gmcc/bin/gm ping`). This command is
-meaningless before `/import_legacy_yaml_gmcc` has run — if `gm prompt list`
-shows no imported rows for the walked sessions, stop and say so.
+meaningless before `/import_legacy_yaml_gmcc` has run.
+
+Bare `gm prompt list` defaults to the current repo/branch session only —
+it is **not** a whole-db query. For import-status verification always use
+`gm prompt list --all --json`: it returns every prompt in the db, each
+stub carrying its `session_uuid` (group by it to match legacy folders to
+their sessions). If the whole-db listing shows zero imported rows, stop
+and say so.
 
 ---
 
@@ -34,7 +40,7 @@ shows no imported rows for the walked sessions, stop and say so.
 Read the `gmcc_migrate_legacy` skill and follow its **Phase 2: Archive**
 protocol exactly:
 
-1. Per imported prompt folder (uuid verified in `gm prompt list`): `mv` it
+1. Per imported prompt folder (uuid verified in `gm prompt list --all`): `mv` it
    to `$GMCC_CKFS_ROOT/_archive/cold_storage/projects/{p}/instances/{i}/sessions/{s}/prompts/{id}_{name}` —
    structure preserved, every file intact (memory/*.md + the yaml triad).
 2. Per fully-migrated level: archive the legacy `session_data` /

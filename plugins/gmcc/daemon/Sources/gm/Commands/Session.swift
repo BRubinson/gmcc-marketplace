@@ -40,7 +40,7 @@ struct Session: ParsableCommand {
 
         @OptionGroup var output: OutputOptions
 
-        @Option(name: .long, help: "Session uuid (defaults to the current repo/branch session).")
+        @Option(name: .long, help: "Session uuid (defaults to the CURRENT repo/branch session — this command is always singular).")
         var sessionUuid: String?
 
         func run() throws {
@@ -74,7 +74,7 @@ struct Session: ParsableCommand {
 
         @OptionGroup var output: OutputOptions
 
-        @Option(name: .long, help: "Session uuid (defaults to the current repo/branch session).")
+        @Option(name: .long, help: "Session uuid (defaults to the CURRENT repo/branch session — this command is always singular).")
         var sessionUuid: String?
 
         @Option(name: .long, help: "The session version this update was based on.")

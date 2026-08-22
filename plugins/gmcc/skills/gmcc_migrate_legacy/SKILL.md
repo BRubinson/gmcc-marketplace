@@ -163,9 +163,20 @@ imported set.
 
 ## Phase 2: Archive (`/archive_legacy_yaml_gmcc`)
 
-For each prompt folder successfully imported (verify: its uuid appears in
-`gm prompt list` for the session), move it to cold storage **keeping the
-shared folder structure and every file intact**:
+Walk `$GMCC_CKFS_ROOT/projects/` exactly as Phase 1 does — every
+`projects/{p}/instances/{i}/sessions/{s}` tree, skipping `_archive/` — do
+not limit the check to the current session. Get the whole db's
+verified-imported uuids in one call with `gm prompt list --all --json`
+(each stub carries `session_uuid`; group by it to match folders to their
+sessions).
+
+**Never call bare `gm prompt list` for verification.** With no flag it
+silently defaults to the current repo/branch session and undercounts every
+other session in the db — the whole-db query is `--all`, nothing less.
+
+For each prompt folder whose uuid appears in its session's verified list,
+move it to cold storage **keeping the shared folder structure and every
+file intact**:
 
 ```bash
 DEST="$GMCC_CKFS_ROOT/_archive/cold_storage/projects/{p}/instances/{i}/sessions/{s}/prompts/{id}_{name}"
@@ -199,6 +210,7 @@ Phase 1 step 4.
 ```
 [GMB] Legacy archive complete
 
+Sessions covered (whole-db `gm prompt list --all`, grouped by session_uuid): {n}
 Prompt folders moved: {n}
 Level yamls archived: {n}
 Left in place (unverified import): {n}

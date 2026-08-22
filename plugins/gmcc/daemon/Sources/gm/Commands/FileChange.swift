@@ -83,11 +83,11 @@ struct FileChange: ParsableCommand {
 
     struct List: ParsableCommand {
         static let configuration = CommandConfiguration(
-            abstract: "List file changes for the current session (or by filters).")
+            abstract: "List file changes for the current session (--all for the whole db).")
 
         @OptionGroup var output: OutputOptions
 
-        @Option(name: .long, help: "Session uuid (defaults to the current repo/branch session).")
+        @Option(name: .long, help: "Session uuid (defaults to the current repo/branch session — NOT the whole db; see --all).")
         var sessionUuid: String?
 
         @Option(name: .long, help: "Filter by prompt uuid.")
@@ -99,9 +99,20 @@ struct FileChange: ParsableCommand {
         @Option(name: .long, help: "Max rows (default 200).")
         var limit: Int?
 
+        @Flag(name: .long, help: "Drop the current-session default and query the whole db (--prompt-uuid/--path still narrow).")
+        var all = false
+
+        func validate() throws {
+            if all, sessionUuid != nil {
+                throw ValidationError("--all cannot be combined with --session-uuid")
+            }
+        }
+
         func run() throws {
             let response = try withClient { client in
-                let session = try sessionUuid ?? ContextBuilder.resolveSessionUuid(client)
+                let session = all
+                    ? nil
+                    : try sessionUuid ?? ContextBuilder.resolveSessionUuid(client)
                 return try client.listFileChanges(FileChangeListRequest(
                     sessionUuid: session,
                     promptUuid: promptUuid,
