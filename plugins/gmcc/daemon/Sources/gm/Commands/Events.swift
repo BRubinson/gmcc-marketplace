@@ -74,7 +74,10 @@ struct Events: ParsableCommand {
                     outcome.sawDaemonStopLast = event.kind == DaemonEventKind.daemonStop.rawValue
                     if json {
                         // Single-line per event: the stream stays pipeable NDJSON.
+                        // WireCodec's strategy, not a bare encoder — DTOs carry
+                        // no CodingKeys, so a bare encoder would emit camelCase.
                         let encoder = JSONEncoder()
+                        encoder.keyEncodingStrategy = .convertToSnakeCase
                         encoder.outputFormatting = [.sortedKeys]
                         if let data = try? encoder.encode(event), let text = String(data: data, encoding: .utf8) {
                             print(text)

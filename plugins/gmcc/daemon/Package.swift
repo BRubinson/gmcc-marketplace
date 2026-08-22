@@ -43,5 +43,12 @@ let package = Package(
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ]
         ),
+        // Excluded from `swift build -c release` (build_daemon.sh) and from the
+        // GMVibes vendor copy (library-only manifest) — daemon/gm ship untouched.
+        .testTarget(
+            name: "GMCCDaemonKitTests",
+            dependencies: ["GMCCDaemonKit"],
+            exclude: ["Fixtures"]
+        ),
     ]
 )

@@ -28,7 +28,7 @@ Exit without proceeding.
 The SessionStart hook exports env, `mkdir`s `$GMCC_SESSION_PATH/prompts/`, and runs `gm context ensure`. Then:
 
 1. `~/gmcc/bin/gm session get --json` for current session state (session row + prompt stubs + change summary). If this exits 2 (daemon unreachable), self-heal: `bash $GMCC_PLUGIN_ROOT/scripts/build_daemon.sh`, then `gm context ensure`, then retry.
-2. Skim recent prompts' `memory/qualified.md` files under `$GMCC_SESSION_PATH/prompts/*/memory/` for context.
+2. Skim recent prompts' clarifications for context (`gm clarify get --prompt-uuid U`; legacy prompts keep `memory/qualified.md`).
 
 ---
 
@@ -36,7 +36,7 @@ The SessionStart hook exports env, `mkdir`s `$GMCC_SESSION_PATH/prompts/`, and r
 
 Identical to `/gm_bot`. See `${CLAUDE_PLUGIN_ROOT}/commands/gm_bot.md` for full detail. Quick summary:
 
-- **Run / Resume** (`/gm_bot_rpi 3` or `/gm_bot_rpi 3 ...`): `gm prompt list --json`, find the stub with `seq: 3`, then `gm prompt get --prompt-uuid U --json`. Run from Phase 4 if `clarified`, re-enter Phase 3 if `clarifying`, jump to Phase 2 if `draft`. A bare seq (no continuation) runs an externally-authored draft (e.g. from the GMVibes editor) as written; `command` is create-time-only in the db — if empty, note the executing command in `qualified.md` during Clarify.
+- **Run / Resume** (`/gm_bot_rpi 3` or `/gm_bot_rpi 3 ...`): `gm prompt list --json`, find the stub with `seq: 3`, then `gm prompt get --prompt-uuid U --json`. Resume by status (lifecycle v2): `draft` → Phase 2, `clarifying` → Phase 3 (`gm clarify get` shows where it stalled), `architecting` → Phase 4, `implementing` → Phase 5, `reviewing` → Phase 6, `done` → complete. Legacy pre-m0002 prompts have no clarify/arch rows — check `gm artifact list` instead; never fabricate rows. A bare seq (no continuation) runs an externally-authored draft (e.g. from the GMVibes editor) as written; `command` is create-time-only in the db — if empty, note the executing tier in the clarification's `--backstory-note`.
 - **New** (`/gm_bot_rpi auth-refactor ...`): create the prompt row (below), proceed.
 - **No args**: AskUserQuestion for name + content.
 
@@ -131,38 +131,41 @@ Use it to inform Clarify.
 
 ---
 
-## Phase 3: Clarify
+## Phase 3: Clarify (db-native)
 
-Runs while the prompt is still `draft` — content is unlocked until the first status transition.
+The clarification is DB-NATIVE (no qualified.md — legacy path only). Thread
+`--expected-version` on every transition (on `VERSION_CONFLICT`, re-read and
+retry). `gm prompt set-status` is the ONLY door that moves the prompt.
 
-1. **YEET-type detection (FIRST clarify step).** Scan the prompt row's `goal` + `detail` (cross-referenced with the exploration report) for YEETS types:
-   - **Declared** — types named explicitly in the prose (e.g. "a new yeet type for X", a mentioned struct/enum).
-   - **Inferred** — data shapes the prompt describes structurally without naming a type.
-
-   Resolve each confidently (to an existing struct/enum, a new type to create, or a clear action). If you **cannot** resolve one confidently, you **must** AskUserQuestion to clarify the intended typing behavior. Record every detection in `qualified.md`'s `detected_yeet_types` section with `source:` + `confidence:` (empty section if none).
-
-2. **Goal clarification suite.** Resolve what is underspecified about the *outcome* (acceptance criteria, scope boundaries, done definition), informed by the exploration report. AskUserQuestion → `goal_clarifications`.
-
-3. **Detail clarification suite.** Resolve what is underspecified about the *approach* (uncertainties from exploration, edge cases, integration preferences). AskUserQuestion → `detail_clarifications`.
-
-4. Write `$GMCC_SESSION_PATH/prompts/{seq}_{name}/memory/qualified.md` — markdown with sections: backstory note, `goal_clarifications` / `detail_clarifications` (Q/A), `refined_goal`, `refined_detail` (initial detail + clarifications + exploration findings, integrated — the from-Clarify source of truth), `detected_yeet_types`, `key_files`, `patterns_to_follow`, `constraints`, `kbites_loaded`. Register it:
+1. **Enter clarifying** (locks content; the daemon creates the summary):
    ```bash
-   gm artifact add --prompt-uuid U --file-path ".../memory/qualified.md" \
-     --kind qualified --note "<one-sentence caption>"
+   gm prompt set-status --prompt-uuid U --expected-version {v} --status clarifying --json
+   gm clarify get --prompt-uuid U --json        # → summary uuid + version
    ```
 
-5. Write back the refined goal and transition, threading `--expected-version` (capture `.version` from each response; on `VERSION_CONFLICT`, re-`gm prompt get` and retry):
+2. **YEET-type detection (FIRST clarify step).** Scan the prompt row's `goal` + `detail` (cross-referenced with the exploration report) for YEETS types — **declared** (named in prose) and **inferred** (shapes described without a name). Record each via `gm clarify ask --category yeet_type`, pre-answered (`--answer ... --source bot_inferred`) when confidently resolved, open otherwise (the open ones go to the user).
+
+3. **Goal + detail question suites.** Insert outcome questions (`--category goal`) and approach questions (`--category detail`) via `gm clarify ask`, informed by the exploration report.
+
+4. **Seal, ask the user, record answers:**
    ```bash
-   gm prompt update-content --prompt-uuid U --expected-version {v}   --goal "<refined_goal>" --json   # → v+1 (goal only; detail stays verbatim)
-   gm prompt set-status     --prompt-uuid U --expected-version {v+1} --status clarifying --json       # → v+2 (locks content)
-   gm prompt set-status     --prompt-uuid U --expected-version {v+2} --status clarified  --json       # → v+3
+   gm clarify seal   --summary-uuid S --expected-version {sv}
+   gm clarify answer --clarification-uuid C --expected-version {cv} --answer "..." --source user|bot_inferred   # or --skip
+   ```
+
+5. **Finalize + advance** (the daemon copies the refined goal into `prompt.goal`; `detail` stays verbatim):
+   ```bash
+   gm clarify finalize --summary-uuid S --expected-version {sv} \
+     --refined-goal "<acceptance criteria>" --refined-detail "<detail + answers + exploration findings, integrated>"
+   gm prompt set-status --prompt-uuid U --expected-version {v} --status architecting --json
    ```
 
 ---
 
-## Phase 4: Plan (Architect Subagent)
+## Phase 4: Plan (Architect Subagent, db-native persistence)
 
-Spawn 1 architect subagent. The returned architecture is persisted to `$GMCC_SESSION_PATH/prompts/{seq}_{name}/memory/architecture.md` after user approval.
+Spawn 1 architect subagent. The returned architecture is persisted to the DB
+(`gm arch` rows — no architecture.md) after user approval.
 
 ```
 Task tool:
@@ -172,11 +175,11 @@ Task tool:
     Read and follow your agent identity from: $GMCC_PLUGIN_ROOT/prompts/gmcc_agent_code_architect.prompt.md
 
     ## Architecture Context
-    **Goal**: {refined_goal from qualified.md}
-    **Detail**: {refined_detail from qualified.md}
+    **Goal**: {refined_goal from the clarification summary}
+    **Detail**: {refined_detail from the clarification summary}
 
     ## Qualified Prompt
-    {full qualified.md contents}
+    {gm clarify get output: refined goal/detail + all Q/A rows}
 
     ## Exploration Findings
     {exploration report from Phase 2, in primary context}
@@ -204,7 +207,12 @@ How would you like to proceed?
 - Reject and redesign - Start architecture over
 ```
 
-Once approved, write the architecture (verbatim from the subagent) to `$GMCC_SESSION_PATH/prompts/{seq}_{name}/memory/architecture.md` and register it (`gm artifact add --kind architecture --note "..."`).
+Persist the architecture db-natively (the summary was created on entering `architecting`; `gm arch get` for its uuid):
+
+1. **Persistence check FIRST (universal):** does the plan touch the persistence layer (schema/ORM classes)? Record those as `gm arch persist-add` + `gm arch field-add` rows — possibly zero — before anything else.
+2. `gm arch summarize --body "<concept-level approach/components/flow/tradeoffs>"`; then `gm arch general-add` per non-persistence change (`--depth pseudo|draft|actual --code "..."`). Change rows record implementation changes only (test infra counts; never per-test-case rows).
+3. `gm arch propose` → present to the user (AskUserQuestion above) → approved: `gm arch approve`; changes requested: `gm arch revise`, edit rows, re-propose.
+4. `gm prompt set-status --prompt-uuid U --expected-version {v} --status implementing --json` (gate: architecture approved).
 
 ---
 
@@ -232,10 +240,10 @@ Task tool:
     Read and follow your agent identity from: $GMCC_PLUGIN_ROOT/prompts/gmcc_agent_code_quality_reviewer.prompt.md
 
     ## Review Context
-    **Task**: {refined_goal + refined_detail from qualified.md}
+    **Task**: {refined_goal + refined_detail from the clarification summary}
 
     ## Qualified Prompt
-    {qualified.md contents}
+    {gm clarify get output}
 
     ## Architecture
     {architecture doc from Phase 4}
@@ -270,7 +278,7 @@ Write the review report (verbatim from the subagent) to `$GMCC_SESSION_PATH/prom
 2. Wait for user feedback. Iterate until satisfied.
 
 There is no phase-history record — completion is represented by prompt
-status `clarified` plus the registered artifacts and file-change trail
+status `done` plus the clarification/architecture rows, registered artifacts, and file-change trail
 (`gm prompt get`, `gm file-change list`).
 
 ```

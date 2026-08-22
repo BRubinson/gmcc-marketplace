@@ -31,11 +31,17 @@ struct GitContext {
         guard let repoRoot = runGit(["rev-parse", "--show-toplevel"]) else {
             throw ValidationError("not inside a git repository — gm needs git context")
         }
-        let branch = runGit(["branch", "--show-current"]) ?? "main"
+        // Detached HEAD prints nothing here. Fail loudly instead of falling
+        // back to "main": the daemon-side SESSION_RESOLVE reports detached as
+        // "nothing checked out", and a silent main fallback would have gm
+        // writing into the main session while the daemon disagrees.
+        guard let branch = runGit(["branch", "--show-current"]), !branch.isEmpty else {
+            throw ValidationError("HEAD is detached — gm needs a checked-out branch for session context")
+        }
         return GitContext(
             repoRoot: repoRoot,
             repoName: URL(fileURLWithPath: repoRoot).lastPathComponent,
-            branch: branch.isEmpty ? "main" : branch
+            branch: branch
         )
     }
 
@@ -256,7 +262,10 @@ enum KbitePaths {
 // ArgumentParser conformances for wire enums used as CLI options.
 extension ChangeKind: ExpressibleByArgument {}
 extension PromptStatus: ExpressibleByArgument {}
-extension SessionStatus: ExpressibleByArgument {}
 extension ArtifactKind: ExpressibleByArgument {}
 extension KbiteScope: ExpressibleByArgument {}
 extension KeywordTagLevel: ExpressibleByArgument {}
+extension ClarificationCategory: ExpressibleByArgument {}
+extension AnswerSource: ExpressibleByArgument {}
+extension ChangeDepth: ExpressibleByArgument {}
+extension ConfigKey: ExpressibleByArgument {}

@@ -86,6 +86,34 @@ final class Server: @unchecked Sendable {
         }
     }
 
+    /// Item 8 delivery: called by MemoryWatcher's `deliver` closure (which
+    /// runs on the lane) — hops onto the server queue, resolves the prompt by
+    /// its storage path there, and broadcasts an EPHEMERAL notification.
+    /// id 0 marks it as never-a-replay-cursor; no daemon_event row is written,
+    /// so the lane's no-db-writes contract holds and the event-sink ordering
+    /// invariant is untouched.
+    func promptMemoryChanged(storagePath: String) {
+        queue.async {
+            guard let promptUuid = try? self.store.promptUuid(byStoragePath: storagePath) else {
+                return
+            }
+            self.broadcast(EventNotification(
+                id: 0,
+                kind: DaemonEventKind.promptMemoryChange.rawValue,
+                subjectUuid: promptUuid,
+                payload: "{\"ckfs_relative_storage_path\":\(Self.jsonString(storagePath))}",
+                createdAt: Store.isoNow()))
+        }
+    }
+
+    /// JSON-encode one string safely (paths can carry quotes/backslashes).
+    private static func jsonString(_ value: String) -> String {
+        guard let data = try? JSONEncoder().encode([value]),
+              let text = String(data: data, encoding: .utf8),
+              text.count >= 2 else { return "\"\"" }
+        return String(text.dropFirst().dropLast())
+    }
+
     /// Push an EVENT line to every subscriber.
     func broadcast(_ notification: EventNotification) {
         let envelope = ResponseEnvelope<EventNotification>(
@@ -259,6 +287,50 @@ final class Server: @unchecked Sendable {
                 return try KbiteSearchHandler.handle(line: line, head: head, store: store)
             case .kbiteKeywordTag:
                 return try KbiteKeywordTagHandler.handle(line: line, head: head, store: store)
+
+            case .clarifyOpen:
+                return try ClarifyOpenHandler.handle(line: line, head: head, store: store)
+            case .clarifyAsk:
+                return try ClarifyAskHandler.handle(line: line, head: head, store: store)
+            case .clarifySeal:
+                return try ClarifySealHandler.handle(line: line, head: head, store: store)
+            case .clarifyAnswer:
+                return try ClarifyAnswerHandler.handle(line: line, head: head, store: store)
+            case .clarifyReopen:
+                return try ClarifyReopenHandler.handle(line: line, head: head, store: store)
+            case .clarifyFinalize:
+                return try ClarifyFinalizeHandler.handle(line: line, head: head, store: store)
+            case .clarifyGet:
+                return try ClarifyGetHandler.handle(line: line, head: head, store: store)
+
+            case .archOpen:
+                return try ArchOpenHandler.handle(line: line, head: head, store: store)
+            case .archSummarize:
+                return try ArchSummarizeHandler.handle(line: line, head: head, store: store)
+            case .archPersistAdd:
+                return try ArchPersistAddHandler.handle(line: line, head: head, store: store)
+            case .archFieldAdd:
+                return try ArchFieldAddHandler.handle(line: line, head: head, store: store)
+            case .archGeneralAdd:
+                return try ArchGeneralAddHandler.handle(line: line, head: head, store: store)
+            case .archPropose:
+                return try ArchProposeHandler.handle(line: line, head: head, store: store)
+            case .archApprove:
+                return try ArchApproveHandler.handle(line: line, head: head, store: store)
+            case .archRevise:
+                return try ArchReviseHandler.handle(line: line, head: head, store: store)
+            case .archGet:
+                return try ArchGetHandler.handle(line: line, head: head, store: store)
+
+            case .sessionResolve:
+                return try SessionResolveHandler.handle(line: line, head: head, store: store)
+            case .instanceCurrentSession:
+                return try InstanceCurrentSessionHandler.handle(line: line, head: head, store: store)
+
+            case .pathsGet:
+                return try PathsGetHandler.handle(line: line, head: head, store: store)
+            case .configSet:
+                return try ConfigSetHandler.handle(line: line, head: head, store: store)
 
             case .eventList:
                 return try EventListHandler.handle(line: line, head: head, store: store)

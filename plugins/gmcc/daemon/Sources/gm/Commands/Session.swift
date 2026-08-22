@@ -6,9 +6,31 @@ import GMCCDaemonKit
 /// scalar updates.
 struct Session: ParsableCommand {
     static let configuration = CommandConfiguration(
-        abstract: "Browse, read, and update sessions.",
-        subcommands: [List.self, Get.self, Update.self]
+        abstract: "Browse, read, resolve, and update sessions.",
+        subcommands: [List.self, Get.self, Update.self, Resolve.self]
     )
+
+    struct Resolve: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Session row + git-derived checked-out state (.git/HEAD read; detached ⇒ none).")
+
+        @OptionGroup var output: OutputOptions
+        @Option(name: .long, help: "Session uuid (defaults to the CURRENT repo/branch session).")
+        var sessionUuid: String?
+
+        func run() throws {
+            let response = try withClient { client in
+                let uuid = try sessionUuid ?? ContextBuilder.resolveSessionUuid(client)
+                return try client.sessionResolve(SessionResolveRequest(sessionUuid: uuid))
+            }
+            if output.json {
+                printJSON(response)
+            } else {
+                let s = response.session
+                print("[gm] session \(s.code): \(response.checkedOut ? "CHECKED OUT" : "not checked out") (head: \(response.headState), current: \(response.currentSessionCode ?? "-"))")
+            }
+        }
+    }
 
     struct List: ParsableCommand {
         static let configuration = CommandConfiguration(
@@ -28,7 +50,7 @@ struct Session: ParsableCommand {
             } else {
                 print("[gm] \(response.sessions.count) session(s)")
                 for s in response.sessions {
-                    print("  \(s.code) [\(s.status)] \(s.uuid)  instance \(s.instanceUuid.prefix(8))")
+                    print("  \(s.code) \(s.uuid)  instance \(s.instanceUuid.prefix(8))  last activity \(s.lastActivityAt)")
                 }
             }
         }
@@ -52,7 +74,7 @@ struct Session: ParsableCommand {
                 printJSON(response)
             } else {
                 let s = response.session
-                print("[gm] session \(s.code) (\(s.status), v\(s.version))")
+                print("[gm] session \(s.code) (v\(s.version))")
                 print("  uuid: \(s.uuid)")
                 print("  prompts:")
                 for stub in response.prompts {
@@ -83,7 +105,6 @@ struct Session: ParsableCommand {
         @Option(name: .long) var name: String?
         @Option(name: .long) var backstory: String?
         @Option(name: .long) var goal: String?
-        @Option(name: .long, help: "active or closed") var status: SessionStatus?
 
         func run() throws {
             let response = try withClient { client in
@@ -93,14 +114,13 @@ struct Session: ParsableCommand {
                     expectedVersion: expectedVersion,
                     name: name,
                     backstory: backstory,
-                    goal: goal,
-                    status: status
+                    goal: goal
                 ))
             }
             if output.json {
                 printJSON(response)
             } else {
-                print("[gm] session updated: \(response.code) (\(response.status), v\(response.version))")
+                print("[gm] session updated: \(response.code) (v\(response.version))")
             }
         }
     }

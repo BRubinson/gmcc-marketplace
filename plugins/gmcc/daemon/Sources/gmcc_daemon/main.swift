@@ -65,6 +65,25 @@ do {
 server.start()
 log("daemon pid \(getpid()) protocol v\(GMCCWireProtocol.version) listening at \(Paths.socket.path)")
 
+// --- memory watcher (item 8) ------------------------------------------------
+// One FSEventStream on the ckfs root, running on its own lane; delivery hops
+// to the server queue (see MemoryWatcher's contract). Started only when the
+// ckfs root is configured AND exists — a daemon on a machine without a ckfs
+// simply has no watcher.
+var memoryWatcher: MemoryWatcher?
+if let ckfsRoot = try? store.configValue(.ckfsRoot),
+   FileManager.default.fileExists(atPath: ckfsRoot) {
+    let watcher = MemoryWatcher(ckfsRoot: ckfsRoot) { [weak server] storagePath in
+        server?.promptMemoryChanged(storagePath: storagePath)
+    }
+    watcher.start()
+    memoryWatcher = watcher
+    log("memory watcher on \(ckfsRoot)")
+} else {
+    log("memory watcher disabled (no ckfs_root configured or path missing)")
+}
+_ = memoryWatcher
+
 // --- signals ----------------------------------------------------------------
 signal(SIGTERM, SIG_IGN)
 signal(SIGINT, SIG_IGN)

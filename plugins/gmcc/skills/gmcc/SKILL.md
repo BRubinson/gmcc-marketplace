@@ -26,7 +26,7 @@ All GMCC env vars are exported by `${CLAUDE_PLUGIN_ROOT}/scripts/detect_repo.sh`
 ## GM-CDE Three-Tier Architecture
 
 1. **Plugin (static)**: `$GMCC_PLUGIN_ROOT/` — Skills, commands, prompts, hooks, scripts, and the daemon Swift package.
-2. **Runtime data + artifacts**: project/instance/session/prompt rows live in the daemon db at `~/gmcc/gmcc.db` (single-writer; all access via `~/gmcc/bin/gm`). The ckfs tree at `$GMCC_PROJECTS/{project}/instances/{instance}/sessions/{branch}/prompts/{seq}_{name}/memory/` holds only phase artifacts (`explore/qualified/architecture/review.md`), each registered as a db pointer via `gm artifact add`.
+2. **Runtime data + artifacts**: project/instance/session/prompt rows live in the daemon db at `~/gmcc/gmcc.db` (single-writer; all access via `~/gmcc/bin/gm`). The ckfs tree at `$GMCC_PROJECTS/{project}/instances/{instance}/sessions/{branch}/prompts/{seq}_{name}/memory/` holds only phase artifacts (`explore.md`/`review.md`; clarification + architecture are db-native via `gm clarify`/`gm arch` since v17, with legacy `qualified/architecture.md` behind artifact pointers), each file registered as a db pointer via `gm artifact add`.
 3. **System KBites**: `$GMCC_KBITE/` (= `$GMCC_CKFS_ROOT/kbites/`) — Shared knowledge across projects. Digested text/keywords/search are db-canonical (`gm kbite`); the filesystem splits into `$GMCC_KBITE_DIGESTED/` (raw-source archive) and `$GMCC_KBITE_OPEN/` (in-progress maws). KBITE_PURPOSE.md lives at the kbite root, above the lifecycle split.
 
 For detailed structures, read: `$GMCC_PLUGIN_ROOT/skills/gmcc/ref/ckfs_details.md`
@@ -54,7 +54,7 @@ For detailed structures, read: `$GMCC_PLUGIN_ROOT/skills/gmcc/ref/ckfs_details.m
 
 When context is compacted, immediately:
 1. Re-run `gm session get --json` for the prompt stubs + change summary
-2. Re-read the most recent `memory/qualified.md` / `memory/architecture.md` artifacts under `$GMCC_SESSION_PATH/prompts/`
+2. Re-read the most recent prompts' clarifications/architectures (`gm clarify get` / `gm arch get`; legacy prompts keep `memory/qualified.md`/`architecture.md` under `$GMCC_SESSION_PATH/prompts/`)
 3. Restore awareness of current task state (including the active prompt's `uuid` and current `version` via `gm prompt get`)
 4. Re-read the active kbite list (`gm context get --json`)
 

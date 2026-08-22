@@ -2,12 +2,35 @@ import ArgumentParser
 import Foundation
 import GMCCDaemonKit
 
-/// gm instance list — enumerate instances, optionally scoped to one project.
+/// gm instance list|current-session — enumerate instances; resolve the
+/// checked-out session from .git/HEAD.
 struct Instance: ParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Browse instances.",
-        subcommands: [List.self]
+        subcommands: [List.self, CurrentSession.self]
     )
+
+    struct CurrentSession: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "current-session",
+            abstract: "The session matching the instance's checked-out branch (git-derived; detached ⇒ none).")
+
+        @OptionGroup var output: OutputOptions
+        @Option(name: .long) var instanceUuid: String
+
+        func run() throws {
+            let response = try withClient {
+                try $0.instanceCurrentSession(InstanceCurrentSessionRequest(instanceUuid: instanceUuid))
+            }
+            if output.json {
+                printJSON(response)
+            } else if let session = response.session {
+                print("[gm] current session: \(session.code) \(session.uuid)")
+            } else {
+                print("[gm] no current session (head: \(response.headState), code: \(response.currentSessionCode ?? "-"))")
+            }
+        }
+    }
 
     struct List: ParsableCommand {
         static let configuration = CommandConfiguration(

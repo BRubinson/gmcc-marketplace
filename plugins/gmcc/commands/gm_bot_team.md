@@ -36,14 +36,14 @@ Or use /gm_bot_rpi for subagent-based workflow.
 Exit without proceeding.
 
 1. `~/gmcc/bin/gm session get --json` for current session state. On exit 2, self-heal per `gm_bot_rpi.md`.
-2. Skim recent prompts' `memory/qualified.md` files for context.
+2. Skim recent prompts' clarifications for context (`gm clarify get --prompt-uuid U`; legacy prompts keep `memory/qualified.md`).
 
 ---
 
 ## Argument Parsing
 
 Identical to `/gm_bot` and `/gm_bot_rpi`. Quick summary:
-- **Run / Resume** (`/gm_bot_team 3` or `/gm_bot_team 3 ...`): `gm prompt list --json` → stub with `seq: 3` → `gm prompt get`. Run/resume by status (`clarified` → Phase 4, `clarifying` → Phase 3, `draft` → Phase 2). A bare seq runs an externally-authored draft as written; `command` is create-time-only — if empty, note the tier in `qualified.md`.
+- **Run / Resume** (`/gm_bot_team 3` or `/gm_bot_team 3 ...`): `gm prompt list --json` → stub with `seq: 3` → `gm prompt get`. Run/resume by status (lifecycle v2: `draft` → Phase 2, `clarifying` → Phase 3, `architecting` → Phase 4, `implementing` → Phase 5, `reviewing` → Phase 6, `done` → complete; legacy pre-m0002 prompts have no clarify/arch rows — check `gm artifact list`, never fabricate). A bare seq runs an externally-authored draft as written; `command` is create-time-only — if empty, note the tier in the clarification's `--backstory-note`.
 - **New** (`/gm_bot_team auth-refactor ...`): `gm prompt create --name ... --detail "<verbatim>" --command /gm_bot_team --json` (STAY TRUE — see `gm_bot_rpi.md`), then `mkdir -p .../prompts/{seq}_{name}/memory`.
 - **No args**: AskUserQuestion.
 
@@ -112,23 +112,21 @@ Synthesize the 4 reports into a unified mental model:
 
 ---
 
-## Phase 3: Clarify
+## Phase 3: Clarify (db-native)
 
-Runs while the prompt is still `draft`. Same canonical sequence as `gm_bot_rpi.md`, with team-specific additions:
+Same canonical db-native sequence as `gm_bot_rpi.md` (enter `clarifying` → `gm clarify ask/seal/answer/finalize` → advance to `architecting`), with team-specific additions:
 
-1. **YEET-type detection (FIRST clarify step)** over the prompt row's `goal` + `detail`, cross-referenced with the 4-methodology synthesis. Resolve each confidently, or AskUserQuestion when you cannot. Record in `qualified.md`'s `detected_yeet_types` with `source:` + `confidence:`.
+1. **YEET-type detection (FIRST clarify step)** over the prompt row's `goal` + `detail`, cross-referenced with the 4-methodology synthesis. Confidently-resolved detections land pre-answered (`gm clarify ask --category yeet_type --answer ... --source bot_inferred`); unresolved ones become open questions for the user.
 
-2. **Goal clarification suite.** Extract the rated open questions about the *outcome* from the synthesis — highest first (start with 8s and 7s). AskUserQuestion → `goal_clarifications` (carry each item's `rating:`).
+2. **Goal clarification suite.** Extract the rated open questions about the *outcome* from the synthesis — highest first (start with 8s and 7s) — as `gm clarify ask --category goal` rows (embed each `rating:` in the question text).
 
-3. **Detail clarification suite.** Extract the rated open questions about the *approach* — highest first. AskUserQuestion → `detail_clarifications` (carry each item's `rating:`).
+3. **Detail clarification suite.** Extract the rated open questions about the *approach* — highest first — as `--category detail` rows.
 
-4. Write `memory/qualified.md` (team flavor: per-clarification `rating`, `key_files[].consensus` listing which methodologies flagged each file) and register it (`gm artifact add --kind qualified --note "..."`).
+4. `gm clarify seal`, AskUserQuestion the open questions, record each answer (`gm clarify answer ... --source user`, judgment calls as `bot_inferred`, `--skip` where not applicable).
 
-5. Write back + transition, threading `--expected-version`:
+5. `gm clarify finalize --refined-goal "<acceptance criteria>" --refined-detail "<synthesis + answers integrated>" --backstory-note "<executing tier + methodology-consensus notes>"`, then advance:
    ```bash
-   gm prompt update-content --prompt-uuid U --expected-version {v}   --goal "<refined_goal>" --json
-   gm prompt set-status     --prompt-uuid U --expected-version {v+1} --status clarifying --json
-   gm prompt set-status     --prompt-uuid U --expected-version {v+2} --status clarified  --json
+   gm prompt set-status --prompt-uuid U --expected-version {v} --status architecting --json
    ```
 
 ---
@@ -145,11 +143,11 @@ Per teammate spawn prompt:
 Read and follow your agent identity from: $GMCC_PLUGIN_ROOT/prompts/gmcc_agent_code_architect.prompt.md
 
 ## Architecture Context
-**Goal**: {refined_goal from qualified.md}
-**Detail**: {refined_detail from qualified.md}
+**Goal**: {refined_goal from the clarification summary}
+**Detail**: {refined_detail from the clarification summary}
 
 ## Qualified Prompt
-{full qualified.md contents}
+{gm clarify get output: refined goal/detail + all Q/A rows}
 
 ## Exploration Synthesis
 {the unified synthesis from Phase 2}
@@ -167,7 +165,7 @@ Format: Goal, Approach Summary, Components, Files to Modify/Create, Build Sequen
 
 ### Step 2: Wait + Synthesize + Persist
 
-Wait for all 4 proposals. In primary context, synthesize into a unified architecture (resolve methodology disagreements explicitly — pick a direction with rationale). **Write the synthesized architecture** to `$GMCC_SESSION_PATH/prompts/{seq}_{name}/memory/architecture.md` and register it (`gm artifact add --kind architecture --note "..."`); individual teammate proposals are NOT persisted.
+Wait for all 4 proposals. In primary context, synthesize into a unified architecture (resolve methodology disagreements explicitly — pick a direction with rationale). **Persist it db-natively** (no architecture.md): persistence check first (`gm arch persist-add`/`field-add` rows, possibly zero), `gm arch summarize --body "<concept-level synthesis incl. divergence resolutions>"`, `gm arch general-add` per non-persistence change, then `gm arch propose`. Individual teammate proposals are NOT persisted.
 
 ### Step 3: User Approval
 
@@ -183,21 +181,29 @@ How would you like to proceed?
 - Reject and redesign
 ```
 
+Approved → `gm arch approve --summary-uuid S --expected-version {v}` and
+`gm prompt set-status --prompt-uuid U --expected-version {v} --status implementing --json`.
+Modify → `gm arch revise`, edit rows, re-propose.
+
 ---
 
 ## Phase 5: Implement
 
-1. Follow the approved unified architecture's build sequence.
+1. Follow the approved unified architecture's build sequence — **persistence changes first, always**.
 2. Make edits with Read/Edit/Write.
-3. After each file write, record it:
+3. After each file write, record it (**always pass `--prompt-uuid`** — `gm arch get`'s implementation-state comparison sees only attributed changes):
    ```bash
    gm file-change add --path <repo-relative path> --kind edit|create|delete|rename \
      [--range start:end]... [--content "<short note>"] --prompt-uuid U
    ```
+4. `gm arch get --prompt-uuid U` shows per-row implementation state, unplanned drift, and the persistence-first audit.
 
 ---
 
 ## Phase 6: Review (Reviewer Team)
+
+Enter it explicitly: `gm prompt set-status ... --status reviewing` (or skip
+straight to `done` when the user wants no review pass — the one legal skip edge).
 
 ### Step 1: Create the Reviewer Team
 
@@ -209,10 +215,10 @@ Per teammate spawn prompt:
 Read and follow your agent identity from: $GMCC_PLUGIN_ROOT/prompts/gmcc_agent_code_quality_reviewer.prompt.md
 
 ## Review Context
-**Task**: {refined_goal + refined_detail from qualified.md}
+**Task**: {refined_goal + refined_detail from the clarification summary}
 
 ## Qualified Prompt
-{qualified.md contents}
+{gm clarify get output}
 
 ## Approved Architecture
 {unified architecture from Phase 4}
@@ -249,10 +255,10 @@ Implement requested fixes.
 ## Phase 7: Feedback Integration
 
 1. Present a complete summary.
-2. Wait for feedback. Iterate until satisfied.
+2. Wait for feedback. Iterate until satisfied, then `gm prompt set-status ... --status done`.
 
 There is no phase-history record — completion is represented by prompt
-status `clarified` plus the registered artifacts and file-change trail.
+status `done` plus the clarification/architecture rows, registered artifacts, and file-change trail.
 
 ```
 Bot Team Complete: prompt {seq} ({name})

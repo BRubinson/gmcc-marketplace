@@ -158,14 +158,14 @@ struct Prompt: ParsableCommand {
     struct SetStatus: ParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "set-status",
-            abstract: "Forward-only transition: draft → clarifying → clarified.")
+            abstract: "Forward-only lifecycle v2: draft → clarifying → architecting → implementing → reviewing → done (reviewing skippable). Gates: clarifying→architecting needs the clarification complete; architecting→implementing needs the architecture approved.")
 
         @OptionGroup var output: OutputOptions
 
         @Option(name: .long) var promptUuid: String
         @Option(name: .long, help: "The prompt version this transition was based on.")
         var expectedVersion: Int64
-        @Option(name: .long, help: "draft, clarifying, or clarified")
+        @Option(name: .long, help: "clarifying, architecting, implementing, reviewing, or done")
         var status: PromptStatus
 
         func run() throws {

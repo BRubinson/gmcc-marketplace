@@ -37,7 +37,7 @@ struct Catalog: ParsableCommand {
                 for i in response.instances {
                     print("  instance \(i.code) (\(i.name)) \(i.uuid)")
                     for s in response.sessions where s.instanceUuid == i.uuid {
-                        print("    session \(s.code) (\(s.name)) [\(s.status)] \(s.uuid)")
+                        print("    session \(s.code) (\(s.name)) \(s.uuid)")
                     }
                 }
             }

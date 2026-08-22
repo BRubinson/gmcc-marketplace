@@ -23,8 +23,8 @@ struct Status: ParsableCommand {
             print("  database:       \(response.dbPath)")
             print("  schema version: \(response.schemaVersion)")
             print("  table counts:")
-            for (table, count) in response.tableCounts.sorted(by: { $0.key < $1.key }) {
-                print("    \(table): \(count)")
+            for table in response.tableCounts {
+                print("    \(table.name): \(table.count)")
             }
         }
     }

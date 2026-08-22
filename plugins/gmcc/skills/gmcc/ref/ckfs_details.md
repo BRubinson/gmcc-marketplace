@@ -156,10 +156,12 @@ Each prompt is a folder holding ONLY phase artifacts:
 prompts/{id}_{name}/
     memory/
         explore.md                   # Phase 2 artifact
-        qualified.md                 # Phase 3 (Clarify) output — Q/A suites, refined goal/detail, detected yeet types
-        architecture.md              # Phase 4 artifact (after approval)
         review.md                    # Phase 6 artifact
 ```
+
+(Clarify and Plan are DB-NATIVE since v17 — `gm clarify` / `gm arch` rows,
+no qualified.md/architecture.md for new prompts; legacy prompts keep those
+files behind their artifact pointers.)
 
 `{id}` is the db prompt row's `seq`; `{name}` its `name`. All identity,
 content (`backstory`/`goal`/`detail`), status, and command live on the
@@ -175,9 +177,15 @@ file is fine; re-register to refresh the note.)
 
 ## Prompt Lifecycle (v16)
 
-Statuses are lowercase: `draft → clarifying → clarified` (forward-only;
-`INVALID_TRANSITION` otherwise). Content edits are draft-only
-(`CONTENT_LOCKED` after).
+Statuses are lowercase (lifecycle v2): `draft → clarifying → architecting
+→ implementing → reviewing → done`, forward-only + adjacent-only with one
+skip edge `implementing → done` (reviewing optional); `INVALID_TRANSITION`
+otherwise. Content edits are draft-only (`CONTENT_LOCKED` after; the one
+exemption is `gm clarify finalize`'s daemon-side refined-goal copy).
+Gates: entering `clarifying` creates the clarification summary;
+`clarifying → architecting` requires it complete; `architecting →
+implementing` requires the architecture approved. Pre-m0002 prompts bypass
+absent-backing-row gates (never fabricate rows).
 
 1. **draft** — `/gm_bot*` runs:
    ```bash
@@ -188,19 +196,18 @@ Statuses are lowercase: `draft → clarifying → clarified` (forward-only;
    (human/Clarify input only); `backstory` inherited from the session row.
    Never split, infer, or author these fields. Then
    `mkdir -p prompts/{seq}_{name}/memory/`.
-2. **clarifying/clarified** — Phase 3's first step is YEET-type detection
-   over the prompt row's `goal` + `detail`; then separate goal and detail
-   clarification suites. While still `draft` (content unlocked):
-   - write `memory/qualified.md` (clarifications, refined_goal,
-     refined_detail, detected_yeet_types, key_files, constraints) and
-     register it (`--kind qualified`);
-   - `gm prompt update-content --expected-version N --goal "<refined_goal>"`
-     — goal only; `detail` stays the verbatim original (STAY TRUE).
-     `refined_detail` lives in `qualified.md`, the from-Clarify source of
-     truth;
-   - `gm prompt set-status ... --status clarifying` then
-     `... --status clarified`, threading `--expected-version` through each
-     step.
+2. **clarifying** — enter with `gm prompt set-status ... --status
+   clarifying` (locks content; the daemon creates the summary). Phase 3's
+   first step is YEET-type detection (`gm clarify ask --category
+   yeet_type`, pre-answered `--source bot_inferred` when confident); then
+   the goal and detail suites (`--category goal|detail`); `gm clarify
+   seal`; user answers via `gm clarify answer`; `gm clarify finalize
+   --refined-goal ... --refined-detail ...` (the daemon copies the refined
+   goal into `prompt.goal`; `detail` stays verbatim — STAY TRUE).
+3. **architecting → implementing → reviewing → done** — `gm arch`
+   authoring (persistence rows first) → propose/approve → implement
+   (file changes always `--prompt-uuid`) → optional review → done,
+   threading `--expected-version` through each step.
 
 Resume across sessions relies on `gm prompt get` (status, content,
 artifact pointers) plus the persisted `memory/` files.
@@ -216,8 +223,9 @@ gm file-change add --path <repo-relative> --kind edit|create|delete|rename \
 
 Run from inside the repo — git context is auto-detected. This replaces
 the retired `changed_files:` yaml list. There is no `phase_history`
-equivalent — run completion is represented by prompt status `clarified`
-plus registered artifacts.
+equivalent — run completion is represented by prompt status `done` plus
+the clarification/architecture rows and registered artifacts.
+`gm arch get` derives per-change implementation state from these records.
 
 ## KBite Registry
 

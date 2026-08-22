@@ -79,12 +79,18 @@ already exists, skip creation (already imported). Otherwise:
   --command "{command}" --json
 ```
 
-Then advance the row's status to match the legacy `prompt_status`
-(threading `--expected-version` from each response):
+Then advance the row's status to match the legacy `prompt_status`, mapped
+onto lifecycle v2 best-effort (threading `--expected-version` from each
+response). Old terminal `Clarified` → `done` (its pipeline finished under
+the old contract); in-flight `Draft`/`Clarifying` carry over unchanged. Do
+NOT fabricate clarification/architecture rows for migrated prompts — the
+daemon's legacy gate bypass lets pre-m0002 prompts advance without them:
 
 ```bash
-gm prompt set-status ... --status clarifying   # if legacy was Clarifying or Clarified
-gm prompt set-status ... --status clarified    # if legacy was Clarified
+gm prompt set-status ... --status clarifying     # if legacy was Clarifying or Clarified
+gm prompt set-status ... --status architecting   # ┐
+gm prompt set-status ... --status implementing   # │ only if legacy was Clarified
+gm prompt set-status ... --status done           # ┘ (walk to the new terminal)
 ```
 
 Note: the db `seq` is allocated fresh per session; the legacy `id` is

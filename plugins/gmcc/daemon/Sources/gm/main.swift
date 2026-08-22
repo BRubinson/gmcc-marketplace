@@ -4,7 +4,7 @@ import GMCCDaemonKit
 
 // gm — the single GMCC CLI. A socket client of gmcc_daemon; never touches
 // the db file directly (single-writer invariant). One subcommand per wire
-// message (wire v5), grouped by family.
+// message (wire version: GMCCWireProtocol.version), grouped by family.
 //
 // Exit codes: 0 ok · 1 generic/db error · 2 daemon unreachable after
 // autostart · 3 unrecoverable protocol mismatch.
@@ -16,8 +16,10 @@ struct GM: ParsableCommand {
         subcommands: [
             Setup.self, Status.self, Ping.self, Daemon.self, Backup.self, Events.self,
             Context.self, Project.self, Instance.self, Session.self, Catalog.self, Prompt.self,
+            Clarify.self, Arch.self,
             Artifact.self, FileChange.self,
             Kbite.self,
+            PathsCmd.self, Config.self,
         ]
     )
 }
@@ -59,9 +61,11 @@ func withClient<T>(_ body: (DaemonClient) throws -> T) throws -> T {
 }
 
 func printJSON<T: Encodable>(_ value: T) {
-    let encoder = JSONEncoder()
-    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-    if let data = try? encoder.encode(value), let text = String(data: data, encoding: .utf8) {
+    // WireCodec, not a bare JSONEncoder: DTOs carry no CodingKeys, so only the
+    // shared snake_case strategy keeps --json output matching the wire keys
+    // that skills and bot docs grep for.
+    if let data = try? WireCodec.prettyEncoder.encode(value),
+       let text = String(data: data, encoding: .utf8) {
         print(text)
     }
 }

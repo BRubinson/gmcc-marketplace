@@ -23,10 +23,12 @@ holds ONLY phase artifacts:
 $GMCC_SESSION_PATH/prompts/{seq}_{name}/
     memory/
         explore.md                   # exploration report (Phase 2)
-        qualified.md                 # clarify output (Phase 3)
-        architecture.md              # approved architecture (Phase 4)
         review.md                    # review report (Phase 6)
 ```
+
+Clarification and architecture are DB-NATIVE since v17 (`gm clarify` /
+`gm arch` — no qualified.md or architecture.md for new prompts; legacy
+prompts keep those files, reachable via their artifact pointers).
 
 A bot run does NOT create a new session — it adds a new **prompt row** to
 the existing session. The canonical lifecycle every tier follows:
@@ -46,27 +48,40 @@ the existing session. The canonical lifecycle every tier follows:
    `mkdir -p "$GMCC_SESSION_PATH/prompts/{seq}_{name}/memory"`.
 3. **Explore** — write `memory/explore.md`, then
    `gm artifact add --prompt-uuid U --file-path <abs> --kind explore --note "<one sentence>"`.
-4. **Clarify** — while the prompt is still `draft` (content unlocked):
-   YEET-type detection, then the two clarification suites; write
-   `memory/qualified.md` and register it (`--kind qualified`); then
-   ```bash
-   gm prompt update-content --prompt-uuid U --expected-version {v} --goal "<refined_goal>" --json   # → v+1
-   gm prompt set-status     --prompt-uuid U --expected-version {v+1} --status clarifying --json     # → v+2 (locks content)
-   gm prompt set-status     --prompt-uuid U --expected-version {v+2} --status clarified  --json     # → v+3
-   ```
-   Goal only — `detail` stays the verbatim original; `refined_detail`
-   lives in `qualified.md` (the from-Clarify source of truth).
-5. **Plan** — after user approval, write `memory/architecture.md` +
-   `gm artifact add --kind architecture`.
-6. **Implement** — after each Edit/Write to a tracked file:
+4. **Clarify (db-native)** — `gm prompt set-status ... --status clarifying`
+   (locks content; the daemon creates the clarification summary), then:
+   YEET-type detection → `gm clarify ask --category yeet_type` (pre-answered
+   `--source bot_inferred` when confident); the goal + detail question
+   suites → `gm clarify ask --category goal|detail`; `gm clarify seal`;
+   AskUserQuestion → `gm clarify answer` (or `--skip`); finally
+   `gm clarify finalize --refined-goal "<acceptance criteria>"
+   --refined-detail "<detail + answers integrated>"` — the daemon copies the
+   refined goal into `prompt.goal` (`detail` stays the verbatim original) —
+   then `gm prompt set-status ... --status architecting` (gate: summary
+   complete). Wrong answer later: `gm clarify reopen` → re-answer →
+   re-finalize.
+5. **Plan (db-native)** — entering `architecting` created the architecture
+   summary. Persistence check FIRST (does the plan touch schema/ORM classes?
+   record `gm arch persist-add` + `field-add` rows, possibly zero), then
+   `gm arch summarize --body "<concept-level>"` + `gm arch general-add` per
+   non-persistence change; `gm arch propose` → user approval →
+   `gm arch approve` (or `revise`) → `gm prompt set-status ... --status
+   implementing` (gate: architecture approved).
+6. **Implement** — persistence changes FIRST, always. After each Edit/Write
+   to a tracked file (**always with `--prompt-uuid`** — the `gm arch get`
+   comparison sees only attributed changes):
    ```bash
    gm file-change add --path <repo-relative> --kind edit|create|delete|rename \
      [--range start:end]... [--content "<short note>"] --prompt-uuid U
    ```
-7. **Review** — write `memory/review.md` + `gm artifact add --kind review`.
-   There is NO phase-history step: completion is represented by status
-   `clarified` + registered artifacts (+ `gm file-change list` for the
-   change trail).
+   `gm arch get` shows per-row implementation state, unplanned drift, and
+   the persistence-first audit at any point.
+7. **Review** — `gm prompt set-status ... --status reviewing` (or skip
+   `implementing → done` directly); write `memory/review.md` +
+   `gm artifact add --kind review`; finish with `--status done`.
+   There is NO phase-history step: completion is status `done` + the
+   clarification/architecture rows + registered artifacts (+
+   `gm file-change list` for the change trail).
 
 ### `--expected-version` threading (every mutation)
 
@@ -89,15 +104,20 @@ To resume an in-progress prompt, invoke with the prompt seq as the first argumen
 The bot:
 1. `gm prompt list --json`, finds the stub with `seq: 3`, then
    `gm prompt get --prompt-uuid U --json` for full content + artifacts.
-2. If status `clarified`, reads `memory/qualified.md` (+ architecture if
-   present) and proceeds to Plan/Implement.
-3. If status `clarifying`, re-enters Clarify from where it stalled
-   (content is locked — clarify output goes to `qualified.md` only).
-4. If status `draft`, proceeds to Phase 2 on the row's verbatim content.
-   A bare seq (no continuation) runs an externally-authored draft (e.g.
-   from the GMVibes editor) as written. Note: `command` is create-time-only
-   in the db (no gm write path) — if the row's `command` is empty, record
-   the executing command in `qualified.md`'s header during Clarify instead.
+2. Resumes by status (lifecycle v2): `draft` → Explore; `clarifying` →
+   Clarify (`gm clarify get` shows the summary state + open questions);
+   `architecting` → Plan (`gm arch get`); `implementing` → Implement
+   (`gm arch get` is the plan + implementation state); `reviewing` →
+   Review; `done` → complete (new work = new prompt).
+3. **Legacy fallback**: pre-m0002 prompts have no clarify/arch rows
+   (`gm clarify get`/`gm arch get` → NOT_FOUND) — read the ckfs artifacts
+   via `gm artifact list` (kinds qualified/architecture) instead; NEVER
+   fabricate backing rows. `gm clarify open` on a legacy prompt is the
+   explicit adoption path.
+4. A bare seq (no continuation) runs an externally-authored draft (e.g.
+   from the GMVibes editor) as written. `command` is create-time-only in
+   the db — if the row's `command` is empty, record the executing tier in
+   the clarification's `--backstory-note`.
 5. If seq not found, errors.
 
 ### New-Prompt Mode
@@ -116,7 +136,7 @@ Prompt content is the `backstory`/`goal`/`detail` triple on the prompt row.
 | Field | Meaning |
 |-------|---------|
 | `backstory` | **Human input.** Inherited verbatim from the session row's `backstory` at create time (empty `""` unless set). May diverge per prompt. |
-| `goal` | **Human input.** The desired outcome / acceptance criteria. Empty (`""`) at create time; filled with `refined_goal` at the end of Clarify (the ONE bot write to content). |
+| `goal` | **Human input.** The desired outcome / acceptance criteria. Empty (`""`) at create time; `gm clarify finalize` copies the refined goal into it daemon-side (the ONE content write past draft). |
 | `detail` | **Human input.** How to accomplish the goal — the passed prompt verbatim, never modified. |
 
 **STAY TRUE — never split, infer, or author `backstory`/`goal`/`detail`.**
@@ -124,8 +144,8 @@ When creating a NEW prompt from a passed argument, the entire passed prompt
 goes to `--detail` **verbatim**; `goal` is omitted (empty); `backstory` is
 the session's, verbatim. Never split a blob into goal vs detail and never
 invent an outcome — the Clarify phase fleshes out the goal later via human
-Q&A, and the only content write-back is `--goal "<refined_goal>"` before
-the status locks.
+Q&A, and the only content write past draft is the daemon-side refined-goal
+copy performed by `gm clarify finalize`.
 
 ### Clarify phase — detection first, then split suites
 
@@ -135,23 +155,25 @@ the prompt row's `goal` + `detail`:
 - **Declared** types — named explicitly in the prose (e.g. "a new yeet type for X").
 - **Inferred** types — data shapes described structurally without naming a type.
 
-Each detection is resolved confidently (to an existing struct/enum, a new
-type to create, or a clear action) or — when it cannot be — the user is
-asked via AskUserQuestion to clarify the intended typing behavior. Every
-detection is recorded in `qualified.md`'s `detected_yeet_types` section
-(with `source:` and `confidence:`).
+Each detection is resolved confidently (recorded pre-answered:
+`gm clarify ask --category yeet_type --answer ... --source bot_inferred`)
+or — when it cannot be — inserted as an open yeet_type question the user
+answers after seal. Never skip the detection pass; an empty outcome is
+still a decision.
 
 The bot then runs **two separate clarification suites** — one for `goal`
-(outcome/acceptance criteria) and one for `detail` (approach/edge cases).
+(outcome/acceptance criteria, `--category goal`) and one for `detail`
+(approach/edge cases, `--category detail`).
 
-### `memory/qualified.md` — the clarify artifact
+### The clarification rows — the clarify record
 
-Markdown, registered via `gm artifact add --kind qualified`. Sections:
-the through-`backstory` note, `goal_clarifications` / `detail_clarifications`
-(Q/A), `refined_goal`, `refined_detail`, `detected_yeet_types`, `key_files`,
-`patterns_to_follow`, `constraints` (+ team tier adds per-clarification
-`rating` and key-file `consensus`). It is the single source of truth from
-Clarify onward; the row's `detail` is never modified.
+Db-native (`gm clarify get` renders it): one row per Q/A with category,
+status (open/answered/skipped), and answer source (user/bot_inferred); the
+summary carries `refined_goal` (acceptance criteria) and `refined_detail`
+(detail + answers integrated — the from-Clarify source of truth) plus a
+`backstory_note` (executing tier, team-consensus notes). The row's `detail`
+is never modified. Legacy prompts keep `memory/qualified.md` behind their
+`qualified` artifact pointer.
 
 ## KBite Integration
 
@@ -173,9 +195,11 @@ last-run-wins — and refreshes the note):
 | File | Kind | Written by | Source |
 |------|------|------------|--------|
 | `explore.md` | `explore` | Phase 2 | `/gm_bot_rpi`: verbatim subagent report. `/gm_bot_team`: synthesized 4-methodology report (teammate originals are NOT persisted). `/gm_bot`: condensed primary-context exploration notes. |
-| `qualified.md` | `qualified` | Phase 3 | All tiers: the clarify artifact (see Prompt Style). |
-| `architecture.md` | `architecture` | Phase 4 (after user approval) | `/gm_bot_rpi`: verbatim architect subagent output. `/gm_bot_team`: synthesized unified architecture. `/gm_bot`: the approved plan from EnterPlanMode. |
 | `review.md` | `review` | Phase 6 | `/gm_bot_rpi`: verbatim reviewer subagent report. `/gm_bot_team`: synthesized 4-methodology review. `/gm_bot`: a brief primary-context review note. |
+
+(Clarify and Plan persist db-natively — `gm clarify` / `gm arch` rows, no
+files. Legacy prompts' `qualified.md`/`architecture.md` remain reachable
+via their artifact pointers.)
 
 These memory files survive across sessions, give the user something to
 grep, and provide context if a prompt is resumed days later; the db keeps

@@ -1,6 +1,6 @@
 ---
 name: gmcc_daemon
-description: How to invoke the GMCC daemon system - the gm CLI at ~/gmcc/bin/gm, its subcommands (context, session, prompt, artifact, file-change, kbite, events, backup), the single-writer SQLite model, and the self-heal rule when binaries are missing or stale. Use whenever recording file changes to the daemon db, managing prompts/artifacts/kbites over the daemon, searching kbite knowledge, checking daemon/db health, or building the daemon.
+description: How to invoke the GMCC daemon system - the gm CLI at ~/gmcc/bin/gm, its subcommands (context, session, prompt, clarify, arch, artifact, file-change, kbite, events, config/paths, backup), the single-writer SQLite model, and the self-heal rule when binaries are missing or stale. Use whenever recording file changes to the daemon db, managing prompts/clarifications/architectures/artifacts/kbites over the daemon, searching kbite knowledge, checking daemon/db health, or building the daemon.
 ---
 
 # GMCC Daemon (gm CLI)
@@ -18,7 +18,7 @@ shipping three products:
   via `DaemonEventSubscription`).
 
 Transport: NDJSON over a unix socket at `~/gmcc/daemon.sock` (wire protocol
-v5, one spec-named message per handler). Clients autostart the daemon when
+v7, one spec-named message per handler). Clients autostart the daemon when
 the socket is dead. The protocol handshake is DIRECTIONAL: a newer client
 makes a stale daemon self-exit after rebuilds; an older client is rejected
 while the daemon stays up — you never need to manage daemon lifecycle
@@ -51,15 +51,35 @@ message family):
 | `gm context get` | Read-only resolution of the current gmcc environment (never creates rows). |
 | `gm project list` | All projects (full rows incl. ckfs paths), ordered by code — the Landing browse entry point. |
 | `gm instance list [--project-uuid U]` | Instances, ordered by code. Omit the filter to list ALL instances (rows carry their project uuid); an unknown supplied uuid ⇒ NOT_FOUND. |
-| `gm session list [--instance-uuid U]` | Session stubs (full scalars minus backstory/goal bodies), ordered by code. Same optional-filter contract as `gm instance list`. |
+| `gm session list [--instance-uuid U]` | Session stubs (full scalars minus backstory/goal bodies), ordered by code, each carrying `last_activity_at` (latest of session update, prompt update, file change — the landing recency key). Same optional-filter contract as `gm instance list`. `status` is retired from the wire (v7); checked-out state is git-derived via `gm session resolve`. |
+| `gm session resolve [--session-uuid U]` | Session row + git-derived checked-out state (reads `.git/HEAD` directly; worktree `gitdir:` handled; detached ⇒ none). Defaults to the current repo/branch session. |
+| `gm instance current-session --instance-uuid U` | The session matching the instance's checked-out branch, or none (`head_state`: branch/detached/unavailable). |
 | `gm catalog search <query> [--project-uuid U] [--limit N]` | Tokenized OR name/code search over instances + sessions (case-insensitive literal substrings; wildcards escaped). An instance match returns ALL its sessions; every returned session's parent instance rides along. Unknown supplied project uuid ⇒ NOT_FOUND; whitespace-only query ⇒ BAD_REQUEST. |
 | `gm session get [--session-uuid U]` | Session row + prompt stubs + change summaries (per-prompt where attributed). Always singular; the uuid defaults to the current repo/branch session. |
-| `gm session update --expected-version N [--session-uuid U] [--name] [--backstory] [--goal] [--status active\|closed]` | Guarded scalar update (at least one field required); stale version ⇒ VERSION_CONFLICT. Always singular; the uuid defaults to the current repo/branch session. |
+| `gm session update --expected-version N [--session-uuid U] [--name] [--backstory] [--goal]` | Guarded scalar update (at least one field required); stale version ⇒ VERSION_CONFLICT. Always singular; the uuid defaults to the current repo/branch session. |
 | `gm prompt create --name N [--session-uuid U] [--code] [--backstory] [--goal] [--detail] [--command] [--uuid]` | Create a prompt; the daemon allocates the next per-session seq atomically. Session defaults to the current repo/branch. |
-| `gm prompt list [--session-uuid U] [--all]` | Lightweight stubs (uuid, session_uuid, seq, code, name, status, version). Session defaults to the current repo/branch — **not** every session in the db; `--all` lists every prompt in the db (stubs carry `session_uuid` for grouping; seq is only unique per session). `--all` is not combinable with `--session-uuid`; an unknown supplied uuid ⇒ NOT_FOUND, never a silent empty list. |
+| `gm prompt list [--session-uuid U] [--all]` | Lightweight stubs (uuid, session_uuid, seq, code, name, status, version, ckfs_relative_storage_path, created_at, updated_at). Session defaults to the current repo/branch — **not** every session in the db; `--all` lists every prompt in the db (stubs carry `session_uuid` for grouping; seq is only unique per session). `--all` is not combinable with `--session-uuid`; an unknown supplied uuid ⇒ NOT_FOUND, never a silent empty list. |
 | `gm prompt get --prompt-uuid U` | Full prompt + artifact pointers + kbites + change summary. |
-| `gm prompt update-content --prompt-uuid U --expected-version N [--backstory] [--goal] [--detail]` | Draft-only edit of the STAY TRUE triple; CONTENT_LOCKED once Clarifying/Clarified. |
-| `gm prompt set-status --prompt-uuid U --expected-version N --status S` | Forward-only draft → clarifying → clarified; anything else ⇒ INVALID_TRANSITION. |
+| `gm prompt update-content --prompt-uuid U --expected-version N [--backstory] [--goal] [--detail]` | Draft-only edit of the STAY TRUE triple; CONTENT_LOCKED past draft (the ONE exemption: `gm clarify finalize` copies the refined goal into `prompt.goal` daemon-side). |
+| `gm prompt set-status --prompt-uuid U --expected-version N --status S` | Lifecycle v2, forward-only + adjacent-only: draft → clarifying → architecting → implementing → reviewing → done, with one skip edge implementing → done (reviewing optional). THE single door for prompt transitions (clarify/arch verbs never move the prompt). Gates enforced in-transaction: entering `clarifying` creates the clarification summary; `clarifying → architecting` requires it `complete` (and creates the architecture summary); `architecting → implementing` requires the architecture `approved`. Pre-m0002 prompts bypass absent-backing-row gates (no synthetic rows are ever fabricated — the bot falls back to ckfs artifacts via `gm artifact list`). |
+| `gm clarify open --prompt-uuid U` | Create-or-return the clarification summary (status `building`). Idempotent; never transitions the prompt. On a legacy prompt this is the explicit adoption path. |
+| `gm clarify ask --summary-uuid S --category goal\|detail\|yeet_type --question Q [--answer A --source bot_inferred]` | Insert a question while `building` (pre-answered rows for confidently-resolved detections). |
+| `gm clarify seal --summary-uuid S --expected-version N` | `building → answering`: lock the question list. |
+| `gm clarify answer --clarification-uuid C --expected-version N [--answer A] [--source user\|bot_inferred] [--skip]` | Answer (or skip) one row; summary must be `answering`; `--expected-version` targets the clarification ROW. Revives a skipped row. |
+| `gm clarify reopen --summary-uuid S --expected-version N` | `complete → answering`: the revision edge (re-finalize after). |
+| `gm clarify finalize --summary-uuid S --expected-version N --refined-goal G --refined-detail D [--backstory-note]` | `answering → complete`: every non-skipped question must be answered, both refined fields non-empty; copies refined_goal into `prompt.goal`. |
+| `gm clarify get --prompt-uuid U` | Summary + ordered clarification rows. NOT_FOUND on a legacy prompt ⇒ fall back to the `qualified` artifact. |
+| `gm arch open --prompt-uuid U` | Create-or-return the architecture summary (status `drafting`). Idempotent; never transitions the prompt. |
+| `gm arch summarize --summary-uuid S --expected-version N --body B` | Concept-level body only (approach/components/flow/tradeoffs — file specifics belong in change rows). Drafting only. |
+| `gm arch persist-add --summary-uuid S --class-name C --file-path P --reason R` | Persistence-layer change row (ORM/schema class). Paths are normalized repo-relative; absolute-outside-instance ⇒ BAD_REQUEST. |
+| `gm arch field-add --persistence-uuid PC --field-name F --data-type T --reason R --purpose P --nullable\|--no-nullable [--foreign-key --fk-target t.col] [--indexed]` | Field-level row under a persistence change. |
+| `gm arch general-add --summary-uuid S --file-path P [--class-name C] --reason R --depth pseudo\|draft\|actual --code CODE` | Non-persistence change with its change code (2 MB cap). |
+| `gm arch propose --summary-uuid S --expected-version N` | `drafting → proposed`: change rows sealed for review. |
+| `gm arch approve --summary-uuid S --expected-version N` | `proposed → approved` (terminal): unlocks `architecting → implementing`. |
+| `gm arch revise --summary-uuid S --expected-version N` | `proposed → drafting`: the revision edge. |
+| `gm arch get --prompt-uuid U` | Summary + ordered changes (persistence FIRST — the implementation order contract) each decorated with derived implementation state (`file_change_count`, `first/last_changed_at` from the path join), plus `unplanned_changes` (touched but not planned — scope drift) and `ordering_respected` (persistence-first audit). Comparison joins on daemon-normalized repo-relative paths and sees only file changes recorded with `--prompt-uuid`. |
+| `gm paths` | The daemon's typed roots: gmcc runtime, db, socket, backups (from conventions) + ckfs/kbite roots (from db-backed config). |
+| `gm config set --key ckfs_root\|kbite_root\|kbite_open_root\|kbite_digested_root --value V` | Write one config key (enum-bound; unknown ⇒ BAD_REQUEST). The daemon never reads `$GMCC_*` env vars. |
 | `gm artifact add --prompt-uuid U --file-path P --kind explore\|architecture\|review\|qualified\|other [--note]` | Register a bot-phase memory/ file pointer (content stays in the file). |
 | `gm artifact list --prompt-uuid U` | Artifact pointers for a prompt. |
 | `gm file-change add --path <repo-rel> [--kind edit\|create\|delete\|rename] [--range start:end]... [--content <text>] [--prompt-uuid <uuid>]` | Record a file edit: session_file + file_change + ranges + FILE_CHANGE event. Run from inside the repo — git context is auto-detected and ckfs uuids reused. |
@@ -83,10 +103,12 @@ Domain error codes (typed, branch on these — never parse messages):
 `INVALID_TRANSITION` (illegal status jump), `CONTENT_LOCKED` (content edit
 outside Draft).
 
-**GM task rule**: bot workflows should record their file edits with
-`gm file-change add` as they make them (mirrors the session_data
-`changed_files:` bookkeeping into the db), passing `--prompt-uuid` when a
-daemon-side prompt row exists so per-prompt change summaries populate.
+**GM task rule**: bot workflows record their file edits with
+`gm file-change add` as they make them, **always passing `--prompt-uuid`** —
+the `gm arch get` implementation-state comparison joins on prompt-attributed
+changes only, so an unattributed change is invisible to it. Paths are
+repo-relative (the daemon normalizes absolute-inside-instance and rejects
+anything it can't anchor).
 
 ## Self-heal rule
 
@@ -111,12 +133,13 @@ predates the installed binaries + verify) and `/archive_gmcc_daemon_data`
 (stop → move `gmcc.db*` + `daemon.log` to `~/gmcc/_archive/cold_storage/{ts}/`
 → restart on a fresh db; never touches the ckfs yaml tree).
 
-**Schema re-baseline rule**: while the db is pre-trust, schema changes are
-folded into the single m0001 migration — every re-baseline requires deleting
-`~/gmcc/gmcc.db*` (db, -wal, -shm) before restarting the daemon. If
-prompt/kbite commands fail with "no such column" DB_ERRORs after an upgrade,
-the db predates the current re-baseline: stop the daemon, delete the db
-files, and let the next `gm` call recreate everything.
+**Schema migration rule (the re-baseline era is OVER)**: since m0002 the db
+is append-only — schema changes land as new migrations and existing databases
+upgrade in place at daemon boot, preserving all data. **NEVER delete
+`~/gmcc/gmcc.db*`** to fix a schema error. If prompt/kbite commands fail with
+"no such column" DB_ERRORs after an upgrade, the running daemon predates the
+installed binaries: run `/refresh_daemon_state` (rebuild + restart) so the new
+daemon applies its pending migrations.
 
 ## Inspecting the db (read-only)
 
@@ -125,7 +148,10 @@ NEVER write to it from outside the daemon — all writes go through `gm`.
 Schema: BaseEntity wrap (id serial PK, uuid v4 join key, version — the
 optimistic-concurrency token, created_at/updated_at) on every domain table;
 all FKs reference `uuid`. Tables: project, instance, session, prompt,
-prompt_artifact, kbite, {prompt,session,instance,project}_active_kbite,
+prompt_artifact, clarification_summary, clarification, architecture_summary,
+architecture_persistence_change, architecture_persistence_field_change,
+architecture_general_change, daemon_config, kbite,
+{prompt,session,instance,project}_active_kbite,
 keyword, kbite_keyword_junction, kbite_resource, kbite_resource_file,
 resource_file_keyword_junction, kbite_resource_file_fts (FTS5 mirror backing
 KBITE_SEARCH, trigger-synced), session_file, file_change, file_change_range,

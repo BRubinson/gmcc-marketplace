@@ -82,14 +82,14 @@ always starts a brand-new draft.
 ## Workflows
 
 GMCC offers four entry points. All but `/gm_task` author a prompt into the current
-session (a draft → clarified → implemented pipeline); `/gm_task` skips the ceremony.
+session (a draft → clarifying → architecting → implementing → reviewing → done pipeline); `/gm_task` skips the ceremony.
 
 | Command | Execution model | Best for | Requires |
 |---------|-----------------|----------|----------|
 | `/gm_bot` | Lightweight — all phases in primary context, no subagents | Quick, well-scoped changes | — |
 | `/gm_bot_rpi` | Research/Plan/Implement — spawns explore, architecture & review subagents | Medium tasks needing exploration + review | — |
 | `/gm_bot_team` | Agent teams — 4 teammates per phase, each on a different methodology | Large or high-stakes tasks | `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` |
-| `/gm_task` | Context-loaded but **read-only to the ckfs** — no draft/clarified files | Applying GMCC context to a one-off without the prompt pipeline | — |
+| `/gm_task` | Context-loaded but **read-only** — no prompt rows or clarifications | Applying GMCC context to a one-off without the prompt pipeline | — |
 
 `/gm_task` is "read-only" with respect to the ckfs only — it still edits your repository
 files. It writes nothing under `~/gmcc_ckfs/` unless you explicitly ask for a retroactive

@@ -55,7 +55,7 @@ filesystem moves within the session.
 
 | Finding | Example | Default suggestion |
 |---------|---------|--------------------|
-| Unregistered artifact | `memory/{explore,qualified,architecture,review}.md` on disk with no `prompt_artifact` row (`gm artifact list --prompt-uuid U`) | Register via `gm artifact add` with the matching `--kind` + caption note (default), or skip |
+| Unregistered artifact | `memory/{explore,review}.md` (or legacy `qualified/architecture.md`) on disk with no `prompt_artifact` row (`gm artifact list --prompt-uuid U`) | Register via `gm artifact add` with the matching `--kind` + caption note (default), or skip |
 | Dangling pointer | artifact row whose `file_path` doesn't exist on disk | Flag for user — restore the file if recoverable, or accept (pointers are history; no gm delete path) |
 | Unknown memory file | a `memory/*.md` not matching a known kind | Register as `--kind other` (default), or skip |
 
