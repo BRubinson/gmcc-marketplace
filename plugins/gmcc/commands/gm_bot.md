@@ -28,7 +28,7 @@ Exit without proceeding.
 The SessionStart hook exports env, `mkdir`s `$GMCC_SESSION_PATH/prompts/`, and runs `gm context ensure`.
 
 1. `~/gmcc/bin/gm session get --json` for current session state (session row + prompt stubs + change summary). If this exits 2 (daemon unreachable), self-heal: `bash $GMCC_PLUGIN_ROOT/scripts/build_daemon.sh`, then `gm context ensure`, then retry.
-2. Skim recent prompts' clarifications for context if relevant (`gm clarify get --prompt-uuid U`; legacy prompts keep `memory/qualified.md` under `$GMCC_SESSION_PATH/prompts/*/memory/`).
+2. One call for the whole session's report state: `gm prompt list --with-reports --json`. Each stub carries its clarification/architecture status, refined goal, backstory note, summary version, and counts. `is_legacy: true` with a null report = a pre-m0002 prompt: read its ckfs artifacts (`gm artifact list`), never fabricate rows. `is_legacy: false` with a null report = simply not opened yet. For topic lookup across prompts use `gm search "<topic>" --json` — do NOT grep the ckfs and do NOT open memory files to find prior context. (`gm search` covers prompt/clarification/architecture text; explore.md and review.md are still plain files reached via `gm artifact list`.)
 
 ---
 
@@ -57,7 +57,7 @@ required.
    - `implementing` → jump to Phase 5 (`gm arch get` is the approved plan + implementation state)
    - `reviewing` → jump to Phase 6
    - `done` → report complete; further work is a NEW prompt
-   - **Legacy fallback**: a pre-m0002 prompt may sit at (or move through) any status with NO clarification/architecture rows — `gm clarify get`/`gm arch get` return NOT_FOUND. CHECK the ckfs artifacts instead (`gm artifact list --prompt-uuid U` → qualified/architecture pointers); never create backfill rows.
+   - **Legacy fallback**: a pre-m0002 prompt may sit at (or move through) any status with NO clarification/architecture rows — `gm clarify get`/`gm arch get` return `SUMMARY_ABSENT` with `prompt_is_legacy: true`. CHECK the ckfs artifacts instead (`gm artifact list --prompt-uuid U` → qualified/architecture pointers); never create backfill rows. (`prompt_is_legacy: false` means a current prompt that simply hasn't opened one — `gm clarify open`/`gm arch open`, never a file fallback.)
 4. The remaining arguments (if any) become the continuation prompt. With no
    remaining arguments, run the drafted prompt as written — this is the
    GMVibes "run this prompt" path.
@@ -71,7 +71,11 @@ required.
          ^prompt name  ^prompt content
 ```
 1. Create the prompt row (see Prompt Creation below) — the daemon allocates `seq` atomically.
-2. `mkdir -p "$GMCC_SESSION_PATH/prompts/{seq}_{name}/memory"`.
+2. Create the memory dir at the path the daemon returned — the db value is the authority and the watcher matches it exactly:
+   ```bash
+   mkdir -p "$GMCC_CKFS_ROOT/<ckfs_relative_storage_path from the create response>/memory"
+   ```
+   (`$GMCC_CKFS_ROOT` unset? `gm paths --json | jq -r .ckfs_root`.) NEVER re-derive `{seq}_{name}` yourself: the daemon slugs the name, so a hand-built path can diverge and silently break memory-change events.
 3. Proceed to Phase 1.
 
 ### Case 3: No arguments
@@ -161,7 +165,12 @@ gm artifact add --prompt-uuid U --file-path ".../memory/explore.md" \
 
 ## Phase 3: Clarify (db-native)
 
-The clarification is DB-NATIVE (no qualified.md — that is the legacy path).
+The clarification is DB-NATIVE. **NEVER write `memory/qualified.md` for a
+post-m0002 prompt** — no "grep-ability mirrors", no duplicate registration:
+the db rows ARE the record and `gm clarify get` is the render. If
+`gm clarify get` returns `SUMMARY_ABSENT` with `prompt_is_legacy: false`,
+OPEN a summary (`gm clarify open`) — do not fall back to files. The file
+mirrors exist only for legacy prompts and only as read-only history.
 Thread `--expected-version` on every transition (capture `.version` from each
 response; on `VERSION_CONFLICT`, re-read and retry). `gm prompt set-status`
 is the ONLY door that moves the prompt; clarify verbs touch the summary only.
@@ -205,8 +214,11 @@ is the ONLY door that moves the prompt; clarify verbs touch the summary only.
 
 ## Phase 4: Plan (db-native architecture)
 
-The architecture is DB-NATIVE (no architecture.md — that is the legacy path).
-Entering `architecting` created the summary (`gm arch get` for its uuid).
+The architecture is DB-NATIVE. **NEVER write `memory/architecture.md` for a
+post-m0002 prompt** — the db rows ARE the record and `gm arch get` is the
+render; `SUMMARY_ABSENT` with `prompt_is_legacy: false` means `gm arch open`,
+never a file fallback. Entering `architecting` created the summary
+(`gm arch get` for its uuid).
 
 1. **Persistence check FIRST (universal):** determine whether this prompt touches the persistence layer (SQLite schema, GRDB records, any ORM entity). Record the outcome as `gm arch persist-add` rows — possibly zero — BEFORE any general change.
 2. Author the plan:

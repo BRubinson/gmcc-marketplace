@@ -18,7 +18,7 @@ shipping three products:
   via `DaemonEventSubscription`).
 
 Transport: NDJSON over a unix socket at `~/gmcc/daemon.sock` (wire protocol
-v7, one spec-named message per handler). Clients autostart the daemon when
+v8, schema m0003, one spec-named message per handler). Clients autostart the daemon when
 the socket is dead. The protocol handshake is DIRECTIONAL: a newer client
 makes a stale daemon self-exit after rebuilds; an older client is rejected
 while the daemon stays up — you never need to manage daemon lifecycle
@@ -42,7 +42,7 @@ message family):
 | Subcommand | Purpose |
 |------------|---------|
 | `gm ping` | Liveness + build identity (sha/date stamped by build_daemon.sh), uptime. |
-| `gm status` | Daemon + db health: pid, protocol, socket, schema version, per-table row counts. |
+| `gm status` | Daemon + db health: pid, protocol, socket, schema version, per-table row counts, and `last_event_id` — the REAL event-log horizon (highest daemon_event.id). `table_counts` is a row census and MUST NOT be used as an event cursor. |
 | `gm setup [--launchd]` | Client-side init of `~/gmcc/` dirs + daemon autostart. `--launchd` installs a login agent. |
 | `gm daemon start\|stop\|restart\|status` | Lifecycle. `stop` = SHUTDOWN: drain, WAL checkpoint, pidfile + socket removal, exit 0. |
 | `gm backup` | SQLite online backup to a timestamped copy under `~/gmcc/backups/`. |
@@ -52,13 +52,13 @@ message family):
 | `gm project list` | All projects (full rows incl. ckfs paths), ordered by code — the Landing browse entry point. |
 | `gm instance list [--project-uuid U]` | Instances, ordered by code. Omit the filter to list ALL instances (rows carry their project uuid); an unknown supplied uuid ⇒ NOT_FOUND. |
 | `gm session list [--instance-uuid U]` | Session stubs (full scalars minus backstory/goal bodies), ordered by code, each carrying `last_activity_at` (latest of session update, prompt update, file change — the landing recency key). Same optional-filter contract as `gm instance list`. `status` is retired from the wire (v7); checked-out state is git-derived via `gm session resolve`. |
-| `gm session resolve [--session-uuid U]` | Session row + git-derived checked-out state (reads `.git/HEAD` directly; worktree `gitdir:` handled; detached ⇒ none). Defaults to the current repo/branch session. |
-| `gm instance current-session --instance-uuid U` | The session matching the instance's checked-out branch, or none (`head_state`: branch/detached/unavailable). |
+| `gm session resolve [--session-uuid U]` | Session row + git-derived checked-out state (reads `.git/HEAD` directly; worktree `gitdir:` handled; detached ⇒ none). Defaults to the current repo/branch session. Returns `current_branch` (the RAW branch, nil unless `head_state` is "branch") alongside the slugged `current_session_code` — the two are never interconverted client-side. |
+| `gm instance current-session --instance-uuid U` | The session matching the instance's checked-out branch, or none (`head_state`: branch/detached/unavailable). Also returns `current_branch` (raw, nil unless on a branch). |
 | `gm catalog search <query> [--project-uuid U] [--limit N]` | Tokenized OR name/code search over instances + sessions (case-insensitive literal substrings; wildcards escaped). An instance match returns ALL its sessions; every returned session's parent instance rides along. Unknown supplied project uuid ⇒ NOT_FOUND; whitespace-only query ⇒ BAD_REQUEST. |
 | `gm session get [--session-uuid U]` | Session row + prompt stubs + change summaries (per-prompt where attributed). Always singular; the uuid defaults to the current repo/branch session. |
 | `gm session update --expected-version N [--session-uuid U] [--name] [--backstory] [--goal]` | Guarded scalar update (at least one field required); stale version ⇒ VERSION_CONFLICT. Always singular; the uuid defaults to the current repo/branch session. |
 | `gm prompt create --name N [--session-uuid U] [--code] [--backstory] [--goal] [--detail] [--command] [--uuid]` | Create a prompt; the daemon allocates the next per-session seq atomically. Session defaults to the current repo/branch. |
-| `gm prompt list [--session-uuid U] [--all]` | Lightweight stubs (uuid, session_uuid, seq, code, name, status, version, ckfs_relative_storage_path, created_at, updated_at). Session defaults to the current repo/branch — **not** every session in the db; `--all` lists every prompt in the db (stubs carry `session_uuid` for grouping; seq is only unique per session). `--all` is not combinable with `--session-uuid`; an unknown supplied uuid ⇒ NOT_FOUND, never a silent empty list. |
+| `gm prompt list [--session-uuid U] [--all] [--with-reports]` | Lightweight stubs (uuid, session_uuid, seq, code, name, status, version, ckfs_relative_storage_path, `is_legacy`, created_at, updated_at). Session defaults to the current repo/branch — **not** every session in the db; `--all` lists every prompt in the db (stubs carry `session_uuid` for grouping; seq is only unique per session). `--all` is not combinable with `--session-uuid`; an unknown supplied uuid ⇒ NOT_FOUND, never a silent empty list. `--with-reports` attaches each prompt's clarification + architecture summary stubs (status, refined_goal, backstory_note, summary version, question/change counts) — ONE call for the whole session's report state, replacing the per-prompt `gm clarify get`/`gm arch get` fan-out. A nil report + `is_legacy: true` means pre-m0002 (read ckfs artifacts); nil + `is_legacy: false` means simply not opened yet. |
 | `gm prompt get --prompt-uuid U` | Full prompt + artifact pointers + kbites + change summary. |
 | `gm prompt update-content --prompt-uuid U --expected-version N [--backstory] [--goal] [--detail]` | Draft-only edit of the STAY TRUE triple; CONTENT_LOCKED past draft (the ONE exemption: `gm clarify finalize` copies the refined goal into `prompt.goal` daemon-side). |
 | `gm prompt set-status --prompt-uuid U --expected-version N --status S` | Lifecycle v2, forward-only + adjacent-only: draft → clarifying → architecting → implementing → reviewing → done, with one skip edge implementing → done (reviewing optional). THE single door for prompt transitions (clarify/arch verbs never move the prompt). Gates enforced in-transaction: entering `clarifying` creates the clarification summary; `clarifying → architecting` requires it `complete` (and creates the architecture summary); `architecting → implementing` requires the architecture `approved`. Pre-m0002 prompts bypass absent-backing-row gates (no synthetic rows are ever fabricated — the bot falls back to ckfs artifacts via `gm artifact list`). |
@@ -68,7 +68,7 @@ message family):
 | `gm clarify answer --clarification-uuid C --expected-version N [--answer A] [--source user\|bot_inferred] [--skip]` | Answer (or skip) one row; summary must be `answering`; `--expected-version` targets the clarification ROW. Revives a skipped row. |
 | `gm clarify reopen --summary-uuid S --expected-version N` | `complete → answering`: the revision edge (re-finalize after). |
 | `gm clarify finalize --summary-uuid S --expected-version N --refined-goal G --refined-detail D [--backstory-note]` | `answering → complete`: every non-skipped question must be answered, both refined fields non-empty; copies refined_goal into `prompt.goal`. |
-| `gm clarify get --prompt-uuid U` | Summary + ordered clarification rows. NOT_FOUND on a legacy prompt ⇒ fall back to the `qualified` artifact. |
+| `gm clarify get --prompt-uuid U` | Summary + ordered clarification rows. A prompt with no summary ⇒ `SUMMARY_ABSENT` (see error codes): `prompt_is_legacy: true` ⇒ read the `qualified` artifact, never fabricate rows; `false` ⇒ `gm clarify open`. Plain NOT_FOUND now means only the uuid itself is unknown. |
 | `gm arch open --prompt-uuid U` | Create-or-return the architecture summary (status `drafting`). Idempotent; never transitions the prompt. |
 | `gm arch summarize --summary-uuid S --expected-version N --body B` | Concept-level body only (approach/components/flow/tradeoffs — file specifics belong in change rows). Drafting only. |
 | `gm arch persist-add --summary-uuid S --class-name C --file-path P --reason R` | Persistence-layer change row (ORM/schema class). Paths are normalized repo-relative; absolute-outside-instance ⇒ BAD_REQUEST. |
@@ -77,10 +77,11 @@ message family):
 | `gm arch propose --summary-uuid S --expected-version N` | `drafting → proposed`: change rows sealed for review. |
 | `gm arch approve --summary-uuid S --expected-version N` | `proposed → approved` (terminal): unlocks `architecting → implementing`. |
 | `gm arch revise --summary-uuid S --expected-version N` | `proposed → drafting`: the revision edge. |
-| `gm arch get --prompt-uuid U` | Summary + ordered changes (persistence FIRST — the implementation order contract) each decorated with derived implementation state (`file_change_count`, `first/last_changed_at` from the path join), plus `unplanned_changes` (touched but not planned — scope drift) and `ordering_respected` (persistence-first audit). Comparison joins on daemon-normalized repo-relative paths and sees only file changes recorded with `--prompt-uuid`. |
+| `gm arch get --prompt-uuid U` | Summary + ordered changes (persistence FIRST — the implementation order contract) each decorated with derived implementation state (`file_change_count`, `first/last_changed_at` from the path join), plus `unplanned_changes` (touched but not planned — scope drift) and `ordering_respected` (persistence-first audit). Comparison joins on daemon-normalized repo-relative paths and sees only file changes recorded with `--prompt-uuid`. No summary ⇒ `SUMMARY_ABSENT` with `prompt_is_legacy` (same branch rule as `gm clarify get`). |
+| `gm search "<query>" [--all] [--session-uuid U] [--kind K...] [--limit N]` | FTS5 full-text search over prompt name/goal/detail/backstory, clarification questions/answers/refined fields, and architecture bodies/reasons/change code. bm25-ranked stubs with prompt lineage (prompt uuid/seq/name/status, session) and a bounded excerpt — never full content. Scope defaults to the current repo/branch session; `--all` for the whole db (not combinable with `--session-uuid`). Kinds: prompt, clarification, clarification_summary, architecture_summary, architecture_general_change, architecture_persistence_change. Whitespace-only query ⇒ BAD_REQUEST; unknown supplied session uuid ⇒ NOT_FOUND. Does NOT index explore.md/review.md — those stay pointer-only artifacts (`gm artifact list`). Scores are comparable only within a kind. |
 | `gm paths` | The daemon's typed roots: gmcc runtime, db, socket, backups (from conventions) + ckfs/kbite roots (from db-backed config). |
 | `gm config set --key ckfs_root\|kbite_root\|kbite_open_root\|kbite_digested_root --value V` | Write one config key (enum-bound; unknown ⇒ BAD_REQUEST). The daemon never reads `$GMCC_*` env vars. |
-| `gm artifact add --prompt-uuid U --file-path P --kind explore\|architecture\|review\|qualified\|other [--note]` | Register a bot-phase memory/ file pointer (content stays in the file). |
+| `gm artifact add --prompt-uuid U --file-path P --kind explore\|architecture\|review\|qualified\|other [--note]` | Register a bot-phase memory/ file pointer (content stays in the file). The `qualified`/`architecture` kinds are RESERVED for true pre-m0002 legacy files — NEVER write a qualified.md/architecture.md mirror for a post-m0002 prompt (the db-native rows ARE the record; `gm clarify get`/`gm arch get` are the render). |
 | `gm artifact list --prompt-uuid U` | Artifact pointers for a prompt. |
 | `gm file-change add --path <repo-rel> [--kind edit\|create\|delete\|rename] [--range start:end]... [--content <text>] [--prompt-uuid <uuid>]` | Record a file edit: session_file + file_change + ranges + FILE_CHANGE event. Run from inside the repo — git context is auto-detected and ckfs uuids reused. |
 | `gm file-change list [--session-uuid U] [--prompt-uuid] [--path] [--limit] [--all]` | Query changes for the current session with ranges joined. `--all` drops the current-session default and queries the whole db (`--prompt-uuid`/`--path` still narrow); not combinable with `--session-uuid`; an unknown supplied uuid ⇒ NOT_FOUND. |
@@ -99,9 +100,29 @@ after autostart · `3` unrecoverable protocol mismatch · `64` bad flags/usage
 (ArgumentParser validation).
 
 Domain error codes (typed, branch on these — never parse messages):
-`NOT_FOUND`, `VERSION_CONFLICT` (stale `--expected-version`),
-`INVALID_TRANSITION` (illegal status jump), `CONTENT_LOCKED` (content edit
-outside Draft).
+`NOT_FOUND` (the uuid itself is unknown), `VERSION_CONFLICT` (stale
+`--expected-version`), `INVALID_TRANSITION` (illegal status jump — reasons
+are now human-phrased and name the legal next states), `CONTENT_LOCKED`
+(content edit outside Draft), `SUMMARY_ABSENT` (the prompt exists but has no
+clarification/architecture summary; the payload's `prompt_is_legacy` says
+which case: `true` ⇒ read the ckfs artifact via `gm artifact list`, never
+fabricate rows; `false` ⇒ open one via `gm clarify open`/`gm arch open`).
+
+**Storage path contract (A4)**: `gm prompt create` derives and returns
+`ckfs_relative_storage_path`, SLUGGING the name (forward-only and lossy, like
+branch → session code). The memory watcher resolves prompts by EXACT
+case-sensitive equality against that stored value, so clients MUST mkdir the
+returned path verbatim (relative to `gm paths` → ckfs_root) and MUST NOT
+re-derive `{seq}_{name}` themselves. Existing rows are untouched.
+
+**Ephemeral events (id 0, never a daemon_event row, never a replay cursor)**:
+`PROMPT_MEMORY_CHANGED` (a prompt's memory/ subtree changed on disk) and
+`CHECKOUT_CHANGE` (an instance repo's HEAD changed; subject = instance uuid;
+payload carries `head_state` / `current_branch` / `current_session_code`).
+Clients subscribe instead of running their own .git watchers; on reconnect
+ask `gm instance current-session` once rather than replaying. The watcher set
+re-roots itself on `CONFIG_SET ckfs_root` and rebuilds on instance creation —
+no daemon restart needed.
 
 **GM task rule**: bot workflows record their file edits with
 `gm file-change add` as they make them, **always passing `--prompt-uuid`** —
@@ -154,9 +175,12 @@ architecture_general_change, daemon_config, kbite,
 {prompt,session,instance,project}_active_kbite,
 keyword, kbite_keyword_junction, kbite_resource, kbite_resource_file,
 resource_file_keyword_junction, kbite_resource_file_fts (FTS5 mirror backing
-KBITE_SEARCH, trigger-synced), session_file, file_change, file_change_range,
-daemon_event (append-only — its `id` is the SUBSCRIBE replay cursor),
-schema_migrations (unwrapped ledger).
+KBITE_SEARCH, trigger-synced), prompt_fts, clarification_summary_fts,
+clarification_fts, architecture_summary_fts, architecture_general_change_fts,
+architecture_persistence_change_fts (six FTS5 mirrors backing SEARCH,
+trigger-synced, backfilled once by m0003), session_file, file_change,
+file_change_range, daemon_event (append-only — its `id` is the SUBSCRIBE
+replay cursor), schema_migrations (unwrapped ledger).
 
 ## KBite data model (v16 prompt 4)
 

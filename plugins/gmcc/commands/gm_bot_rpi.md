@@ -28,7 +28,7 @@ Exit without proceeding.
 The SessionStart hook exports env, `mkdir`s `$GMCC_SESSION_PATH/prompts/`, and runs `gm context ensure`. Then:
 
 1. `~/gmcc/bin/gm session get --json` for current session state (session row + prompt stubs + change summary). If this exits 2 (daemon unreachable), self-heal: `bash $GMCC_PLUGIN_ROOT/scripts/build_daemon.sh`, then `gm context ensure`, then retry.
-2. Skim recent prompts' clarifications for context (`gm clarify get --prompt-uuid U`; legacy prompts keep `memory/qualified.md`).
+2. One call for the whole session's report state: `gm prompt list --with-reports --json` (per-prompt clarification/architecture status, refined goal, backstory note, version, counts). `is_legacy: true` + null report = pre-m0002: read ckfs artifacts (`gm artifact list`), never fabricate rows; `is_legacy: false` + null report = not opened yet. Topic lookup across prompts is `gm search "<topic>" --json` — do NOT grep the ckfs or open memory files for context (explore.md/review.md stay files, reached via `gm artifact list`).
 
 ---
 
@@ -51,11 +51,18 @@ Identical to `/gm_bot`. See `${CLAUDE_PLUGIN_ROOT}/commands/gm_bot.md` for full 
   --command /gm_bot_rpi --json
 ```
 
-Capture `uuid`, `seq`, `version` (0 on create) from the JSON. Then:
+Capture `uuid`, `seq`, `version` (0 on create) **and
+`ckfs_relative_storage_path`** from the JSON. Then create the memory dir at
+the RETURNED path — the db value is the authority and the memory watcher
+matches it by exact case-sensitive equality:
 
 ```bash
-mkdir -p "$GMCC_SESSION_PATH/prompts/{seq}_{name}/memory"
+mkdir -p "$GMCC_CKFS_ROOT/<ckfs_relative_storage_path from the response>/memory"
 ```
+
+(`$GMCC_CKFS_ROOT` unset? `gm paths --json | jq -r .ckfs_root`.) NEVER
+re-derive `{seq}_{name}` yourself: the daemon slugs the name, so a hand-built
+path can diverge and silently break memory-change events.
 
 **STAY TRUE — do NOT split, infer, or author `backstory`/`goal`/`detail`.**
 The entire passed prompt is `--detail`, **verbatim**. `goal` is omitted
@@ -133,9 +140,14 @@ Use it to inform Clarify.
 
 ## Phase 3: Clarify (db-native)
 
-The clarification is DB-NATIVE (no qualified.md — legacy path only). Thread
-`--expected-version` on every transition (on `VERSION_CONFLICT`, re-read and
-retry). `gm prompt set-status` is the ONLY door that moves the prompt.
+The clarification is DB-NATIVE. **NEVER write `memory/qualified.md` for a
+post-m0002 prompt** — no "grep-ability mirrors", no duplicate registration:
+the db rows ARE the record, `gm clarify get` is the render. `SUMMARY_ABSENT`
+with `prompt_is_legacy: false` means `gm clarify open`, never a file
+fallback; the file mirrors exist only for legacy prompts as read-only
+history. Thread `--expected-version` on every transition (on
+`VERSION_CONFLICT`, re-read and retry). `gm prompt set-status` is the ONLY
+door that moves the prompt.
 
 1. **Enter clarifying** (locks content; the daemon creates the summary):
    ```bash
@@ -165,7 +177,10 @@ retry). `gm prompt set-status` is the ONLY door that moves the prompt.
 ## Phase 4: Plan (Architect Subagent, db-native persistence)
 
 Spawn 1 architect subagent. The returned architecture is persisted to the DB
-(`gm arch` rows — no architecture.md) after user approval.
+after user approval. **NEVER write `memory/architecture.md` for a post-m0002
+prompt** — the `gm arch` rows ARE the record and `gm arch get` is the render;
+`SUMMARY_ABSENT` with `prompt_is_legacy: false` means `gm arch open`, never a
+file fallback.
 
 ```
 Task tool:

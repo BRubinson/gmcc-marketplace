@@ -26,7 +26,7 @@ All GMCC env vars are exported by `${CLAUDE_PLUGIN_ROOT}/scripts/detect_repo.sh`
 ## GM-CDE Three-Tier Architecture
 
 1. **Plugin (static)**: `$GMCC_PLUGIN_ROOT/` — Skills, commands, prompts, hooks, scripts, and the daemon Swift package.
-2. **Runtime data + artifacts**: project/instance/session/prompt rows live in the daemon db at `~/gmcc/gmcc.db` (single-writer; all access via `~/gmcc/bin/gm`). The ckfs tree at `$GMCC_PROJECTS/{project}/instances/{instance}/sessions/{branch}/prompts/{seq}_{name}/memory/` holds only phase artifacts (`explore.md`/`review.md`; clarification + architecture are db-native via `gm clarify`/`gm arch` since v17, with legacy `qualified/architecture.md` behind artifact pointers), each file registered as a db pointer via `gm artifact add`.
+2. **Runtime data + artifacts**: project/instance/session/prompt rows live in the daemon db at `~/gmcc/gmcc.db` (single-writer; all access via `~/gmcc/bin/gm`). The ckfs tree at `$GMCC_PROJECTS/{project}/instances/{instance}/sessions/{branch}/prompts/{seq}_{name}/memory/` holds only phase artifacts (`explore.md`/`review.md`; clarification + architecture are db-native via `gm clarify`/`gm arch` since v17, with legacy `qualified/architecture.md` behind artifact pointers), each file registered as a db pointer via `gm artifact add`. New mirrors are never written for post-m0002 prompts — the .md files exist only as legacy history behind artifact pointers.
 3. **System KBites**: `$GMCC_KBITE/` (= `$GMCC_CKFS_ROOT/kbites/`) — Shared knowledge across projects. Digested text/keywords/search are db-canonical (`gm kbite`); the filesystem splits into `$GMCC_KBITE_DIGESTED/` (raw-source archive) and `$GMCC_KBITE_OPEN/` (in-progress maws). KBITE_PURPOSE.md lives at the kbite root, above the lifecycle split.
 
 For detailed structures, read: `$GMCC_PLUGIN_ROOT/skills/gmcc/ref/ckfs_details.md`
@@ -37,7 +37,7 @@ For detailed structures, read: `$GMCC_PLUGIN_ROOT/skills/gmcc/ref/ckfs_details.m
 
 ### Always Do
 1. Trust the SessionStart hook for project / instance / session resolution — never recompute the paths yourself
-2. Load current session context (`gm session get --json` + relevant `prompts/*/memory/` artifacts) before starting work
+2. Load current session context before starting work — `gm session get --json`, `gm prompt list --with-reports --json` for per-prompt report state, and `gm search "<topic>" --json` for prior work, rather than reading `prompts/*/memory/` files (explore.md/review.md stay files, reached via `gm artifact list`)
 3. Record significant prompts as db rows (`gm prompt create`) and record file edits with `gm file-change add` as you make them
 4. Register every `memory/*.md` artifact you write with `gm artifact add` (pointer + one-sentence note)
 5. Load the kbites declared in the session's active registry (read `ref/kbite_awareness.md` for protocol)

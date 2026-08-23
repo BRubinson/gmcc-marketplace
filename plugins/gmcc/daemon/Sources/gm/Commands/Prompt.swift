@@ -66,6 +66,9 @@ struct Prompt: ParsableCommand {
         @Flag(name: .long, help: "List every prompt in the db, ignoring the current-session default.")
         var all = false
 
+        @Flag(name: .long, help: "Attach each prompt's clarification/architecture summary stub (one call replaces the per-prompt clarify/arch get fan-out).")
+        var withReports = false
+
         func validate() throws {
             if all, sessionUuid != nil {
                 throw ValidationError("--all cannot be combined with --session-uuid")
@@ -73,12 +76,14 @@ struct Prompt: ParsableCommand {
         }
 
         func run() throws {
-            let response = try withClient { client in
+            let response = try withClient { client -> PromptListResponse in
                 if all {
-                    return try client.listPrompts(PromptListRequest(sessionUuid: nil))
+                    return try client.listPrompts(PromptListRequest(
+                        sessionUuid: nil, withReports: withReports ? true : nil))
                 }
                 let session = try sessionUuid ?? ContextBuilder.resolveSessionUuid(client)
-                return try client.listPrompts(PromptListRequest(sessionUuid: session))
+                return try client.listPrompts(PromptListRequest(
+                    sessionUuid: session, withReports: withReports ? true : nil))
             }
             if output.json {
                 printJSON(response)
@@ -88,6 +93,24 @@ struct Prompt: ParsableCommand {
                 for stub in response.prompts {
                     let session = all ? "  session \(stub.sessionUuid.prefix(8))" : ""
                     print("  \(stub.seq). \(stub.name) [\(stub.status)] v\(stub.version) \(stub.uuid)\(session)")
+                    guard withReports else { continue }
+                    // Surface the three-state signal: nil report + is_legacy
+                    // discriminates "pre-m0002, read the ckfs artifact" from
+                    // "simply not opened yet".
+                    if let clar = stub.reports?.clarification {
+                        print("     clarification: \(clar.status) (\(clar.openQuestionCount) open / \(clar.questionCount)) v\(clar.version)")
+                    } else if stub.isLegacy {
+                        print("     clarification: none — legacy prompt, use `gm artifact list`")
+                    } else {
+                        print("     clarification: none — not opened yet (`gm clarify open`)")
+                    }
+                    if let arch = stub.reports?.architecture {
+                        print("     architecture:  \(arch.status) (\(arch.persistenceChangeCount) persist / \(arch.generalChangeCount) general) v\(arch.version)")
+                    } else if stub.isLegacy {
+                        print("     architecture:  none — legacy prompt, use `gm artifact list`")
+                    } else {
+                        print("     architecture:  none — not opened yet (`gm arch open`)")
+                    }
                 }
             }
         }

@@ -39,6 +39,14 @@ final class Server: @unchecked Sendable {
     /// Non-nil only inside performShutdown: broadcast tracks the DAEMON_STOP
     /// goodbye sends so exit(0) waits for delivery instead of racing it.
     private var goodbyeGroup: DispatchGroup?
+    /// A3/A8: owns both filesystem watchers and the one recompute path.
+    /// Built in start() (needs a fully initialised self), rebuilt via the
+    /// post-commit event sink on CONFIG_SET / CREATE_INSTANCE.
+    private var supervisor: WatcherSupervisor?
+    private var rebuildPending = false
+    /// A8 dedupe: instanceUuid → "state|branch" last emitted. Server-queue-
+    /// confined; only a genuine head change broadcasts.
+    private var lastCheckoutState: [String: String] = [:]
 
     init(store: Store) throws {
         self.store = store
@@ -57,6 +65,7 @@ final class Server: @unchecked Sendable {
         // dispatchPrecondition(.onQueue(queue)) here; it would trap.
         store.eventSink = { [weak self] event in
             self?.broadcast(event.notification)
+            self?.watchedStateMayHaveChanged(event.kind)
         }
     }
 
@@ -76,6 +85,59 @@ final class Server: @unchecked Sendable {
             }
         }
         listener.start(queue: queue)
+        // A3/A8: watcher stack — deliver closures hop onto the server queue
+        // per the lane contract; the supervisor's initial rebuild starts both
+        // watchers from committed config + instance rows.
+        let memory = MemoryWatcher { [weak self] storagePath in
+            self?.promptMemoryChanged(storagePath: storagePath)
+        }
+        let checkout = CheckoutWatcher { [weak self] instanceUuid, repoRoot in
+            self?.checkoutChanged(instanceUuid: instanceUuid, repoRoot: repoRoot)
+        }
+        supervisor = WatcherSupervisor(store: store, memory: memory, checkout: checkout)
+        queue.async { self.supervisor?.rebuild() }
+    }
+
+    /// The sink fires on the DATABASE's queue while the issuing write turn is
+    /// still unwinding — never read the db here; hop onto the server queue.
+    /// Two committed kinds signal the watched set may have changed: the config
+    /// write and the instance creation. Coalesced so a burst produces one
+    /// recompute; both downstream pushes are idempotent anyway.
+    private func watchedStateMayHaveChanged(_ kind: String) {
+        guard kind == DaemonEventKind.configSet.rawValue
+            || kind == DaemonEventKind.createInstance.rawValue else { return }
+        queue.async {
+            guard !self.rebuildPending else { return }
+            self.rebuildPending = true
+            self.queue.async {
+                self.rebuildPending = false
+                self.supervisor?.rebuild()
+            }
+        }
+    }
+
+    /// A8 delivery — the exact shape of promptMemoryChanged: hops onto the
+    /// server queue, resolves the head state there (the same resolver the
+    /// poll messages use, so push and poll can never disagree), dedupes
+    /// against the last-emitted cache, and broadcasts an EPHEMERAL
+    /// notification (id 0, no daemon_event row — a replayed stale branch
+    /// presented as current would be worse than no event).
+    func checkoutChanged(instanceUuid: String, repoRoot: String) {
+        queue.async {
+            let (state, code, branch) = Store.headSummary(repoRoot: repoRoot)
+            let fingerprint = "\(state)|\(branch ?? "")"
+            guard self.lastCheckoutState[instanceUuid] != fingerprint else { return }
+            self.lastCheckoutState[instanceUuid] = fingerprint
+            var payload: [String: Any] = ["instance_uuid": instanceUuid, "head_state": state]
+            payload["current_branch"] = branch ?? NSNull()
+            payload["current_session_code"] = code ?? NSNull()
+            self.broadcast(EventNotification(
+                id: 0,
+                kind: DaemonEventKind.checkoutChange.rawValue,
+                subjectUuid: instanceUuid,
+                payload: Store.jsonPayload(payload),
+                createdAt: Store.isoNow()))
+        }
     }
 
     func remove(_ client: ClientConnection) {
@@ -242,6 +304,8 @@ final class Server: @unchecked Sendable {
                 return try SessionListHandler.handle(line: line, head: head, store: store)
             case .catalogSearch:
                 return try CatalogSearchHandler.handle(line: line, head: head, store: store)
+            case .search:
+                return try SearchHandler.handle(line: line, head: head, store: store)
 
             case .sessionGet:
                 return try SessionGetHandler.handle(line: line, head: head, store: store)

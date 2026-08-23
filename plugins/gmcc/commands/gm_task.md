@@ -44,10 +44,13 @@ Load **session context** — this is the default scope. These are all reads.
 1. `~/gmcc/bin/gm session get --json` — session row (backstory, status),
    prompt stubs, change summary. (`gm context get --json` for the uuid
    triple + active kbite codes if needed.)
-2. For relevant prior prompts: `gm prompt get --prompt-uuid U --json`, and
-   skim their `memory/qualified.md` / `memory/architecture.md` files under
-   `$GMCC_SESSION_PATH/prompts/*/memory/` (refined goals, constraints, key
-   files).
+2. `gm prompt list --with-reports --json` for every prompt's clarification
+   and architecture state in one call; `gm clarify get` / `gm arch get` for
+   full detail on the ones that matter. `gm search "<topic>" --json` finds
+   prior work across prompts — do not grep the ckfs for it. Only when a stub
+   reports `is_legacy: true` (or a get returns `SUMMARY_ABSENT` with
+   `prompt_is_legacy: true`) fall back to that prompt's ckfs artifacts via
+   `gm artifact list --prompt-uuid U`.
 
 **KBites on demand.** If a task clearly benefits from a kbite, load it from
 the db: read `$GMCC_KBITE/{name}/KBITE_PURPOSE.md`, then
@@ -115,8 +118,9 @@ so it lands as `draft`):
 
 (Retroactive capture is the one case where the bot authors `goal`/`detail` —
 it is recording work already done at the user's request, not splitting a
-human prompt.) Then `mkdir -p "$GMCC_SESSION_PATH/prompts/{seq}_{name}/memory"`
-if you have artifacts to drop there, registering each with
-`gm artifact add --kind other --note "..."`.
+human prompt.) If you have artifacts to drop there, mkdir the memory dir at
+the RETURNED `ckfs_relative_storage_path` (relative to `gm paths` →
+ckfs_root) — never re-derive `{seq}_{name}` yourself; the daemon slugs the
+name — registering each with `gm artifact add --kind other --note "..."`.
 
 After any write-back, state plainly what was persisted and where.

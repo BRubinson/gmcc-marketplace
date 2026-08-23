@@ -15,7 +15,8 @@ struct GM: ParsableCommand {
         abstract: "GMCC daemon client — context, sessions, prompts, artifacts, file changes, events.",
         subcommands: [
             Setup.self, Status.self, Ping.self, Daemon.self, Backup.self, Events.self,
-            Context.self, Project.self, Instance.self, Session.self, Catalog.self, Prompt.self,
+            Context.self, Project.self, Instance.self, Session.self, Catalog.self, Search.self,
+            Prompt.self,
             Clarify.self, Arch.self,
             Artifact.self, FileChange.self,
             Kbite.self,

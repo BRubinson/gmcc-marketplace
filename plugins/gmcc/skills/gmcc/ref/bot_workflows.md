@@ -1,4 +1,4 @@
-# Bot Workflow System Reference (v16.3.0)
+# Bot Workflow System Reference (v18.0.0)
 
 Read this file when executing bot workflow commands.
 
@@ -34,8 +34,12 @@ A bot run does NOT create a new session — it adds a new **prompt row** to
 the existing session. The canonical lifecycle every tier follows:
 
 1. **State load** — `gm session get --json` (session row + prompt stubs) —
-   never read yamls. `gm context ensure` is idempotent and may be re-run if
-   the db has no session yet (e.g. daemon was down at SessionStart).
+   never read yamls. For cross-prompt context use
+   `gm prompt list --with-reports --json` (one call: every prompt's
+   clarification/architecture stub) and `gm search "<topic>" --json` — never
+   glob/head/cat `memory/*.md` files for context. `gm context ensure` is
+   idempotent and may be re-run if the db has no session yet (e.g. daemon
+   was down at SessionStart).
 2. **Create** —
    ```bash
    ~/gmcc/bin/gm prompt create --name {name} \
@@ -43,9 +47,12 @@ the existing session. The canonical lifecycle every tier follows:
      --backstory "<session row's backstory, verbatim>" \
      --command /gm_bot{,_rpi,_team} --json
    ```
-   Capture `uuid`, `seq`, and `version` (0 on create) from the JSON.
-   STAY TRUE (see Prompt Style). Then
-   `mkdir -p "$GMCC_SESSION_PATH/prompts/{seq}_{name}/memory"`.
+   Capture `uuid`, `seq`, `version` (0 on create), and
+   `ckfs_relative_storage_path` from the JSON. STAY TRUE (see Prompt Style).
+   Then mkdir the memory dir at the RETURNED storage path (relative to
+   `gm paths` → ckfs_root) — the daemon slugs the name and the memory
+   watcher matches the stored path by exact case-sensitive equality, so
+   NEVER re-derive `{seq}_{name}` yourself.
 3. **Explore** — write `memory/explore.md`, then
    `gm artifact add --prompt-uuid U --file-path <abs> --kind explore --note "<one sentence>"`.
 4. **Clarify (db-native)** — `gm prompt set-status ... --status clarifying`
@@ -110,10 +117,13 @@ The bot:
    (`gm arch get` is the plan + implementation state); `reviewing` →
    Review; `done` → complete (new work = new prompt).
 3. **Legacy fallback**: pre-m0002 prompts have no clarify/arch rows
-   (`gm clarify get`/`gm arch get` → NOT_FOUND) — read the ckfs artifacts
-   via `gm artifact list` (kinds qualified/architecture) instead; NEVER
-   fabricate backing rows. `gm clarify open` on a legacy prompt is the
-   explicit adoption path.
+   (`gm clarify get`/`gm arch get` → `SUMMARY_ABSENT` with
+   `prompt_is_legacy: true`; also visible as `is_legacy` on every stub) —
+   read the ckfs artifacts via `gm artifact list` (kinds
+   qualified/architecture) instead; NEVER fabricate backing rows.
+   `SUMMARY_ABSENT` with `prompt_is_legacy: false` means a current prompt
+   that simply hasn't opened one — open it, never fall back to files.
+   `gm clarify open` on a legacy prompt is the explicit adoption path.
 4. A bare seq (no continuation) runs an externally-authored draft (e.g.
    from the GMVibes editor) as written. `command` is create-time-only in
    the db — if the row's `command` is empty, record the executing tier in
@@ -173,7 +183,10 @@ summary carries `refined_goal` (acceptance criteria) and `refined_detail`
 (detail + answers integrated — the from-Clarify source of truth) plus a
 `backstory_note` (executing tier, team-consensus notes). The row's `detail`
 is never modified. Legacy prompts keep `memory/qualified.md` behind their
-`qualified` artifact pointer.
+`qualified` artifact pointer — **but new mirrors are NEVER written for
+post-m0002 prompts**: no qualified.md, no architecture.md, no "grep-ability"
+duplicates; the `qualified`/`architecture` artifact kinds are reserved for
+true pre-m0002 legacy files only.
 
 ## KBite Integration
 
@@ -198,12 +211,18 @@ last-run-wins — and refreshes the note):
 | `review.md` | `review` | Phase 6 | `/gm_bot_rpi`: verbatim reviewer subagent report. `/gm_bot_team`: synthesized 4-methodology review. `/gm_bot`: a brief primary-context review note. |
 
 (Clarify and Plan persist db-natively — `gm clarify` / `gm arch` rows, no
-files. Legacy prompts' `qualified.md`/`architecture.md` remain reachable
-via their artifact pointers.)
+files, and their text is searchable via `gm search`. Legacy prompts'
+`qualified.md`/`architecture.md` remain reachable via their artifact
+pointers. explore.md / review.md remain files — NOT indexed by `gm search` —
+reachable through `gm artifact list`; dbifying them is deferred to a future
+prompt.)
 
-These memory files survive across sessions, give the user something to
-grep, and provide context if a prompt is resumed days later; the db keeps
-the pointer + caption (`gm artifact list`).
+These memory files survive across sessions and provide context if a prompt
+is resumed days later; the db keeps the pointer + caption
+(`gm artifact list`). The db is the search surface for
+prompt/clarification/architecture text (`gm search`); the memory files
+remain on disk for human reading and future indexing — bots do not grep
+them for context.
 
 ## Agent System
 

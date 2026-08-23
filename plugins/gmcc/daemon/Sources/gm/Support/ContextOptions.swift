@@ -269,3 +269,4 @@ extension ClarificationCategory: ExpressibleByArgument {}
 extension AnswerSource: ExpressibleByArgument {}
 extension ChangeDepth: ExpressibleByArgument {}
 extension ConfigKey: ExpressibleByArgument {}
+extension SearchKind: ExpressibleByArgument {}

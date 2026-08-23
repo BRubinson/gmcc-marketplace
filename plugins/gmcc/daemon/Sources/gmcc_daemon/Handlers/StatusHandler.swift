@@ -17,6 +17,7 @@ enum StatusHandler {
             dbPath: store.dbPath,
             schemaVersion: try store.schemaVersion(),
             tableCounts: try store.tableCounts(),
+            lastEventId: try store.lastEventId(),
             startedAt: startedAt,
             uptimeSeconds: Int(Date().timeIntervalSince(startedDate))
         )

@@ -36,7 +36,7 @@ Or use /gm_bot_rpi for subagent-based workflow.
 Exit without proceeding.
 
 1. `~/gmcc/bin/gm session get --json` for current session state. On exit 2, self-heal per `gm_bot_rpi.md`.
-2. Skim recent prompts' clarifications for context (`gm clarify get --prompt-uuid U`; legacy prompts keep `memory/qualified.md`).
+2. One call for the whole session's report state: `gm prompt list --with-reports --json` (per-prompt clarification/architecture stubs). `is_legacy: true` + null report = pre-m0002: read ckfs artifacts (`gm artifact list`), never fabricate rows. Topic lookup across prompts is `gm search "<topic>" --json` — do NOT grep the ckfs or open memory files for context.
 
 ---
 
@@ -44,7 +44,7 @@ Exit without proceeding.
 
 Identical to `/gm_bot` and `/gm_bot_rpi`. Quick summary:
 - **Run / Resume** (`/gm_bot_team 3` or `/gm_bot_team 3 ...`): `gm prompt list --json` → stub with `seq: 3` → `gm prompt get`. Run/resume by status (lifecycle v2: `draft` → Phase 2, `clarifying` → Phase 3, `architecting` → Phase 4, `implementing` → Phase 5, `reviewing` → Phase 6, `done` → complete; legacy pre-m0002 prompts have no clarify/arch rows — check `gm artifact list`, never fabricate). A bare seq runs an externally-authored draft as written; `command` is create-time-only — if empty, note the tier in the clarification's `--backstory-note`.
-- **New** (`/gm_bot_team auth-refactor ...`): `gm prompt create --name ... --detail "<verbatim>" --command /gm_bot_team --json` (STAY TRUE — see `gm_bot_rpi.md`), then `mkdir -p .../prompts/{seq}_{name}/memory`.
+- **New** (`/gm_bot_team auth-refactor ...`): `gm prompt create --name ... --detail "<verbatim>" --command /gm_bot_team --json` (STAY TRUE — see `gm_bot_rpi.md`), then mkdir the memory dir at the RETURNED `ckfs_relative_storage_path` (the daemon slugs the name — NEVER re-derive `{seq}_{name}` yourself; a hand-built path silently breaks memory-change events).
 - **No args**: AskUserQuestion.
 
 ---
@@ -114,7 +114,7 @@ Synthesize the 4 reports into a unified mental model:
 
 ## Phase 3: Clarify (db-native)
 
-Same canonical db-native sequence as `gm_bot_rpi.md` (enter `clarifying` → `gm clarify ask/seal/answer/finalize` → advance to `architecting`), with team-specific additions:
+Same canonical db-native sequence as `gm_bot_rpi.md` (enter `clarifying` → `gm clarify ask/seal/answer/finalize` → advance to `architecting`), with team-specific additions. **NEVER write `memory/qualified.md` or `memory/architecture.md` for a post-m0002 prompt** — the db rows ARE the record; `SUMMARY_ABSENT` with `prompt_is_legacy: false` means open a summary, never a file fallback:
 
 1. **YEET-type detection (FIRST clarify step)** over the prompt row's `goal` + `detail`, cross-referenced with the 4-methodology synthesis. Confidently-resolved detections land pre-answered (`gm clarify ask --category yeet_type --answer ... --source bot_inferred`); unresolved ones become open questions for the user.
 
