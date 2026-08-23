@@ -221,9 +221,20 @@ Kbites are **inherited, not auto-detected** — read the prompt's active
 list from `gm prompt get` (`kbite_codes`). Kbites are added only on
 explicit user request. For each active kbite: read
 `$GMCC_KBITE/{name}/KBITE_PURPOSE.md`, get the db overview
-(`gm kbite get --code {name}`), rank relevant files (`gm kbite search`),
-pull the top files' content (`gm kbite file-get`), compile a kbite
-context summary, and pass it to all spawned agents.
+(`gm kbite get --code {name}`), then `gm kbite search` (bm25
+relevance-ordered; `--code` scopes to one kbite). Read the `file_summary`
+brief on every hit and pull the full content of every file whose brief is
+relevant (`gm kbite file-get`) — typically 5-10 files, not a fixed top-N
+cap. Compile a kbite context summary and pass it to all spawned agents.
+
+## GM Cheatsheet (state load)
+
+The exact gm verb surface is in context from SessionStart: `detect_repo.sh`
+prints `gm cheatsheet` (one signature line per verb + invariants, compiled
+into the binary so it cannot drift from installed capabilities). Consult it
+instead of `gm ... --help` roundtrips. Subagent tiers must paste the verbatim
+`gm cheatsheet` output into every worker/teammate prompt — spawned agents do
+not inherit SessionStart context.
 
 ## Report Records (all db-native since v19/m0004)
 

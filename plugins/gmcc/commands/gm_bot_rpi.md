@@ -12,6 +12,16 @@ You are executing an enhanced development workflow that leverages GMCC subagents
 
 All persistence goes through the `gm` CLI (`~/gmcc/bin/gm`) — see `skills/gmcc_daemon/SKILL.md` for the full subcommand reference and `skills/gmcc/ref/bot_workflows.md` for the canonical lifecycle. Never read or write ckfs yamls.
 
+The full gm verb surface is already in context: the SessionStart hook prints
+`gm cheatsheet` (exact signatures + invariants). Never run `gm ... --help`
+roundtrips or guess flags — consult the sheet.
+
+**Cheatsheet mandate for subagents.** Subagents do not inherit SessionStart
+context. Every Task prompt in the phases below must additionally include a
+`## GM Cheatsheet` section containing the verbatim output of
+`~/gmcc/bin/gm cheatsheet`, so workers read gm data shapes and report against
+the real verb surface.
+
 ---
 
 ## Pre-Flight
@@ -88,8 +98,10 @@ row's active list at create time. No trigger matching, no kbite picker.
 3. For each inherited/added kbite: read the purpose at the kbite root
    (`$GMCC_KBITE/{name}/KBITE_PURPOSE.md`), get the resource/file-stub/keyword
    overview (`gm kbite get --code {name} --json`), rank relevant files
-   (`gm kbite search "<topic>" --json`), pull the top 3-5 files' full content
-   (`gm kbite file-get --file-uuid U --json`), and compile a
+   (`gm kbite search "<topic>" --json` — bm25 relevance-ordered; `--code`
+   scopes to one kbite), read the `file_summary` brief on every hit, pull the
+   full content of every file whose brief is relevant — typically 5-10, not a
+   fixed top-N cap (`gm kbite file-get --file-uuid U --json`) — and compile a
    **kbite context summary** (key learnings, takeaways, patterns).
 4. Keep the summary in primary context — it is passed to every subagent spawn.
 

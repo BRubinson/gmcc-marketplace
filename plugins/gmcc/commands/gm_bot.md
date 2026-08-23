@@ -12,6 +12,11 @@ You are executing a lightweight development workflow entirely in the primary con
 
 All persistence goes through the `gm` CLI (`~/gmcc/bin/gm`) — see `skills/gmcc_daemon/SKILL.md` for the subcommand reference and `skills/gmcc/ref/bot_workflows.md` for the canonical lifecycle. Never read or write ckfs yamls.
 
+The full gm verb surface is already in context: the SessionStart hook prints
+`gm cheatsheet` (exact signatures + invariants). Never run `gm ... --help`
+roundtrips or guess flags — consult the sheet; run `gm cheatsheet` again only
+if it is missing from context.
+
 ---
 
 ## Pre-Flight
@@ -141,9 +146,11 @@ matching and no kbite picker.
    knowledge is db-canonical): read the purpose at the kbite root
    (`$GMCC_KBITE/{name}/KBITE_PURPOSE.md`), then
    `gm kbite get --code {name} --json` for the resource/file-stub/keyword
-   overview, `gm kbite search "<topic>" --json` to rank what matters for
-   this prompt, and `gm kbite file-get --file-uuid U --json` to pull the top
-   3-5 highest-relevance files' full content.
+   overview, then `gm kbite search "<topic>" --json` (bm25 relevance-ordered;
+   `--code {name}` scopes to one kbite). Read the `file_summary` brief on
+   every hit and `gm kbite file-get --file-uuid U --json` every file whose
+   brief is relevant to this prompt — typically 5-10 files, not a fixed
+   top-N cap.
 
 If the inherited list is empty and the prompt names no kbite, load nothing
 and proceed to Phase 2.

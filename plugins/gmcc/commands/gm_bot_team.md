@@ -10,7 +10,17 @@ allowed-tools: Read, Write, Edit, Grep, Glob, Bash, Task, AskUserQuestion
 
 You are coordinating real agent teams (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`) to attack a single prompt with 4 parallel methodologies per phase. Same prompt-into-session model as `/gm_bot` and `/gm_bot_rpi`. Each team phase's record is DB-NATIVE: teammates write finding/key-file rows directly, an opus re-ranker calibrates the 0-999 ratings, and the primary completes the summary (overview/verdict).
 
-All persistence goes through the `gm` CLI — see `skills/gmcc_daemon/SKILL.md` and `skills/gmcc/ref/bot_workflows.md`. Never read or write ckfs yamls. **`gm_bot_rpi.md` is the reference for the exact gm-call sequence** (creation, clarify transitions, artifact registration, file-change tracking) — this file only documents what differs for teams.
+All persistence goes through the `gm` CLI — see `skills/gmcc_daemon/SKILL.md` and `skills/gmcc/ref/bot_workflows.md`. Never read or write ckfs yamls.
+
+The full gm verb surface is already in context for the primary: the
+SessionStart hook prints `gm cheatsheet` (exact signatures + invariants).
+Never run `gm ... --help` roundtrips or guess flags.
+
+**Cheatsheet mandate for teammates.** Teammates are independent sessions and
+do not inherit this session's SessionStart context, yet they drive gm
+directly. Every teammate spawn prompt below must additionally include a
+`## GM Cheatsheet` section containing the verbatim output of
+`~/gmcc/bin/gm cheatsheet`. **`gm_bot_rpi.md` is the reference for the exact gm-call sequence** (creation, clarify transitions, artifact registration, file-change tracking) — this file only documents what differs for teams.
 
 ---
 

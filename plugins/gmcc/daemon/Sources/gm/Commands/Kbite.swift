@@ -248,13 +248,21 @@ struct Kbite: ParsableCommand {
                 help: "Restrict to these kbite uuids (omit to search all).")
         var kbiteUuids: [String] = []
 
+        @Option(name: .long,
+                help: "Kbite code to scope to (resolved to its uuid client-side; composes with --kbite-uuids).")
+        var code: String?
+
         @Option(name: .long) var limit: Int?
 
         func run() throws {
             let response = try withClient { client in
-                try client.searchKbites(KbiteSearchRequest(
+                var uuids = kbiteUuids
+                if let code {
+                    uuids.append(try client.getKbite(KbiteGetRequest(code: code)).kbite.uuid)
+                }
+                return try client.searchKbites(KbiteSearchRequest(
                     query: query,
-                    kbiteUuids: kbiteUuids.isEmpty ? nil : kbiteUuids,
+                    kbiteUuids: uuids.isEmpty ? nil : uuids,
                     limit: limit))
             }
             if output.json {
@@ -264,6 +272,9 @@ struct Kbite: ParsableCommand {
                 for hit in response.hits {
                     print("  [\(hit.kbiteCode)] \(hit.resourceName) / \(hit.fileName) (score \(String(format: "%.2f", hit.score)))")
                     print("    file uuid: \(hit.fileUuid)")
+                    if !hit.fileSummary.isEmpty {
+                        print("    brief: \(hit.fileSummary)")
+                    }
                     if !hit.matchedKeywords.isEmpty {
                         print("    keywords: \(hit.matchedKeywords.joined(separator: ", "))")
                     }

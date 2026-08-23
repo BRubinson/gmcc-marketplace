@@ -41,6 +41,7 @@ message family):
 
 | Subcommand | Purpose |
 |------------|---------|
+| `gm cheatsheet` | Full-surface signature sheet: one exact-signature line per verb + invariant lines, compiled into the binary (pure client-side, works with the daemon down). Printed into context at SessionStart by `detect_repo.sh`; subagent tiers paste it into worker prompts. Drift-guarded by `CheatsheetTests` (every subcommand path must appear in the sheet). |
 | `gm ping` | Liveness + build identity (sha/date stamped by build_daemon.sh), uptime. |
 | `gm status` | Daemon + db health: pid, protocol, socket, schema version, per-table row counts, and `last_event_id` — the REAL event-log horizon (highest daemon_event.id). `table_counts` is a row census and MUST NOT be used as an event cursor. |
 | `gm setup [--launchd]` | Client-side init of `~/gmcc/` dirs + daemon autostart. `--launchd` installs a login agent. |
@@ -106,7 +107,7 @@ message family):
 | `gm kbite digest --code C [--kbite-open-path P]` | One-step import: parse `*_chewed.md` under the scan root (default: the open maw) into kbite_resource / kbite_resource_file / keyword rows (full text inline for text types), then DELETE the chewed files. Raw sources are kept on disk; the db is canonical for digested text. Re-digesting a resource replaces its rows. The client-side follow-up (move raw sources open/ → digested/, delete the maw) lives in `/gm_crunch_digest`. |
 | `gm kbite get --code C` | One kbite: resources, file stubs (names + summaries, NO content), keywords. |
 | `gm kbite file-get --file-uuid U` | A single resource file including full content — the targeted load replacing "cat the chewed file". |
-| `gm kbite search "<query>" [--kbite-uuids U...] [--limit N]` | FTS5 full-text search across kbite files; bm25-ranked stubs (name ≫ summary ≫ content) with attached keywords. Omit `--kbite-uuids` to search everything. |
+| `gm kbite search "<query>" [--code C] [--kbite-uuids U...] [--limit N]` | FTS5 full-text search across kbite files; bm25-ranked stubs (name ≫ summary ≫ content) with `file_summary` briefs and attached keywords (the human render prints the brief per hit). `--code` scopes to one kbite (resolved client-side; composes with `--kbite-uuids`); omit both to search everything. |
 | `gm kbite keyword-tag --level kbite\|file --target-uuid U --keywords K... [--detach]` | Attach/detach normalized snake_case keywords at kbite or resource-file level. |
 
 Exit codes: `0` ok · `1` generic/db/domain error · `2` daemon unreachable

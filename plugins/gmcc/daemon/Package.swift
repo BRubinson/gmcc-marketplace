@@ -47,7 +47,9 @@ let package = Package(
         // GMVibes vendor copy (library-only manifest) — daemon/gm ship untouched.
         .testTarget(
             name: "GMCCDaemonKitTests",
-            dependencies: ["GMCCDaemonKit"],
+            // gm dependency: CheatsheetTests walks the GM command tree to keep
+            // the cheatsheet drift-guarded against the real verb surface.
+            dependencies: ["GMCCDaemonKit", "gm"],
             exclude: ["Fixtures"]
         ),
     ]

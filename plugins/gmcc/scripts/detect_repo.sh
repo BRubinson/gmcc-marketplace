@@ -86,6 +86,12 @@ else
     echo "[GMB] gm binary missing at $GM_BIN — run 'bash $GMCC_PLUGIN_DIR/scripts/build_daemon.sh' to build, then 'gm context ensure'"
 fi
 
+# Print the gm command cheatsheet into hook stdout so every gmcc session
+# starts with the exact verb surface in context. Silent skip when missing.
+if [ -x "$GM_BIN" ]; then
+    "$GM_BIN" cheatsheet 2>/dev/null || true
+fi
+
 # --- 6. Export to $CLAUDE_ENV_FILE -----------------------------------------
 if [ -n "$CLAUDE_ENV_FILE" ]; then
     {
