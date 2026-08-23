@@ -54,11 +54,9 @@ them anymore. Legacy trees are imported/archived by
 │                   └── {sanitized_branch}/                   # $GMCC_SESSION_PATH
 │                       └── prompts/
 │                           └── {id}_{name}/                  # one folder per prompt
-│                               └── memory/
-│                                   ├── explore.md            # Phase 2 artifact
-│                                   ├── qualified.md          # Phase 3 (Clarify) artifact
-│                                   ├── architecture.md       # Phase 4 artifact
-│                                   └── review.md             # Phase 6 artifact
+│                               └── memory/                  # usually empty since v19 — all
+│                                                             # reports are db rows; legacy
+│                                                             # prompts keep their .md files here
 └── kbites/                                                   # $GMCC_KBITE
     ├── {kbite_name}/KBITE_PURPOSE.md                         # identity-level
     ├── digested/{kbite_name}/...                             # $GMCC_KBITE_DIGESTED — raw-source archive (text is db-canonical)
@@ -148,20 +146,22 @@ output of the previous `create`/`get`/mutation (a fresh `create` returns
 `version: 0`; each mutation returns the incremented version). A stale
 version yields `VERSION_CONFLICT`: re-`get` and retry.
 
-## Prompt Folder Layout (v16)
+## Prompt Folder Layout (v19)
 
-Each prompt is a folder holding ONLY phase artifacts:
+Each prompt is a folder whose `memory/` subdir is usually EMPTY now:
 
 ```
 prompts/{id}_{name}/
-    memory/
-        explore.md                   # Phase 2 artifact
-        review.md                    # Phase 6 artifact
+    memory/                          # legacy report files + misc artifacts only
 ```
 
-(Clarify and Plan are DB-NATIVE since v17 — `gm clarify` / `gm arch` rows,
-no qualified.md/architecture.md for new prompts; legacy prompts keep those
-files behind their artifact pointers.)
+(All four phase reports are DB-NATIVE — clarify/arch since v17, explore/
+review since v19/m0004 — `gm clarify` / `gm arch` / `gm explore` /
+`gm review` rows; legacy prompts keep their qualified.md / architecture.md /
+explore.md / review.md files behind artifact pointers until the mandatory
+migrate pass transfers the explore/review ones into rows. The mkdir of
+memory/ at prompt creation stays — misc `--kind other` artifacts still land
+there.)
 
 `{id}` is the db prompt row's `seq`; `{name}` its `name`. All identity,
 content (`backstory`/`goal`/`detail`), status, and command live on the

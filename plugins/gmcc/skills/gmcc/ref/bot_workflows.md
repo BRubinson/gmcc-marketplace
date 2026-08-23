@@ -1,4 +1,4 @@
-# Bot Workflow System Reference (v18.0.0)
+# Bot Workflow System Reference (v19.0.0)
 
 Read this file when executing bot workflow commands.
 
@@ -16,19 +16,20 @@ All bot workflows operate inside the **current session** — resolved by
 `detect_repo.sh` from `$PWD` + active git branch (env: `$GMCC_SESSION_PATH`
 for the file home) and registered in the daemon db by `gm context ensure`
 at SessionStart. All prompt/session DATA lives on db rows accessed through
-the `gm` CLI (see `skills/gmcc_daemon/SKILL.md`); the prompt folder on disk
-holds ONLY phase artifacts:
+the `gm` CLI (see `skills/gmcc_daemon/SKILL.md`). Since v19 (m0004) EVERY
+bot report is db-native: clarification (`gm clarify`), architecture
+(`gm arch`), exploration (`gm explore`), and review (`gm review`). The
+prompt folder on disk still exists —
 
 ```
 $GMCC_SESSION_PATH/prompts/{seq}_{name}/
-    memory/
-        explore.md                   # exploration report (Phase 2)
-        review.md                    # review report (Phase 6)
+    memory/                          # usually EMPTY now — reports live in the db
 ```
 
-Clarification and architecture are DB-NATIVE since v17 (`gm clarify` /
-`gm arch` — no qualified.md or architecture.md for new prompts; legacy
-prompts keep those files, reachable via their artifact pointers).
+— the mkdir step stays (legacy/misc artifacts still land there), but new
+prompts normally write no memory files at all. Legacy prompts keep their
+qualified.md / architecture.md / explore.md / review.md files, reachable
+via their artifact pointers.
 
 A bot run does NOT create a new session — it adds a new **prompt row** to
 the existing session. The canonical lifecycle every tier follows:
@@ -53,8 +54,17 @@ the existing session. The canonical lifecycle every tier follows:
    `gm paths` → ckfs_root) — the daemon slugs the name and the memory
    watcher matches the stored path by exact case-sensitive equality, so
    NEVER re-derive `{seq}_{name}` yourself.
-3. **Explore** — write `memory/explore.md`, then
-   `gm artifact add --prompt-uuid U --file-path <abs> --kind explore --note "<one sentence>"`.
+3. **Explore (db-native)** — `gm explore open --prompt-uuid U` (explicit
+   only; the prompt is still `draft` here and never auto-creates one), then
+   per discovery: `gm explore key-file-add` (deduped set) and
+   `gm explore finding-add --kind ... --title ... --body ... --agent-name
+   ...` (rating optional at insert). Rank before handoff:
+   `gm explore rank --summary-uuid S --rating <uuid>:<0-999> ...` (atomic
+   batch; 0 = critical … 999 = tombstone, read threshold 100). Finally
+   `gm explore complete --overview "<narrative>"` — complete REFUSES while
+   any finding is unranked, and the overview is writable ONLY here (the
+   primary agent writes it after reading the ranked findings). Re-runs:
+   `gm explore reopen` → update → re-complete (last-run-wins).
 4. **Clarify (db-native)** — `gm prompt set-status ... --status clarifying`
    (locks content; the daemon creates the clarification summary), then:
    YEET-type detection → `gm clarify ask --category yeet_type` (pre-answered
@@ -83,12 +93,20 @@ the existing session. The canonical lifecycle every tier follows:
    ```
    `gm arch get` shows per-row implementation state, unplanned drift, and
    the persistence-first audit at any point.
-7. **Review** — `gm prompt set-status ... --status reviewing` (or skip
-   `implementing → done` directly); write `memory/review.md` +
-   `gm artifact add --kind review`; finish with `--status done`.
-   There is NO phase-history step: completion is status `done` + the
-   clarification/architecture rows + registered artifacts (+
-   `gm file-change list` for the change trail).
+7. **Review (db-native)** — `gm prompt set-status ... --status reviewing`
+   (or skip `implementing → done` directly — prompt status never creates or
+   gates the review summary). `gm review open --prompt-uuid U`, then
+   `gm review finding-add` per finding (kind/title/body, optional
+   --file-path/--line-start/--line-end, --agent-name), `gm review rank`
+   (same batch contract as explore), and `gm review complete --overview
+   "<narrative>" --verdict approved|approved_with_nits|changes_requested`
+   (refuses unranked findings; overview + verdict writable ONLY here). The
+   fix loop then records outcomes per finding — `gm review resolve
+   --finding-uuid F --status fixed|accepted|wont_fix` — which works AFTER
+   complete by design; every finding under rating 100 gets a resolution.
+   Finish with `--status done`. There is NO phase-history step: completion
+   is status `done` + the clarification/architecture/exploration/review
+   rows (+ `gm file-change list` for the change trail).
 
 ### `--expected-version` threading (every mutation)
 
@@ -120,10 +138,19 @@ The bot:
    (`gm clarify get`/`gm arch get` → `SUMMARY_ABSENT` with
    `prompt_is_legacy: true`; also visible as `is_legacy` on every stub) —
    read the ckfs artifacts via `gm artifact list` (kinds
-   qualified/architecture) instead; NEVER fabricate backing rows.
+   qualified/architecture/explore/review) instead; NEVER fabricate backing
+   rows ("fabricate" = inventing structured content; the migrate pass's
+   VERBATIM transfer of a file into an overview is sanctioned, see below).
    `SUMMARY_ABSENT` with `prompt_is_legacy: false` means a current prompt
-   that simply hasn't opened one — open it, never fall back to files.
-   `gm clarify open` on a legacy prompt is the explicit adoption path.
+   that simply hasn't opened one — open it, never fall back to files —
+   EXCEPT for explore/review on a prompt created before m0004: its real
+   report may be an on-disk explore.md/review.md behind an artifact
+   pointer. The migrate pass is MANDATORY for those mid-era prompts
+   (`skills/gmcc_migrate_legacy/SKILL.md`, executed by Sonnet 5 agents:
+   overview := file content verbatim, zero findings, review verdict
+   `legacy_unstated`); until it runs, check `gm artifact list` before
+   opening a fresh empty summary. `gm clarify open` on a legacy prompt is
+   the explicit adoption path.
 4. A bare seq (no continuation) runs an externally-authored draft (e.g.
    from the GMVibes editor) as written. `command` is create-time-only in
    the db — if the row's `command` is empty, record the executing tier in
@@ -198,31 +225,39 @@ explicit user request. For each active kbite: read
 pull the top files' content (`gm kbite file-get`), compile a kbite
 context summary, and pass it to all spawned agents.
 
-## Intermediate Artifacts Persisted to `prompts/{seq}_{name}/memory/`
+## Report Records (all db-native since v19/m0004)
 
-All three bots persist their per-phase artifacts to the `memory/` subdir
-and register each with `gm artifact add` (upsert on
-`(prompt_uuid, file_path)`; re-running a phase overwrites the file —
-last-run-wins — and refreshes the note):
+Every phase record is db rows, searchable via `gm search`, rendered by its
+`get` verb:
 
-| File | Kind | Written by | Source |
-|------|------|------------|--------|
-| `explore.md` | `explore` | Phase 2 | `/gm_bot_rpi`: verbatim subagent report. `/gm_bot_team`: synthesized 4-methodology report (teammate originals are NOT persisted). `/gm_bot`: condensed primary-context exploration notes. |
-| `review.md` | `review` | Phase 6 | `/gm_bot_rpi`: verbatim reviewer subagent report. `/gm_bot_team`: synthesized 4-methodology review. `/gm_bot`: a brief primary-context review note. |
+| Record | Verbs | Rows |
+|--------|-------|------|
+| Clarification | `gm clarify ...` | summary (refined goal/detail/backstory note) + Q/A rows |
+| Architecture | `gm arch ...` | summary body + persistence/field/general change rows |
+| Exploration | `gm explore ...` | summary overview + key-file set + rated findings |
+| Review | `gm review ...` | summary overview/verdict + rated findings with resolutions |
 
-(Clarify and Plan persist db-natively — `gm clarify` / `gm arch` rows, no
-files, and their text is searchable via `gm search`. Legacy prompts'
-`qualified.md`/`architecture.md` remain reachable via their artifact
-pointers. explore.md / review.md remain files — NOT indexed by `gm search` —
-reachable through `gm artifact list`; dbifying them is deferred to a future
-prompt.)
+**Who holds the pen per tier** (exploration/review): `/gm_bot_team`
+teammates are full sessions — they run the finding/key-file verbs
+themselves, self-reporting their persona as `--agent-name`, and team mode
+adds a re-rank pass (`gmcc_agent_finding_reranker.prompt.md`, opus) before
+the primary reads and completes. `/gm_bot` and `/gm_bot_rpi` subagents
+return finding-shaped reports as text and the PRIMARY transcribes them into
+rows. In every tier the primary alone writes the overview (and review
+verdict) via `complete`, after ranking.
 
-These memory files survive across sessions and provide context if a prompt
-is resumed days later; the db keeps the pointer + caption
-(`gm artifact list`). The db is the search surface for
-prompt/clarification/architecture text (`gm search`); the memory files
-remain on disk for human reading and future indexing — bots do not grep
-them for context.
+**finding_rating (0–999)**: 0 = absolute critical, 999 = always-false-
+positive tombstone; the read threshold is 100 (gets return full rows under
+it — plus every unranked row — and stubs above; `--full` /
+`--max-rating N` / `--rating-range A:B` widen the window). This scale
+REPLACES the old 1-8 (8=critical) doc scale — polarity is inverted; never
+mix them. Re-runs supersede by re-ranking (999 tombstones), never deletion.
+
+**Artifact kinds are legacy-only**: the `explore`/`review` artifact kinds
+now join `qualified`/`architecture` as reserved for pre-migration legacy
+files only — new mirrors are NEVER written for post-m0004 prompts: no
+explore.md, no review.md, no "grep-ability" duplicates; the db rows ARE the
+record and `gm search` is the search surface.
 
 ## Agent System
 
@@ -233,6 +268,7 @@ Agents are specialized personas defined in `$GMCC_PLUGIN_ROOT/prompts/`:
 | Code Explorer | `gmcc_agent_code_explorer.prompt.md` | Deep codebase analysis |
 | Code Architect | `gmcc_agent_code_architect.prompt.md` | Architecture design |
 | Code Reviewer | `gmcc_agent_code_quality_reviewer.prompt.md` | Code review |
+| Finding Re-Ranker | `gmcc_agent_finding_reranker.prompt.md` | Team-mode batch re-rank of exploration/review findings (opus) |
 | KBite Chew | `gmcc_agent_kbite_crunch_chew.prompt.md` | Analyze crunchables |
 
 ## Command Reference

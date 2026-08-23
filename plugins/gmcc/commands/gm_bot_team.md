@@ -6,9 +6,9 @@ disable-model-invocation: true
 allowed-tools: Read, Write, Edit, Grep, Glob, Bash, Task, AskUserQuestion
 ---
 
-# GM-CDE Bot Team (Agent Teams, v16.3.0)
+# GM-CDE Bot Team (Agent Teams, v19.0.0)
 
-You are coordinating real agent teams (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`) to attack a single prompt with 4 parallel methodologies per phase. Same prompt-into-session model as `/gm_bot` and `/gm_bot_rpi`. The synthesized output of each team phase is persisted to `prompts/{seq}_{name}/memory/` and registered in the daemon db.
+You are coordinating real agent teams (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`) to attack a single prompt with 4 parallel methodologies per phase. Same prompt-into-session model as `/gm_bot` and `/gm_bot_rpi`. Each team phase's record is DB-NATIVE: teammates write finding/key-file rows directly, an opus re-ranker calibrates the 0-999 ratings, and the primary completes the summary (overview/verdict).
 
 All persistence goes through the `gm` CLI — see `skills/gmcc_daemon/SKILL.md` and `skills/gmcc/ref/bot_workflows.md`. Never read or write ckfs yamls. **`gm_bot_rpi.md` is the reference for the exact gm-call sequence** (creation, clarify transitions, artifact registration, file-change tracking) — this file only documents what differs for teams.
 
@@ -36,7 +36,7 @@ Or use /gm_bot_rpi for subagent-based workflow.
 Exit without proceeding.
 
 1. `~/gmcc/bin/gm session get --json` for current session state. On exit 2, self-heal per `gm_bot_rpi.md`.
-2. One call for the whole session's report state: `gm prompt list --with-reports --json` (per-prompt clarification/architecture stubs). `is_legacy: true` + null report = pre-m0002: read ckfs artifacts (`gm artifact list`), never fabricate rows. Topic lookup across prompts is `gm search "<topic>" --json` — do NOT grep the ckfs or open memory files for context.
+2. One call for the whole session's report state: `gm prompt list --with-reports --json` (per-prompt clarification/architecture/exploration/review stubs). `is_legacy: true` + null report = pre-m0002: read ckfs artifacts (`gm artifact list`), never fabricate rows. Topic lookup across prompts is `gm search "<topic>" --json` — do NOT grep the ckfs or open memory files for context.
 
 ---
 
@@ -74,13 +74,19 @@ Read and follow your agent identity from: $GMCC_PLUGIN_ROOT/prompts/gmcc_agent_c
 ## KBite Knowledge
 {kbite context summary}
 
+## DB-Native Persistence (you hold the pen)
+The exploration record is db rows. Summary uuid: {S — from gm explore open, run by the primary before spawning}.
+As you explore, record directly via the gm CLI (~/gmcc/bin/gm):
+- gm explore key-file-add --summary-uuid {S} --file-path <repo-relative>   (deduped set — duplicates are fine)
+- gm explore finding-add --summary-uuid {S} --kind <kind> --title "..." --body "..." --agent-name {methodology} --rating <0-999>
+Self-rate every finding: 0 = absolute critical … 999 = ignore (read threshold 100). NEVER call gm explore rank/complete/reopen — ranking is the re-ranker's pass and the overview is the primary's.
+
 ## Methodology Assignment: {methodology}
 {methodology-specific guidance — see below}
 Commit FULLY to this methodology. Do not hedge or balance.
 
 ## Output
-Return your exploration report as your final message.
-Use the Code Explorer Report format from your prompt file.
+Return a SHORT summary of what you recorded (finding count, headline discoveries) as your final message — the db rows are the real deliverable.
 ```
 
 The four methodology guidances:
@@ -92,23 +98,29 @@ The four methodology guidances:
 | Pragmatic | Focus on high-value exploration areas. Balance effort vs benefit. Consider team familiarity and maintenance cost. |
 | Alternative | Look for unconventional patterns. Challenge assumptions about current architecture. Explore edge cases and unusual code paths. |
 
+### Step 0 (before spawning): Open the summary
+
+`gm explore open --prompt-uuid U --json` (explicit — the prompt is still `draft`). Pass the summary uuid into every teammate spawn.
+
 ### Step 2: Wait for the Team
 
-Wait for all 4 teammates' final messages. Each returns its exploration report directly. Individual teammate reports are NOT persisted; the synthesized unified report (Step 4) is.
+Wait for all 4 teammates' final messages. Teammates write their finding/key-file rows directly (persona `agent_name`); their closing summaries are just receipts.
 
-### Step 3: Tear Down
+### Step 3: Tear Down + Re-Rank
 
-Clean up the explore team once all 4 reports are in primary context.
+Clean up the explore team, then spawn the **re-ranker** (one agent, `$GMCC_PLUGIN_ROOT/prompts/gmcc_agent_finding_reranker.prompt.md`, model per its frontmatter): it reads EVERY finding (`gm explore get --full`), collapses cross-persona duplicates (999 tombstones), and applies one calibrated `gm explore rank` batch. Wait for it before reading findings yourself.
 
-### Step 4: Synthesize + Persist
+### Step 4: Synthesize + Complete
 
-Synthesize the 4 reports into a unified mental model:
+Read the ranked record (`gm explore get --prompt-uuid U --json` — full rows under 100 plus stubs; pull ranges via `--max-rating`/`--rating-range` as needed) and synthesize the unified mental model in primary context: consensus vs divergence, and the rated open questions for Clarify (reuse the findings' 0-999 polarity — 0 = critical unknown; the old 1-8/8=critical scale is RETIRED, its polarity is inverted, never mix them).
 
-- Merge key files, patterns, integration points
-- Identify consensus (high-confidence) vs divergence (needs discussion)
-- Compile rated open questions (1-8 scale, where 8 = critical unknown)
+Then seal the record — **NEVER write `memory/explore.md` for a post-m0004 prompt** (the `explore` artifact kind is legacy-only):
 
-**Write the synthesized report** to `$GMCC_SESSION_PATH/prompts/{seq}_{name}/memory/explore.md` and register it (`gm artifact add --kind explore --note "..."`). This informs Clarify directly.
+```bash
+gm explore complete --summary-uuid S --expected-version V --overview "<your unified synthesis>"
+```
+
+`complete` refuses while any finding is unranked (a stranded team run is visible as `unranked` counts in `gm prompt list --with-reports`). This informs Clarify directly.
 
 ---
 
@@ -118,9 +130,9 @@ Same canonical db-native sequence as `gm_bot_rpi.md` (enter `clarifying` → `gm
 
 1. **YEET-type detection (FIRST clarify step)** over the prompt row's `goal` + `detail`, cross-referenced with the 4-methodology synthesis. Confidently-resolved detections land pre-answered (`gm clarify ask --category yeet_type --answer ... --source bot_inferred`); unresolved ones become open questions for the user.
 
-2. **Goal clarification suite.** Extract the rated open questions about the *outcome* from the synthesis — highest first (start with 8s and 7s) — as `gm clarify ask --category goal` rows (embed each `rating:` in the question text).
+2. **Goal clarification suite.** Extract the rated open questions about the *outcome* from the synthesis — most critical first (start with the 0s and low ratings; 0-999 scale, 0 = critical) — as `gm clarify ask --category goal` rows (embed each `rating:` in the question text).
 
-3. **Detail clarification suite.** Extract the rated open questions about the *approach* — highest first — as `--category detail` rows.
+3. **Detail clarification suite.** Extract the rated open questions about the *approach* — most critical first — as `--category detail` rows.
 
 4. `gm clarify seal`, AskUserQuestion the open questions, record each answer (`gm clarify answer ... --source user`, judgment calls as `bot_inferred`, `--skip` where not applicable).
 
@@ -226,16 +238,29 @@ Read and follow your agent identity from: $GMCC_PLUGIN_ROOT/prompts/gmcc_agent_c
 ## Files Changed
 {output of: gm file-change list --prompt-uuid U}
 
+## DB-Native Persistence (you hold the pen)
+The review record is db rows. Summary uuid: {S — from gm review open, run by the primary before spawning}.
+Record every finding directly via the gm CLI (~/gmcc/bin/gm):
+- gm review finding-add --summary-uuid {S} --kind <kind> --title "..." --body "..." [--file-path <p> --line-start N [--line-end M]] --agent-name {methodology} --rating <0-999>
+Self-rate 0-999 (0 = critical, 999 = ignore; threshold 100). NEVER call gm review rank/resolve/complete — ranking is the re-ranker's pass; overview/verdict/resolutions are the primary's.
+
 ## Methodology Assignment: {methodology}
 Apply YOUR methodology's lens. Conservatives look for stability risks; aggressives look for missed simplifications; pragmatists check value-vs-effort; alternatives challenge assumptions.
 
 ## Output
-Return your review report as your final message.
+Return a SHORT summary of what you recorded as your final message — the db rows are the real deliverable.
 ```
 
-### Step 2: Synthesize Findings + Persist
+(Before spawning: `gm review open --prompt-uuid U --json` and pass the summary uuid in.)
 
-In primary context, merge the 4 reviews into a deduplicated list of findings, weighted by how many methodologies surfaced each one. **Write the synthesized review** to `$GMCC_SESSION_PATH/prompts/{seq}_{name}/memory/review.md` and register it (`gm artifact add --kind review --note "..."`); individual teammate reviews are NOT persisted.
+### Step 2: Re-Rank + Synthesize + Complete
+
+Tear down the reviewer team, spawn the **re-ranker** (`gmcc_agent_finding_reranker.prompt.md`) for one calibrated `gm review rank` batch (cross-persona duplicates → 999 tombstones), then read the ranked record (`gm review get --prompt-uuid U --json`) and synthesize in primary context. Seal it — **NEVER write `memory/review.md` for a post-m0004 prompt** (the `review` artifact kind is legacy-only):
+
+```bash
+gm review complete --summary-uuid S --expected-version V \
+  --overview "<your unified synthesis>" --verdict approved|approved_with_nits|changes_requested
+```
 
 ### Step 3: User Decides
 
@@ -248,7 +273,9 @@ AskUserQuestion:
 - Proceed as-is
 ```
 
-Implement requested fixes.
+Implement requested fixes, recording each finding's outcome as you go:
+`gm review resolve --finding-uuid F --expected-version V --status fixed|accepted|wont_fix`
+(resolve works after complete — that IS the fix loop; address every finding rated under 100).
 
 ---
 
@@ -258,7 +285,7 @@ Implement requested fixes.
 2. Wait for feedback. Iterate until satisfied, then `gm prompt set-status ... --status done`.
 
 There is no phase-history record — completion is represented by prompt
-status `done` plus the clarification/architecture rows, registered artifacts, and file-change trail.
+status `done` plus the clarification/architecture/exploration/review rows and file-change trail.
 
 ```
 Bot Team Complete: prompt {seq} ({name})
@@ -284,7 +311,7 @@ Falling back to /gm_bot_rpi single-subagent flow for this phase.
 
 **Session paused:**
 ```
-State preserved: prompt row (gm prompt get) + $GMCC_SESSION_PATH/prompts/{seq}_{name}/memory/
+State preserved: prompt row (gm prompt get) + report rows (gm clarify/arch/explore/review get; a stranded 'exploring'/'reviewing' summary shows unranked counts in gm prompt list --with-reports)
 
 To resume: /gm_bot_team {seq} <continuation prompt>
 ```

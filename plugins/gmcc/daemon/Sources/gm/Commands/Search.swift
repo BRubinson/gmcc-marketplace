@@ -10,7 +10,7 @@ import GMCCDaemonKit
 /// pointer-only artifacts (gm artifact list).
 struct Search: ParsableCommand {
     static let configuration = CommandConfiguration(
-        abstract: "Full-text search over prompt/clarification/architecture text; ranked stubs.")
+        abstract: "FTS5 full-text search over prompt, clarification, architecture, exploration, and review text — ranked stubs with prompt lineage.")
 
     @OptionGroup var output: OutputOptions
 
@@ -24,7 +24,7 @@ struct Search: ParsableCommand {
     var sessionUuid: String?
 
     @Option(name: .long, parsing: .upToNextOption,
-            help: "Restrict to these kinds (prompt, clarification, clarification_summary, architecture_summary, architecture_general_change, architecture_persistence_change). Omit for all.")
+            help: "Restrict to these kinds (prompt, clarification, clarification_summary, architecture_summary, architecture_general_change, architecture_persistence_change, exploration_summary, exploration_key_file, exploration_finding, review_summary, review_finding). Omit for all.")
     var kind: [SearchKind] = []
 
     @Option(name: .long) var limit: Int?

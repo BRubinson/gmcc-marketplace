@@ -44,13 +44,16 @@ Load **session context** — this is the default scope. These are all reads.
 1. `~/gmcc/bin/gm session get --json` — session row (backstory, status),
    prompt stubs, change summary. (`gm context get --json` for the uuid
    triple + active kbite codes if needed.)
-2. `gm prompt list --with-reports --json` for every prompt's clarification
-   and architecture state in one call; `gm clarify get` / `gm arch get` for
-   full detail on the ones that matter. `gm search "<topic>" --json` finds
-   prior work across prompts — do not grep the ckfs for it. Only when a stub
-   reports `is_legacy: true` (or a get returns `SUMMARY_ABSENT` with
-   `prompt_is_legacy: true`) fall back to that prompt's ckfs artifacts via
-   `gm artifact list --prompt-uuid U`.
+2. `gm prompt list --with-reports --json` for every prompt's clarification,
+   architecture, exploration, and review state in one call; `gm clarify get`
+   / `gm arch get` / `gm explore get` / `gm review get` for full detail on
+   the ones that matter. `gm search "<topic>" --json` finds prior work
+   across prompts (incl. exploration/review text) — do not grep the ckfs for
+   it. Only when a stub reports `is_legacy: true` (or a get returns
+   `SUMMARY_ABSENT` with `prompt_is_legacy: true`) fall back to that
+   prompt's ckfs artifacts via `gm artifact list --prompt-uuid U`; a
+   pre-m0004 prompt's explore/review report may also be a file artifact
+   until the mandatory migrate pass runs.
 
 **KBites on demand.** If a task clearly benefits from a kbite, load it from
 the db: read `$GMCC_KBITE/{name}/KBITE_PURPOSE.md`, then

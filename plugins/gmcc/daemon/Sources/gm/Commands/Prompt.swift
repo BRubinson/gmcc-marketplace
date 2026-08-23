@@ -111,6 +111,22 @@ struct Prompt: ParsableCommand {
                     } else {
                         print("     architecture:  none — not opened yet (`gm arch open`)")
                     }
+                    if let explore = stub.reports?.exploration {
+                        let unranked = explore.unrankedFindingCount > 0 ? ", \(explore.unrankedFindingCount) unranked" : ""
+                        print("     exploration:   \(explore.status) (\(explore.findingCount) findings, \(explore.sub100FindingCount) sub-100\(unranked); \(explore.keyFileCount) key files) v\(explore.version)")
+                    } else if stub.isLegacy {
+                        print("     exploration:   none — legacy prompt, use `gm artifact list`")
+                    } else {
+                        print("     exploration:   none — not opened yet (`gm explore open`; pre-m0004 reports live behind `gm artifact list` until migrated)")
+                    }
+                    if let review = stub.reports?.review {
+                        let unranked = review.unrankedFindingCount > 0 ? ", \(review.unrankedFindingCount) unranked" : ""
+                        print("     review:        \(review.status) (verdict \(review.verdict ?? "-"); \(review.findingCount) findings, \(review.sub100FindingCount) sub-100, \(review.openFindingCount) open\(unranked)) v\(review.version)")
+                    } else if stub.isLegacy {
+                        print("     review:        none — legacy prompt, use `gm artifact list`")
+                    } else {
+                        print("     review:        none — not opened yet (`gm review open`; pre-m0004 reports live behind `gm artifact list` until migrated)")
+                    }
                 }
             }
         }

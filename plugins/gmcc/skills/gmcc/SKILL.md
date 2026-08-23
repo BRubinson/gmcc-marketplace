@@ -37,7 +37,7 @@ For detailed structures, read: `$GMCC_PLUGIN_ROOT/skills/gmcc/ref/ckfs_details.m
 
 ### Always Do
 1. Trust the SessionStart hook for project / instance / session resolution — never recompute the paths yourself
-2. Load current session context before starting work — `gm session get --json`, `gm prompt list --with-reports --json` for per-prompt report state, and `gm search "<topic>" --json` for prior work, rather than reading `prompts/*/memory/` files (explore.md/review.md stay files, reached via `gm artifact list`)
+2. Load current session context before starting work — `gm session get --json`, `gm prompt list --with-reports --json` for per-prompt report state, and `gm search "<topic>" --json` for prior work, rather than reading `prompts/*/memory/` files (all four report kinds are db rows since v19; only pre-migration legacy files are reached via `gm artifact list`)
 3. Record significant prompts as db rows (`gm prompt create`) and record file edits with `gm file-change add` as you make them
 4. Register every `memory/*.md` artifact you write with `gm artifact add` (pointer + one-sentence note)
 5. Load the kbites declared in the session's active registry (read `ref/kbite_awareness.md` for protocol)

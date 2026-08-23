@@ -386,6 +386,36 @@ final class Server: @unchecked Sendable {
             case .archGet:
                 return try ArchGetHandler.handle(line: line, head: head, store: store)
 
+            case .exploreOpen:
+                return try ExploreOpenHandler.handle(line: line, head: head, store: store)
+            case .exploreKeyFileAdd:
+                return try ExploreKeyFileAddHandler.handle(line: line, head: head, store: store)
+            case .exploreFindingAdd:
+                return try ExploreFindingAddHandler.handle(line: line, head: head, store: store)
+            case .exploreRank:
+                return try ExploreRankHandler.handle(line: line, head: head, store: store)
+            case .exploreComplete:
+                return try ExploreCompleteHandler.handle(line: line, head: head, store: store)
+            case .exploreReopen:
+                return try ExploreReopenHandler.handle(line: line, head: head, store: store)
+            case .exploreGet:
+                return try ExploreGetHandler.handle(line: line, head: head, store: store)
+
+            case .reviewOpen:
+                return try ReviewOpenHandler.handle(line: line, head: head, store: store)
+            case .reviewFindingAdd:
+                return try ReviewFindingAddHandler.handle(line: line, head: head, store: store)
+            case .reviewRank:
+                return try ReviewRankHandler.handle(line: line, head: head, store: store)
+            case .reviewResolve:
+                return try ReviewResolveHandler.handle(line: line, head: head, store: store)
+            case .reviewComplete:
+                return try ReviewCompleteHandler.handle(line: line, head: head, store: store)
+            case .reviewReopen:
+                return try ReviewReopenHandler.handle(line: line, head: head, store: store)
+            case .reviewGet:
+                return try ReviewGetHandler.handle(line: line, head: head, store: store)
+
             case .sessionResolve:
                 return try SessionResolveHandler.handle(line: line, head: head, store: store)
             case .instanceCurrentSession:

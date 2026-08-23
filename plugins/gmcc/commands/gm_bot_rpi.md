@@ -28,7 +28,7 @@ Exit without proceeding.
 The SessionStart hook exports env, `mkdir`s `$GMCC_SESSION_PATH/prompts/`, and runs `gm context ensure`. Then:
 
 1. `~/gmcc/bin/gm session get --json` for current session state (session row + prompt stubs + change summary). If this exits 2 (daemon unreachable), self-heal: `bash $GMCC_PLUGIN_ROOT/scripts/build_daemon.sh`, then `gm context ensure`, then retry.
-2. One call for the whole session's report state: `gm prompt list --with-reports --json` (per-prompt clarification/architecture status, refined goal, backstory note, version, counts). `is_legacy: true` + null report = pre-m0002: read ckfs artifacts (`gm artifact list`), never fabricate rows; `is_legacy: false` + null report = not opened yet. Topic lookup across prompts is `gm search "<topic>" --json` — do NOT grep the ckfs or open memory files for context (explore.md/review.md stay files, reached via `gm artifact list`).
+2. One call for the whole session's report state: `gm prompt list --with-reports --json` (per-prompt clarification/architecture status, refined goal, backstory note, version, counts). `is_legacy: true` + null report = pre-m0002: read ckfs artifacts (`gm artifact list`), never fabricate rows; `is_legacy: false` + null report = not opened yet. Topic lookup across prompts is `gm search "<topic>" --json` — do NOT grep the ckfs or open memory files for context (since m0004 exploration/review are db rows too; the stubs carry their state, and pre-m0004 file reports are reached via `gm artifact list` until the mandatory migrate pass moves them into rows).
 
 ---
 
@@ -97,7 +97,7 @@ row's active list at create time. No trigger matching, no kbite picker.
 
 ## Phase 2: Implementation Overview (Explore Subagent)
 
-Spawn 1 explore subagent via Task tool. The subagent does its work in its own context window; it returns a structured report as its final message. The primary context receives the report content **and persists it** to `$GMCC_SESSION_PATH/prompts/{seq}_{name}/memory/explore.md` (see `skills/gmcc/ref/bot_workflows.md`).
+Spawn 1 explore subagent via Task tool. The subagent does its work in its own context window and returns a FINDING-SHAPED report as its final message (key files + findings with kind/title/body/self-rated 0-999 rating — see the explorer prompt file). The subagent cannot run gm (read-only sandbox), so the PRIMARY holds the pen: it transcribes the report into db rows (see `skills/gmcc/ref/bot_workflows.md`).
 
 ```
 Task tool:
@@ -127,14 +127,18 @@ Task tool:
     Include: Target, Key Files, Patterns, Integration Points, Dependencies, Uncertainties, Methodology Insights.
 ```
 
-Read the returned report into the primary context, write it verbatim to `$GMCC_SESSION_PATH/prompts/{seq}_{name}/memory/explore.md`, and register it:
+Read the returned report into the primary context and transcribe it db-natively — NEVER write `memory/explore.md` for a post-m0004 prompt (the `explore` artifact kind is legacy-only, like `qualified`):
 
 ```bash
-gm artifact add --prompt-uuid U --file-path "$GMCC_SESSION_PATH/prompts/{seq}_{name}/memory/explore.md" \
-  --kind explore --note "<one-sentence caption of the exploration>"
+gm explore open --prompt-uuid U --json                  # explicit; works at draft
+gm explore key-file-add --summary-uuid S --file-path <path>            # per key file
+gm explore finding-add --summary-uuid S --kind <kind> --title "..." \
+  --body "..." --agent-name explorer --rating <subagent's self-rating>  # per finding
+gm explore rank --summary-uuid S --rating <uuid>:<0-999> ...  # adjust ratings where you disagree
+gm explore complete --summary-uuid S --expected-version V --overview "<your synthesis of the report>"
 ```
 
-Use it to inform Clarify.
+`complete` refuses unranked findings; the overview is writable only there (primary-agent-only by shape). Use the ranked findings to inform Clarify.
 
 ---
 
@@ -283,7 +287,7 @@ How would you like to handle the findings?
 
 Implement requested fixes (back to Phase 5 for the fix subset).
 
-Write the review report (verbatim from the subagent) to `$GMCC_SESSION_PATH/prompts/{seq}_{name}/memory/review.md` and register it (`gm artifact add --kind review --note "..."`).
+Transcribe the review report db-natively — NEVER write `memory/review.md` for a post-m0004 prompt: `gm review open --prompt-uuid U`, `gm review finding-add` per finding (with the subagent's self-rating and location fields), `gm review rank` to adjust, `gm review complete --overview "<synthesis>" --verdict approved|approved_with_nits|changes_requested`. As fixes land, record each outcome with `gm review resolve --finding-uuid F --expected-version V --status fixed|accepted|wont_fix` (works after complete; address every finding rated under 100).
 
 ---
 
@@ -293,7 +297,7 @@ Write the review report (verbatim from the subagent) to `$GMCC_SESSION_PATH/prom
 2. Wait for user feedback. Iterate until satisfied.
 
 There is no phase-history record — completion is represented by prompt
-status `done` plus the clarification/architecture rows, registered artifacts, and file-change trail
+status `done` plus the clarification/architecture/exploration/review rows and file-change trail
 (`gm prompt get`, `gm file-change list`).
 
 ```
@@ -330,7 +334,7 @@ Continue the phase in primary context as a fallback.
 
 **Session paused:**
 ```
-State preserved: prompt row (gm prompt get) + $GMCC_SESSION_PATH/prompts/{seq}_{name}/memory/
+State preserved: prompt row (gm prompt get) + report rows (gm clarify/arch/explore/review get)
 
 To resume: /gm_bot_rpi {seq} <continuation prompt>
 ```

@@ -81,6 +81,23 @@ Only report high-confidence, meaningful issues. Skip style nitpicks unless they 
 
 ## Output Syntax
 
+Since m0004 the review record is DB-NATIVE: `review_finding` rows under the
+prompt's review summary, consumed via `gm review get` and resolved during the
+fix loop (`gm review resolve`). Your report MUST be finding-shaped so it
+lands in those rows without reinterpretation. Who holds the pen depends on
+the tier: in `/gm_bot` and `/gm_bot_rpi` you return this report as text and
+the PRIMARY transcribes it into rows; in `/gm_bot_team` you are a full
+session and run `gm review finding-add` yourself, self-reporting your
+persona as `--agent-name`. You NEVER write the summary overview or verdict
+and NEVER call `gm review complete` — that is the primary agent's synthesis,
+after ranking.
+
+**finding_rating (0–999, 0 = absolute critical, 999 = always-false-positive;
+read threshold 100):** self-rate every finding. The fix loop always
+addresses findings under 100 and records a resolution per finding
+(fixed / accepted / wont_fix); 100+ surface as stubs. This scale REPLACES
+severity tiers — do not emit Critical/High/Medium/Low buckets.
+
 You MUST return output in this exact format:
 
 ```markdown
@@ -89,84 +106,24 @@ You MUST return output in this exact format:
 ### Review Target
 {What was reviewed - files, feature, PR, etc.}
 
-### Summary
-
-| Category | Critical | High | Medium | Low |
-|----------|----------|------|--------|-----|
-| Security | {n} | {n} | {n} | {n} |
-| Bugs | {n} | {n} | {n} | {n} |
-| Quality | {n} | {n} | {n} | {n} |
-| Conventions | {n} | {n} | {n} | {n} |
-
 ### Overall Assessment
-{Pass / Pass with Issues / Needs Revision / Reject}
+{1-2 sentence summary; suggest a verdict: approved / approved_with_nits /
+changes_requested — the primary agent decides the recorded verdict}
 
-{1-2 sentence summary}
+### Findings
+{One block per finding — maps 1:1 onto a review_finding row.
+kind ∈ correctness_bug | spec_deviation | regression_risk | security |
+simplification | other. file/lines omitted for cross-cutting findings.}
 
----
+#### [{kind}] {title} (rating: {0-999})
+- **File**: {repo-relative path}:{line_start}-{line_end}
 
-### Critical Issues
-
-#### [{ID}] {Issue Title}
-- **File**: {path}:{line}
-- **Category**: {Security/Bug/Quality/Convention}
-- **Confidence**: {High/Medium}
-- **Impact**: {What goes wrong}
-
-**Problem:**
-```{language}
-{problematic code}
-```
-
-**Issue:** {explanation}
-
-**Fix:**
-```{language}
-{corrected code}
-```
-
----
-
-### High Priority Issues
-
-#### [{ID}] {Issue Title}
-{same format as critical}
-
----
-
-### Medium Priority Issues
-
-#### [{ID}] {Issue Title}
-{same format}
-
----
-
-### Low Priority Issues
-
-{Brief list only - no code blocks unless necessary}
-
-- [{ID}] {file}:{line} - {brief description}
-
----
+{body — the problem, the evidence (quote the actual code), the impact, and
+the concrete fix}
 
 ### Positive Observations
 
 - {Good pattern or practice observed}
-- {Well-handled edge case}
-
-### Conventions Verified
-
-| Convention | Status |
-|------------|--------|
-| {naming convention} | {followed/violated} |
-| {error handling pattern} | {followed/violated} |
-| {testing requirement} | {followed/violated} |
-
-### Files Reviewed
-
-| File | Issues | Status |
-|------|--------|--------|
-| {path} | {n} | {clean/issues} |
 ```
 
 ---

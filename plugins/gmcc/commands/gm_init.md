@@ -75,7 +75,7 @@ pointers) lives in the daemon db at ~/gmcc/gmcc.db, accessed via
 ├── _archive/cold_storage/                     # archived legacy material (structure-preserving)
 ├── projects/                                  # Artifact tree (auto-created per repo)
 │   └── {project_name}/instances/{basename}_{hash4}/sessions/{sanitized_branch}/
-│       └── prompts/{seq}_{name}/memory/       # explore/qualified/architecture/review.md
+│       └── prompts/{seq}_{name}/memory/       # usually empty since v19 (reports are db rows; legacy files only)
 └── kbites/                                    # System-wide kbites (created on first kbite op)
     ├── {kbite_name}/KBITE_PURPOSE.md          # identity-level
     ├── digested/{kbite_name}/...              # persisted indexes

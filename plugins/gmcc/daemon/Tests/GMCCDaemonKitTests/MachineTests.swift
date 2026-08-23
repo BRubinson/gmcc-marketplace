@@ -226,4 +226,149 @@ final class MachineTests: XCTestCase {
         // Persistence-first: general side untouched ⇒ audit vacuous.
         XCTAssertNil(got.orderingRespected)
     }
+
+    func testExplorationMachine() throws {
+        // Open works at draft (Phase 2 timing) and is idempotent; prompt
+        // status never creates one (skip-to-done stays legal — asserted at
+        // the end of testReviewMachine on a fresh prompt).
+        let opened = try store.exploreOpen(ExploreOpenRequest(promptUuid: promptUuid))
+        XCTAssertTrue(opened.created)
+        XCTAssertEqual(opened.summary.status, "exploring")
+        XCTAssertFalse(try store.exploreOpen(ExploreOpenRequest(promptUuid: promptUuid)).created)
+        let summaryUuid = opened.summary.uuid
+
+        // Key files dedupe as upsert-ignore.
+        let kf1 = try store.exploreKeyFileAdd(ExploreKeyFileAddRequest(
+            summaryUuid: summaryUuid, filePath: "Sources/A.swift"))
+        XCTAssertTrue(kf1.created)
+        let kf2 = try store.exploreKeyFileAdd(ExploreKeyFileAddRequest(
+            summaryUuid: summaryUuid, filePath: "Sources/A.swift"))
+        XCTAssertFalse(kf2.created)
+        XCTAssertEqual(kf1.keyFile.uuid, kf2.keyFile.uuid)
+
+        // Two findings: one pre-rated, one unranked.
+        let f1 = try store.exploreFindingAdd(ExploreFindingAddRequest(
+            summaryUuid: summaryUuid, kind: .implementationPattern, title: "pattern",
+            body: "body", agentName: "conservative", rating: 40)).finding
+        let f2 = try store.exploreFindingAdd(ExploreFindingAddRequest(
+            summaryUuid: summaryUuid, kind: .scopeCreepRisk, title: "risk",
+            body: "body", agentName: "aggressive")).finding
+        XCTAssertNil(f2.findingRating)
+
+        // Complete refuses while unranked; the rank gate is the enforcement.
+        var summary = opened.summary
+        XCTAssertThrowsError(try store.exploreComplete(ExploreCompleteRequest(
+            summaryUuid: summaryUuid, expectedVersion: summary.version, overview: "o")))
+
+        // Batch atomicity: one bad pair (foreign uuid) rejects the whole batch.
+        XCTAssertThrowsError(try store.exploreRank(ExploreRankRequest(
+            summaryUuid: summaryUuid,
+            ratings: [FindingRating(findingUuid: f2.uuid, rating: 10),
+                      FindingRating(findingUuid: "not-a-finding", rating: 10)])))
+        XCTAssertNil(try store.exploreGet(ExploreGetRequest(promptUuid: promptUuid))
+            .findings.first(where: { $0.uuid == f2.uuid })?.findingRating)
+        // Duplicate uuids reject too.
+        XCTAssertThrowsError(try store.exploreRank(ExploreRankRequest(
+            summaryUuid: summaryUuid,
+            ratings: [FindingRating(findingUuid: f2.uuid, rating: 10),
+                      FindingRating(findingUuid: f2.uuid, rating: 20)])))
+
+        // A good batch lands; unrankedCount hits zero.
+        let ranked = try store.exploreRank(ExploreRankRequest(
+            summaryUuid: summaryUuid,
+            ratings: [FindingRating(findingUuid: f2.uuid, rating: 150)]))
+        XCTAssertEqual(ranked.unrankedCount, 0)
+
+        // GET partitions at 100: f1 (40) full, f2 (150) stub; --full unhides.
+        let got = try store.exploreGet(ExploreGetRequest(promptUuid: promptUuid))
+        XCTAssertEqual(got.findings.map(\.uuid), [f1.uuid])
+        XCTAssertEqual(got.findingStubs.map(\.uuid), [f2.uuid])
+        XCTAssertEqual(
+            try store.exploreGet(ExploreGetRequest(promptUuid: promptUuid, full: true))
+                .findings.count, 2)
+        // Rating-range window shifts the partition.
+        XCTAssertEqual(
+            try store.exploreGet(ExploreGetRequest(
+                promptUuid: promptUuid, ratingMin: 100, ratingMax: 200)).findings.map(\.uuid),
+            [f2.uuid])
+
+        // Complete carries the overview (its only write path); rank refused
+        // after complete; reopen re-arms and preserves everything.
+        summary = try store.exploreGet(ExploreGetRequest(promptUuid: promptUuid)).summary
+        summary = try store.exploreComplete(ExploreCompleteRequest(
+            summaryUuid: summaryUuid, expectedVersion: summary.version,
+            overview: "the narrative")).summary
+        XCTAssertEqual(summary.status, "complete")
+        XCTAssertThrowsError(try store.exploreRank(ExploreRankRequest(
+            summaryUuid: summaryUuid,
+            ratings: [FindingRating(findingUuid: f1.uuid, rating: 5)])))
+        summary = try store.exploreReopen(ExploreReopenRequest(
+            summaryUuid: summaryUuid, expectedVersion: summary.version)).summary
+        XCTAssertEqual(summary.status, "exploring")
+        XCTAssertEqual(summary.overview, "the narrative")
+        // A post-reopen finding inserts unranked and re-blocks complete.
+        _ = try store.exploreFindingAdd(ExploreFindingAddRequest(
+            summaryUuid: summaryUuid, kind: .other, title: "new", body: "b",
+            agentName: "primary"))
+        XCTAssertThrowsError(try store.exploreComplete(ExploreCompleteRequest(
+            summaryUuid: summaryUuid, expectedVersion: summary.version, overview: "v2")))
+    }
+
+    func testReviewMachine() throws {
+        let opened = try store.reviewOpen(ReviewOpenRequest(promptUuid: promptUuid))
+        let summaryUuid = opened.summary.uuid
+        XCTAssertEqual(opened.summary.status, "reviewing")
+
+        // line_end without line_start refused; located finding lands.
+        XCTAssertThrowsError(try store.reviewFindingAdd(ReviewFindingAddRequest(
+            summaryUuid: summaryUuid, kind: .correctnessBug, title: "t", body: "b",
+            lineEnd: 5, agentName: "a")))
+        let f1 = try store.reviewFindingAdd(ReviewFindingAddRequest(
+            summaryUuid: summaryUuid, kind: .correctnessBug, title: "bug",
+            body: "b", filePath: "Sources/A.swift", lineStart: 3, lineEnd: 9,
+            agentName: "conservative", rating: 10)).finding
+        let f2 = try store.reviewFindingAdd(ReviewFindingAddRequest(
+            summaryUuid: summaryUuid, kind: .simplification, title: "nit",
+            body: "b", agentName: "pragmatic", rating: 400)).finding
+
+        // Complete requires the verdict and carries overview + verdict.
+        var summary = try store.reviewGet(ReviewGetRequest(promptUuid: promptUuid)).summary
+        summary = try store.reviewComplete(ReviewCompleteRequest(
+            summaryUuid: summaryUuid, expectedVersion: summary.version,
+            overview: "review narrative", verdict: .approvedWithNits)).summary
+        XCTAssertEqual(summary.verdict, "approved_with_nits")
+
+        // Resolve works AFTER complete (the fix loop), stubs keep status,
+        // lateral corrections allowed, never back to open.
+        let resolved = try store.reviewResolve(ReviewResolveRequest(
+            findingUuid: f1.uuid, expectedVersion: f1.version, status: .fixed)).finding
+        XCTAssertEqual(resolved.status, "fixed")
+        let corrected = try store.reviewResolve(ReviewResolveRequest(
+            findingUuid: f1.uuid, expectedVersion: resolved.version, status: .accepted)).finding
+        XCTAssertEqual(corrected.status, "accepted")
+        XCTAssertThrowsError(try store.reviewResolve(ReviewResolveRequest(
+            findingUuid: f1.uuid, expectedVersion: corrected.version, status: .open)))
+        let got = try store.reviewGet(ReviewGetRequest(promptUuid: promptUuid))
+        XCTAssertEqual(got.findingStubs.first(where: { $0.uuid == f2.uuid })?.status, "open")
+
+        // Resolve survives a reopen mid-fix-loop (the ungated design).
+        summary = try store.reviewReopen(ReviewReopenRequest(
+            summaryUuid: summaryUuid, expectedVersion: summary.version)).summary
+        XCTAssertEqual(summary.status, "reviewing")
+        _ = try store.reviewResolve(ReviewResolveRequest(
+            findingUuid: f2.uuid, expectedVersion: f2.version, status: .wontFix))
+
+        // SUMMARY_ABSENT discrimination on a fresh current prompt: no review
+        // summary, prompt_is_legacy false — and prompt transitions never
+        // created one behind our back (skip-to-done legality).
+        let fresh = try store.createPrompt(PromptCreateRequest(
+            sessionUuid: sessionUuid, name: "fresh", detail: "d")).uuid
+        do {
+            _ = try store.reviewGet(ReviewGetRequest(promptUuid: fresh))
+            XCTFail("expected summaryAbsent")
+        } catch let StoreError.summaryAbsent(entity, _, promptIsLegacy) {
+            XCTAssertEqual(entity, "review")
+            XCTAssertFalse(promptIsLegacy)
+        }
+    }
 }

@@ -76,6 +76,22 @@ Start broad, then drill deep. Map the territory before making claims. When explo
 
 ## Output Syntax
 
+Since m0004 the exploration record is DB-NATIVE: `exploration_key_file` and
+`exploration_finding` rows under the prompt's exploration summary, consumed
+via `gm explore get`. Your report MUST be finding-shaped so it lands in those
+rows without reinterpretation. Who holds the pen depends on the tier: in
+`/gm_bot` and `/gm_bot_rpi` you return this report as text and the PRIMARY
+transcribes it into rows; in `/gm_bot_team` you are a full session and run
+the `gm explore` verbs yourself (key-file-add / finding-add), self-reporting
+your persona as `--agent-name`. You NEVER write the summary overview and
+NEVER call `gm explore complete` — that is the primary agent's synthesis,
+after ranking.
+
+**finding_rating (0–999, 0 = absolute critical, 999 = always-false-positive;
+read threshold 100):** self-rate every finding you produce. Architecture
+agents always read findings under 100 in full; 100+ surface as stubs. Rate
+honestly — the primary (or the team re-ranker) re-ranks after you.
+
 You MUST return output in this exact format:
 
 ```markdown
@@ -84,56 +100,26 @@ You MUST return output in this exact format:
 ### Exploration Target
 {What was explored - directory, feature, pattern, etc.}
 
-### Architecture Overview
-
-#### Layer Map
-{Describe the architectural layers found}
-
-#### Module Responsibilities
-| Module/Directory | Responsibility | Key Files |
-|------------------|----------------|-----------|
-| {path} | {what it does} | {important files} |
-
-### Execution Paths
-
-#### Path: {Name}
-```
-{entry point}
-  → {step 1}
-  → {step 2}
-  → {result}
-```
-
-### Patterns Discovered
-
-#### Pattern: {Name}
-- **Where**: {files/locations}
-- **What**: {description}
-- **Why**: {apparent purpose}
-
-### Dependencies
-
-#### Internal Dependencies
-{What depends on what within the codebase}
-
-#### External Dependencies
-{Third-party libraries and their usage}
-
-### Integration Points
-
-For new functionality, consider connecting at:
-- {integration point 1}: {why}
-- {integration point 2}: {why}
-
 ### Key Files
+{One repo-relative path per line — the shared deduped set for
+exploration_key_file rows. Every file an implementer must open.}
 
-| File | Relevance | Must Read |
-|------|-----------|-----------|
-| {path} | {why relevant} | {yes/no} |
+- {path}
+- {path}
+
+### Findings
+{One block per finding — maps 1:1 onto an exploration_finding row.
+kind ∈ persistence_model | implementation_pattern | existing_functionality |
+scope_creep_risk | general_relevant_change | other}
+
+#### [{kind}] {title} (rating: {0-999})
+{body — the full finding: what, where (files/lines), why it matters,
+evidence from the actual code}
 
 ### Open Questions
 
-- {Question that couldn't be answered from code alone}
+- {Question that couldn't be answered from code alone, rated 0-999 by how
+  critically it blocks the outcome (0 = critical unknown)}
 ```
 
 ---

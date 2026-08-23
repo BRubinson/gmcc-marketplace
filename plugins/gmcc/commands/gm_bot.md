@@ -28,7 +28,7 @@ Exit without proceeding.
 The SessionStart hook exports env, `mkdir`s `$GMCC_SESSION_PATH/prompts/`, and runs `gm context ensure`.
 
 1. `~/gmcc/bin/gm session get --json` for current session state (session row + prompt stubs + change summary). If this exits 2 (daemon unreachable), self-heal: `bash $GMCC_PLUGIN_ROOT/scripts/build_daemon.sh`, then `gm context ensure`, then retry.
-2. One call for the whole session's report state: `gm prompt list --with-reports --json`. Each stub carries its clarification/architecture status, refined goal, backstory note, summary version, and counts. `is_legacy: true` with a null report = a pre-m0002 prompt: read its ckfs artifacts (`gm artifact list`), never fabricate rows. `is_legacy: false` with a null report = simply not opened yet. For topic lookup across prompts use `gm search "<topic>" --json` — do NOT grep the ckfs and do NOT open memory files to find prior context. (`gm search` covers prompt/clarification/architecture text; explore.md and review.md are still plain files reached via `gm artifact list`.)
+2. One call for the whole session's report state: `gm prompt list --with-reports --json`. Each stub carries its clarification/architecture status, refined goal, backstory note, summary version, and counts. `is_legacy: true` with a null report = a pre-m0002 prompt: read its ckfs artifacts (`gm artifact list`), never fabricate rows. `is_legacy: false` with a null report = simply not opened yet. For topic lookup across prompts use `gm search "<topic>" --json` — do NOT grep the ckfs and do NOT open memory files to find prior context. (`gm search` covers prompt/clarification/architecture/exploration/review text; the stubs also carry exploration/review state — findings, sub-100 counts, unranked resume signals, verdicts.)
 
 ---
 
@@ -154,12 +154,18 @@ and proceed to Phase 2.
 
 Explore the codebase using Glob/Grep/Read. Identify the files relevant to this prompt, the integration points, and any ambiguities to resolve in Clarify. Keep this in primary context — no subagents.
 
-**Persist your exploration notes** to `$GMCC_SESSION_PATH/prompts/{seq}_{name}/memory/explore.md` (concise markdown — files surveyed, patterns spotted, open questions), then register the pointer:
+**Persist the exploration db-natively** — NEVER write `memory/explore.md` for a post-m0004 prompt (the `explore` artifact kind is reserved for pre-migration legacy files, like `qualified`):
 
 ```bash
-gm artifact add --prompt-uuid U --file-path ".../memory/explore.md" \
-  --kind explore --note "<one-sentence caption>"
+gm explore open --prompt-uuid U --json                  # explicit; works at draft
+gm explore key-file-add --summary-uuid S --file-path <repo-relative>   # per key file (deduped)
+gm explore finding-add --summary-uuid S --kind <kind> --title "..." \
+  --body "..." --agent-name primary [--rating N]        # per finding
+gm explore rank --summary-uuid S --rating <uuid>:<0-999> ...   # rank everything (0=critical, 999=ignore)
+gm explore complete --summary-uuid S --expected-version V --overview "<narrative>"
 ```
+
+`complete` refuses while any finding is unranked; the overview is writable only there. On a re-run: `gm explore reopen` → update → re-complete.
 
 ---
 
@@ -258,11 +264,11 @@ never a file fallback. Entering `architecting` created the summary
 
 1. **Advance to reviewing** (`gm prompt set-status ... --status reviewing`), or skip straight to `done` when the user wants no review pass (`implementing → done` is the one legal skip edge).
 2. Present a summary: files modified, key decisions, known limitations; check `gm arch get` for unimplemented rows and unplanned drift.
-3. **Persist a brief review note** to `$GMCC_SESSION_PATH/prompts/{seq}_{name}/memory/review.md` (review is still a markdown artifact) and register it (`gm artifact add --kind review --note "..."`).
+3. **Persist the review db-natively** — NEVER write `memory/review.md` for a post-m0004 prompt: `gm review open --prompt-uuid U`, `gm review finding-add` per finding (kind/title/body, optional --file-path/--line-start/--line-end), `gm review rank`, then `gm review complete --overview "<narrative>" --verdict approved|approved_with_nits|changes_requested`. During the fix loop record each outcome: `gm review resolve --finding-uuid F --expected-version V --status fixed|accepted|wont_fix` (works after complete — that is when the loop runs; address every finding rated under 100).
 4. Wait for user feedback; iterate. When satisfied: `gm prompt set-status ... --status done`.
 
 There is no phase-history record — completion is prompt status `done` plus
-the clarification/architecture rows, registered artifacts, and file-change trail.
+the clarification/architecture/exploration/review rows and file-change trail.
 
 ```
 Bot Complete: prompt {seq} ({name})
@@ -285,7 +291,7 @@ Bot Complete: prompt {seq} ({name})
 
 **Session paused (user stops responding):**
 ```
-State preserved: prompt row (gm prompt get) + $GMCC_SESSION_PATH/prompts/{seq}_{name}/memory/
+State preserved: prompt row (gm prompt get) + report rows (gm clarify/arch/explore/review get)
 
 To resume: /gm_bot {seq} <continuation prompt>
 ```

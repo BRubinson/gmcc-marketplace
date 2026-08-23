@@ -137,8 +137,14 @@ final class MigrationTests: XCTestCase {
             }
             XCTAssertEqual(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM daemon_config"), 4)
 
-            // Ledger + FK health.
-            XCTAssertEqual(try Int.fetchOne(db, sql: "SELECT MAX(version) FROM schema_migrations"), 2)
+            // Ledger + FK health. The full migrator runs every registered
+            // migration, so the ledger tracks currentSchemaVersion — and the
+            // m0002 row itself must exist (it is the legacy epoch).
+            XCTAssertEqual(
+                try Int.fetchOne(db, sql: "SELECT MAX(version) FROM schema_migrations"),
+                Migrations.currentSchemaVersion)
+            XCTAssertEqual(
+                try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM schema_migrations WHERE version = 2"), 1)
             let violations = try Row.fetchAll(db, sql: "PRAGMA foreign_key_check")
             XCTAssertTrue(violations.isEmpty, "foreign_key_check reported \(violations.count) violations")
             XCTAssertEqual(try String.fetchOne(db, sql: "PRAGMA integrity_check"), "ok")
@@ -172,6 +178,92 @@ final class MigrationTests: XCTestCase {
             XCTAssertEqual(
                 try String.fetchAll(db, sql: "SELECT uuid || ':' || id FROM prompt ORDER BY uuid"),
                 before.uuidIds)
+            XCTAssertTrue(try Row.fetchAll(db, sql: "PRAGMA foreign_key_check").isEmpty)
+            XCTAssertEqual(try String.fetchOne(db, sql: "PRAGMA integrity_check"), "ok")
+        }
+    }
+
+    /// m0004 is pure ADD — no rebuild, no data motion. Assert the five report
+    /// tables + their FTS mirrors/triggers exist, the CHECKs hold, and the
+    /// `_ad` triggers keep the mirrors synced through an FK cascade delete
+    /// (the recursive_triggers contract).
+    func testM0004AddsReportTablesWithSyncedFtsMirrors() throws {
+        let dbPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("m0004-\(UUID().uuidString).db").path
+        defer { try? FileManager.default.removeItem(atPath: dbPath) }
+        let store = try Store(path: dbPath)
+        try store.migrate()
+
+        try store.dbQueue.write { db in
+            for table in ["exploration_summary", "exploration_key_file", "exploration_finding",
+                          "review_summary", "review_finding"] {
+                XCTAssertEqual(
+                    try Int.fetchOne(db, sql:
+                        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?",
+                        arguments: [table]), 1, "missing table \(table)")
+                XCTAssertEqual(
+                    try Int.fetchOne(db, sql:
+                        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?",
+                        arguments: ["\(table)_fts"]), 1, "missing FTS mirror for \(table)")
+                for suffix in ["ai", "ad", "au"] {
+                    XCTAssertEqual(
+                        try Int.fetchOne(db, sql:
+                            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name = ?",
+                            arguments: ["\(table)_\(suffix)"]), 1, "missing trigger \(table)_\(suffix)")
+                }
+            }
+            XCTAssertEqual(
+                try Int.fetchOne(db, sql: "SELECT MAX(version) FROM schema_migrations"),
+                Migrations.currentSchemaVersion)
+
+            // Minimal chain + one summary + one finding.
+            let now = Store.isoNow()
+            try db.execute(sql: """
+                INSERT INTO project (uuid, version, created_at, updated_at,
+                    git_repo_name, code, name, ckfs_relative_storage_path)
+                VALUES ('proj-1', 0, '\(now)', '\(now)', 'r', 'r', 'r', 'p/r');
+                INSERT INTO instance (uuid, version, created_at, updated_at,
+                    project_uuid, code, name, absolute_file_system_path, ckfs_relative_storage_path)
+                VALUES ('inst-1', 0, '\(now)', '\(now)', 'proj-1', 'r_1', 'r_1', '/tmp/r', 'p/r/i');
+                INSERT INTO session (uuid, version, created_at, updated_at,
+                    instance_uuid, code, name, backstory, goal, status, ckfs_relative_storage_path)
+                VALUES ('sess-1', 0, '\(now)', '\(now)', 'inst-1', 'main', 'main', '', '', 'active', 'p/r/i/s');
+                INSERT INTO prompt (uuid, version, created_at, updated_at,
+                    session_uuid, seq, code, name, backstory, goal, detail, command, status,
+                    ckfs_relative_storage_path)
+                VALUES ('prompt-x', 0, '\(now)', '\(now)', 'sess-1', 1, 'p1', 'one', '', '', '', '', 'draft', '');
+                INSERT INTO exploration_summary (uuid, version, created_at, updated_at,
+                    prompt_uuid, status, overview)
+                VALUES ('exs-1', 0, '\(now)', '\(now)', 'prompt-x', 'exploring', '');
+                INSERT INTO exploration_finding (uuid, version, created_at, updated_at,
+                    exploration_summary_uuid, kind, title, body, agent_name, finding_rating)
+                VALUES ('exf-1', 0, '\(now)', '\(now)', 'exs-1', 'other', 'searchable finding title',
+                        'searchable finding body', 'tester', NULL);
+                """)
+
+            // The rating CHECK: out-of-range refused, NULL allowed (above).
+            XCTAssertThrowsError(try db.execute(sql: """
+                INSERT INTO exploration_finding (uuid, version, created_at, updated_at,
+                    exploration_summary_uuid, kind, title, body, agent_name, finding_rating)
+                VALUES ('exf-bad', 0, '\(now)', '\(now)', 'exs-1', 'other', 't', 'b', 'a', 1000)
+                """))
+            // review_summary: complete requires a verdict.
+            XCTAssertThrowsError(try db.execute(sql: """
+                INSERT INTO review_summary (uuid, version, created_at, updated_at,
+                    prompt_uuid, status, verdict, overview)
+                VALUES ('rvs-bad', 0, '\(now)', '\(now)', 'prompt-x', 'complete', NULL, '')
+                """))
+
+            // FTS mirror is live…
+            XCTAssertEqual(try Int.fetchOne(db, sql:
+                "SELECT COUNT(*) FROM exploration_finding_fts WHERE exploration_finding_fts MATCH 'searchable'"), 1)
+            // …and stays synced through the prompt-delete FK cascade.
+            try db.execute(sql: "DELETE FROM prompt WHERE uuid = 'prompt-x'")
+            XCTAssertEqual(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM exploration_summary"), 0)
+            XCTAssertEqual(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM exploration_finding"), 0)
+            XCTAssertEqual(try Int.fetchOne(db, sql:
+                "SELECT COUNT(*) FROM exploration_finding_fts WHERE exploration_finding_fts MATCH 'searchable'"), 0)
+
             XCTAssertTrue(try Row.fetchAll(db, sql: "PRAGMA foreign_key_check").isEmpty)
             XCTAssertEqual(try String.fetchOne(db, sql: "PRAGMA integrity_check"), "ok")
         }

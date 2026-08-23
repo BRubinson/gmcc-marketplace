@@ -119,6 +119,50 @@ gm artifact add --prompt-uuid U \
 will move the folder), so pointers stay valid after archiving. The note is
 the file pointer's caption — content stays inside the file, never in the db.
 
+### 3b. Transfer explore/review reports into db rows (m0004 — MANDATORY, all eras)
+
+Since m0004 the exploration/review record is db-native, and this transfer
+pass is **mandatory** — it covers BOTH the yaml-era prompts imported above
+AND the mid-era population: prompts created between m0002 and m0004
+(`is_legacy: false`) whose explore.md/review.md live on disk behind
+artifact pointers. Until a mid-era prompt is migrated, `gm explore/review
+get` on it returns `SUMMARY_ABSENT` guidance that steers here.
+
+**Execution: spawn Sonnet 5 agents** (`model: sonnet` — a user-directed
+standing rule for this pass) — one agent can batch many prompts.
+
+Per prompt with an on-disk `explore.md`:
+
+```bash
+gm explore open --prompt-uuid U --json                      # → summary uuid S (created)
+gm explore complete --summary-uuid S --expected-version 0 \
+  --overview-file .../memory/explore.md                       # VERBATIM — zero findings
+                                                              # (never $(cat ...) into argv:
+                                                              # >1 MB files exceed ARG_MAX)
+```
+
+Per prompt with an on-disk `review.md`:
+
+```bash
+gm review open --prompt-uuid U --json
+gm review complete --summary-uuid S --expected-version 0 \
+  --overview-file .../memory/review.md --verdict legacy_unstated
+```
+
+Rules — **verbatim transfer, never interpretation**:
+- `overview` := the file content verbatim. NO findings are fabricated from
+  freeform markdown (the unranked gate passes vacuously with zero
+  findings). This is a TRANSFER, not row fabrication — the "never
+  fabricate backing rows" contract forbids inventing structured content,
+  which this never does.
+- Review verdict is `legacy_unstated` — inventing approved/changes_requested
+  for a file that never states one WOULD fabricate. (If the file explicitly
+  states a verdict in its own words, that exact verdict may be used.)
+- An EMPTY report file: skip row creation (complete refuses empty
+  overviews), keep the artifact pointer, note it in the run summary.
+- The existing artifact pointers are KEPT as history; the files then follow
+  the normal archive flow (Phase 2 / cold storage).
+
 ### 4. Digest legacy kbite content into the db
 
 Pre-v16 kbites have their knowledge as `*_chewed.md` files under

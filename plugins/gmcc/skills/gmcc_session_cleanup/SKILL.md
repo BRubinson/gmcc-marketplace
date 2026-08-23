@@ -55,7 +55,8 @@ filesystem moves within the session.
 
 | Finding | Example | Default suggestion |
 |---------|---------|--------------------|
-| Unregistered artifact | `memory/{explore,review}.md` (or legacy `qualified/architecture.md`) on disk with no `prompt_artifact` row (`gm artifact list --prompt-uuid U`) | Register via `gm artifact add` with the matching `--kind` + caption note (default), or skip |
+| Unregistered artifact | a pre-m0004 `memory/{explore,review}.md` (or legacy `qualified/architecture.md`) on disk with no `prompt_artifact` row (`gm artifact list --prompt-uuid U`) | Register via `gm artifact add` with the matching `--kind` + caption note (default), or skip. Then flag the prompt for the mandatory mid-era migrate pass (`skills/gmcc_migrate_legacy/SKILL.md`) — its report belongs in db rows. |
+| Post-m0004 report mirror | a `memory/explore.md`/`review.md` written for a prompt whose exploration/review rows exist (or should) | DRIFT: the report kinds are legacy-only since m0004. Suggest transferring the content verbatim through the normal verbs (`gm explore/review open → complete --overview <file content>`) if no rows exist yet, then archiving the file to cold storage |
 | Dangling pointer | artifact row whose `file_path` doesn't exist on disk | Flag for user — restore the file if recoverable, or accept (pointers are history; no gm delete path) |
 | Unknown memory file | a `memory/*.md` not matching a known kind | Register as `--kind other` (default), or skip |
 

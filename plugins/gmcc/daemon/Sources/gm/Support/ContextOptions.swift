@@ -270,3 +270,7 @@ extension AnswerSource: ExpressibleByArgument {}
 extension ChangeDepth: ExpressibleByArgument {}
 extension ConfigKey: ExpressibleByArgument {}
 extension SearchKind: ExpressibleByArgument {}
+extension ExplorationFindingKind: ExpressibleByArgument {}
+extension ReviewFindingKind: ExpressibleByArgument {}
+extension ReviewVerdict: ExpressibleByArgument {}
+extension ReviewFindingStatus: ExpressibleByArgument {}
