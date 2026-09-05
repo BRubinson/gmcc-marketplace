@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# GMCC daemon build + install script — v16.0.0
+# GMCC daemon build + install script
 #
 # Builds the GMCCDaemon Swift package (plugins/gmcc/daemon/) in release mode
 # and installs the gm + gmcc_daemon binaries into ~/gmcc/bin/.

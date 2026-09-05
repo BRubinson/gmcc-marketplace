@@ -4,7 +4,6 @@ EnvelopeHead.requestId -> request_id
 ErrorPayload.codeRaw -> code
 ErrorPayload.message -> message
 ErrorPayload.daemonProtocolVersion -> daemon_protocol_version
-ErrorPayload.promptIsLegacy -> prompt_is_legacy
 RawEnvelopeHead.protocolVersion -> protocol_version
 RawEnvelopeHead.typeRaw -> type
 RawEnvelopeHead.requestId -> request_id
@@ -60,7 +59,6 @@ ArchSummaryResponse.summary -> summary
 ArchSummaryResponse.created -> created
 ArtifactAddRequest.promptUuid -> prompt_uuid
 ArtifactAddRequest.filePath -> file_path
-ArtifactAddRequest.kind -> kind
 ArtifactAddRequest.note -> note
 ArtifactListRequest.promptUuid -> prompt_uuid
 ArtifactListResponse.artifacts -> artifacts
@@ -412,7 +410,6 @@ ArchitectureSummaryRow.updatedAt -> updated_at
 ArtifactRow.uuid -> uuid
 ArtifactRow.promptUuid -> prompt_uuid
 ArtifactRow.filePath -> file_path
-ArtifactRow.kind -> kind
 ArtifactRow.note -> note
 ArtifactRow.createdAt -> created_at
 ChangeImplementationState.fileChangeCount -> file_change_count
@@ -553,7 +550,6 @@ PromptRow.detail -> detail
 PromptRow.command -> command
 PromptRow.status -> status
 PromptRow.ckfsRelativeStoragePath -> ckfs_relative_storage_path
-PromptRow.isLegacy -> is_legacy
 PromptRow.createdAt -> created_at
 PromptRow.updatedAt -> updated_at
 PromptStub.uuid -> uuid
@@ -564,7 +560,6 @@ PromptStub.name -> name
 PromptStub.status -> status
 PromptStub.version -> version
 PromptStub.ckfsRelativeStoragePath -> ckfs_relative_storage_path
-PromptStub.isLegacy -> is_legacy
 PromptStub.reports -> reports
 PromptStub.createdAt -> created_at
 PromptStub.updatedAt -> updated_at

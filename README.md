@@ -1,7 +1,7 @@
 # GMCC Marketplace
 
 Green Mountain Compiler Collection — a Claude Code plugin marketplace for **contextual
-development**. The `gmcc` plugin (v14.0.0) turns Claude Code into the GM-CDE (Green
+development**. The `gmcc` plugin turns Claude Code into the GM-CDE (Green
 Mountain Contextual Development Environment): a workflow system that authors, clarifies,
 and implements prompts against a persistent per-repo/per-branch knowledge store (the
 **ckfs**), backed by reusable knowledge bites (**kbites**).
@@ -114,7 +114,6 @@ write-back later in the conversation.
 | Command | Purpose |
 |---------|---------|
 | `/gm_init` | One-time machine-level system init (see Setup) |
-| `/gm_compile` | Run a YEETS validation pass over a project/instance/session (read-only) |
 | `/gm_cleanup` | Audit the ckfs for non-compliant structure and interactively repair each finding |
 | `/gm_bot_v4_migrate_kbite` | One-shot migration of legacy v4 kbites to the current layout |
 

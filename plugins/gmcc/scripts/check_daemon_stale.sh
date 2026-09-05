@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# GMCC daemon staleness check — v16.0.0
+# GMCC daemon staleness check
 #
 # SessionStart hook: warn (never block) when the installed daemon binaries are
 # missing or older than the daemon package sources. Plugin root derived from

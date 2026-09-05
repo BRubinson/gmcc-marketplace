@@ -6,7 +6,7 @@ disable-model-invocation: true
 allowed-tools: Read, Write, Edit, Grep, Glob, Bash, Task, AskUserQuestion
 ---
 
-# GM-CDE Bot RPI (Subagent Research/Plan/Implement, v16.3.0)
+# GM-CDE Bot RPI (Subagent Research/Plan/Implement)
 
 You are executing an enhanced development workflow that leverages GMCC subagents for Research, Planning, and Review phases. Same prompt-into-session model as `/gm_bot`, with subagents added to Phases 2, 4, and 6. Subagent reports are persisted to `prompts/{seq}_{name}/memory/` and registered in the daemon db.
 
@@ -38,7 +38,7 @@ Exit without proceeding.
 The SessionStart hook exports env, `mkdir`s `$GMCC_SESSION_PATH/prompts/`, and runs `gm context ensure`. Then:
 
 1. `~/gmcc/bin/gm session get --json` for current session state (session row + prompt stubs + change summary). If this exits 2 (daemon unreachable), self-heal: `bash $GMCC_PLUGIN_ROOT/scripts/build_daemon.sh`, then `gm context ensure`, then retry.
-2. One call for the whole session's report state: `gm prompt list --with-reports --json` (per-prompt clarification/architecture status, refined goal, backstory note, version, counts). `is_legacy: true` + null report = pre-m0002: read ckfs artifacts (`gm artifact list`), never fabricate rows; `is_legacy: false` + null report = not opened yet. Topic lookup across prompts is `gm search "<topic>" --json` — do NOT grep the ckfs or open memory files for context (since m0004 exploration/review are db rows too; the stubs carry their state, and pre-m0004 file reports are reached via `gm artifact list` until the mandatory migrate pass moves them into rows).
+2. One call for the whole session's report state: `gm prompt list --with-reports --json` (per-prompt clarification/architecture status, refined goal, backstory note, version, counts). A null report means that summary was never opened. Topic lookup across prompts is `gm search "<topic>" --json` — do NOT grep the ckfs or open memory files for context; all four reports are db rows and the stubs carry their state.
 
 ---
 
@@ -46,7 +46,7 @@ The SessionStart hook exports env, `mkdir`s `$GMCC_SESSION_PATH/prompts/`, and r
 
 Identical to `/gm_bot`. See `${CLAUDE_PLUGIN_ROOT}/commands/gm_bot.md` for full detail. Quick summary:
 
-- **Run / Resume** (`/gm_bot_rpi 3` or `/gm_bot_rpi 3 ...`): `gm prompt list --json`, find the stub with `seq: 3`, then `gm prompt get --prompt-uuid U --json`. Resume by status (lifecycle v2): `draft` → Phase 2, `clarifying` → Phase 3 (`gm clarify get` shows where it stalled), `architecting` → Phase 4, `implementing` → Phase 5, `reviewing` → Phase 6, `done` → complete. Legacy pre-m0002 prompts have no clarify/arch rows — check `gm artifact list` instead; never fabricate rows. A bare seq (no continuation) runs an externally-authored draft (e.g. from the GMVibes editor) as written; `command` is create-time-only in the db — if empty, note the executing tier in the clarification's `--backstory-note`.
+- **Run / Resume** (`/gm_bot_rpi 3` or `/gm_bot_rpi 3 ...`): `gm prompt list --json`, find the stub with `seq: 3`, then `gm prompt get --prompt-uuid U --json`. Resume by status (lifecycle v2): `draft` → Phase 2, `clarifying` → Phase 3 (`gm clarify get` shows where it stalled), `architecting` → Phase 4, `implementing` → Phase 5, `reviewing` → Phase 6, `done` → complete. A bare seq (no continuation) runs an externally-authored draft (e.g. from the GMVibes editor) as written; `command` is create-time-only in the db — if empty, note the executing tier in the clarification's `--backstory-note`.
 - **New** (`/gm_bot_rpi auth-refactor ...`): create the prompt row (below), proceed.
 - **No args**: AskUserQuestion for name + content.
 
@@ -139,7 +139,7 @@ Task tool:
     Include: Target, Key Files, Patterns, Integration Points, Dependencies, Uncertainties, Methodology Insights.
 ```
 
-Read the returned report into the primary context and transcribe it db-natively — NEVER write `memory/explore.md` for a post-m0004 prompt (the `explore` artifact kind is legacy-only, like `qualified`):
+Read the returned report into the primary context and transcribe it db-natively — never write it to a file:
 
 ```bash
 gm explore open --prompt-uuid U --json                  # explicit; works at draft
@@ -156,12 +156,9 @@ gm explore complete --summary-uuid S --expected-version V --overview "<your synt
 
 ## Phase 3: Clarify (db-native)
 
-The clarification is DB-NATIVE. **NEVER write `memory/qualified.md` for a
-post-m0002 prompt** — no "grep-ability mirrors", no duplicate registration:
-the db rows ARE the record, `gm clarify get` is the render. `SUMMARY_ABSENT`
-with `prompt_is_legacy: false` means `gm clarify open`, never a file
-fallback; the file mirrors exist only for legacy prompts as read-only
-history. Thread `--expected-version` on every transition (on
+The clarification is DB-NATIVE — no file mirror, no "grep-ability"
+duplicate: the db rows ARE the record, `gm clarify get` is the render, and
+`SUMMARY_ABSENT` means `gm clarify open`. Thread `--expected-version` on every transition (on
 `VERSION_CONFLICT`, re-read and retry). `gm prompt set-status` is the ONLY
 door that moves the prompt.
 
@@ -171,11 +168,9 @@ door that moves the prompt.
    gm clarify get --prompt-uuid U --json        # → summary uuid + version
    ```
 
-2. **YEET-type detection (FIRST clarify step).** Scan the prompt row's `goal` + `detail` (cross-referenced with the exploration report) for YEETS types — **declared** (named in prose) and **inferred** (shapes described without a name). Record each via `gm clarify ask --category yeet_type`, pre-answered (`--answer ... --source bot_inferred`) when confidently resolved, open otherwise (the open ones go to the user).
+2. **Goal + detail question suites.** Insert outcome questions (`--category goal`) and approach questions (`--category detail`) via `gm clarify ask`, informed by the exploration report.
 
-3. **Goal + detail question suites.** Insert outcome questions (`--category goal`) and approach questions (`--category detail`) via `gm clarify ask`, informed by the exploration report.
-
-4. **Seal, ask the user, record answers:**
+3. **Seal, ask the user, record answers:**
    ```bash
    gm clarify seal   --summary-uuid S --expected-version {sv}
    gm clarify answer --clarification-uuid C --expected-version {cv} --answer "..." --source user|bot_inferred   # or --skip
@@ -193,10 +188,8 @@ door that moves the prompt.
 ## Phase 4: Plan (Architect Subagent, db-native persistence)
 
 Spawn 1 architect subagent. The returned architecture is persisted to the DB
-after user approval. **NEVER write `memory/architecture.md` for a post-m0002
-prompt** — the `gm arch` rows ARE the record and `gm arch get` is the render;
-`SUMMARY_ABSENT` with `prompt_is_legacy: false` means `gm arch open`, never a
-file fallback.
+after user approval — never to a file. The `gm arch` rows ARE the record,
+`gm arch get` is the render, and `SUMMARY_ABSENT` means `gm arch open`.
 
 ```
 Task tool:
@@ -299,7 +292,7 @@ How would you like to handle the findings?
 
 Implement requested fixes (back to Phase 5 for the fix subset).
 
-Transcribe the review report db-natively — NEVER write `memory/review.md` for a post-m0004 prompt: `gm review open --prompt-uuid U`, `gm review finding-add` per finding (with the subagent's self-rating and location fields), `gm review rank` to adjust, `gm review complete --overview "<synthesis>" --verdict approved|approved_with_nits|changes_requested`. As fixes land, record each outcome with `gm review resolve --finding-uuid F --expected-version V --status fixed|accepted|wont_fix` (works after complete; address every finding rated under 100).
+Transcribe the review report db-natively — never to a file: `gm review open --prompt-uuid U`, `gm review finding-add` per finding (with the subagent's self-rating and location fields), `gm review rank` to adjust, `gm review complete --overview "<synthesis>" --verdict approved|approved_with_nits|changes_requested`. As fixes land, record each outcome with `gm review resolve --finding-uuid F --expected-version V --status fixed|accepted|wont_fix` (works after complete; address every finding rated under 100).
 
 ---
 

@@ -81,7 +81,7 @@ Only report high-confidence, meaningful issues. Skip style nitpicks unless they 
 
 ## Output Syntax
 
-Since m0004 the review record is DB-NATIVE: `review_finding` rows under the
+The review record is DB-NATIVE: `review_finding` rows under the
 prompt's review summary, consumed via `gm review get` and resolved during the
 fix loop (`gm review resolve`). Your report MUST be finding-shaped so it
 lands in those rows without reinterpretation. Who holds the pen depends on

@@ -18,8 +18,8 @@ func parseRatingPair(_ raw: String) throws -> FindingRating {
 }
 
 /// Resolve the complete verbs' overview source: exactly one of --overview /
-/// --overview-file. The file path exists because a verbatim legacy report can
-/// exceed the OS argv budget (~1 MB) long before the daemon's 2 MB cap.
+/// --overview-file. The file path exists because a long overview can exceed
+/// the OS argv budget (~1 MB) long before the daemon's 2 MB cap.
 func resolveOverview(inline: String?, file: String?) throws -> String {
     switch (inline, file) {
     case (let inline?, nil):
@@ -223,7 +223,7 @@ struct Explore: ParsableCommand {
 
     struct Get: ParsableCommand {
         static let configuration = CommandConfiguration(
-            abstract: "Summary + key files + findings, partitioned at rating 100: full rows under the window (unranked always full), stubs above. SUMMARY_ABSENT guidance covers legacy and pre-m0004 prompts.")
+            abstract: "Summary + key files + findings, partitioned at rating 100: full rows under the window (unranked always full), stubs above.")
 
         @OptionGroup var output: OutputOptions
         @Option(name: .long) var promptUuid: String

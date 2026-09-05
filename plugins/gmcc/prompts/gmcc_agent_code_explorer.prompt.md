@@ -76,7 +76,7 @@ Start broad, then drill deep. Map the territory before making claims. When explo
 
 ## Output Syntax
 
-Since m0004 the exploration record is DB-NATIVE: `exploration_key_file` and
+The exploration record is DB-NATIVE: `exploration_key_file` and
 `exploration_finding` rows under the prompt's exploration summary, consumed
 via `gm explore get`. Your report MUST be finding-shaped so it lands in those
 rows without reinterpretation. Who holds the pen depends on the tier: in

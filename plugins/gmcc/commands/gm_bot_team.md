@@ -6,7 +6,7 @@ disable-model-invocation: true
 allowed-tools: Read, Write, Edit, Grep, Glob, Bash, Task, AskUserQuestion
 ---
 
-# GM-CDE Bot Team (Agent Teams, v19.0.0)
+# GM-CDE Bot Team (Agent Teams)
 
 You are coordinating real agent teams (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`) to attack a single prompt with 4 parallel methodologies per phase. Same prompt-into-session model as `/gm_bot` and `/gm_bot_rpi`. Each team phase's record is DB-NATIVE: teammates write finding/key-file rows directly, an opus re-ranker calibrates the 0-999 ratings, and the primary completes the summary (overview/verdict).
 
@@ -46,14 +46,14 @@ Or use /gm_bot_rpi for subagent-based workflow.
 Exit without proceeding.
 
 1. `~/gmcc/bin/gm session get --json` for current session state. On exit 2, self-heal per `gm_bot_rpi.md`.
-2. One call for the whole session's report state: `gm prompt list --with-reports --json` (per-prompt clarification/architecture/exploration/review stubs). `is_legacy: true` + null report = pre-m0002: read ckfs artifacts (`gm artifact list`), never fabricate rows. Topic lookup across prompts is `gm search "<topic>" --json` — do NOT grep the ckfs or open memory files for context.
+2. One call for the whole session's report state: `gm prompt list --with-reports --json` (per-prompt clarification/architecture/exploration/review stubs). A null report means that summary was never opened. Topic lookup across prompts is `gm search "<topic>" --json` — do NOT grep the ckfs or open memory files for context.
 
 ---
 
 ## Argument Parsing
 
 Identical to `/gm_bot` and `/gm_bot_rpi`. Quick summary:
-- **Run / Resume** (`/gm_bot_team 3` or `/gm_bot_team 3 ...`): `gm prompt list --json` → stub with `seq: 3` → `gm prompt get`. Run/resume by status (lifecycle v2: `draft` → Phase 2, `clarifying` → Phase 3, `architecting` → Phase 4, `implementing` → Phase 5, `reviewing` → Phase 6, `done` → complete; legacy pre-m0002 prompts have no clarify/arch rows — check `gm artifact list`, never fabricate). A bare seq runs an externally-authored draft as written; `command` is create-time-only — if empty, note the tier in the clarification's `--backstory-note`.
+- **Run / Resume** (`/gm_bot_team 3` or `/gm_bot_team 3 ...`): `gm prompt list --json` → stub with `seq: 3` → `gm prompt get`. Run/resume by status (lifecycle v2: `draft` → Phase 2, `clarifying` → Phase 3, `architecting` → Phase 4, `implementing` → Phase 5, `reviewing` → Phase 6, `done` → complete). A bare seq runs an externally-authored draft as written; `command` is create-time-only — if empty, note the tier in the clarification's `--backstory-note`.
 - **New** (`/gm_bot_team auth-refactor ...`): `gm prompt create --name ... --detail "<verbatim>" --command /gm_bot_team --json` (STAY TRUE — see `gm_bot_rpi.md`), then mkdir the memory dir at the RETURNED `ckfs_relative_storage_path` (the daemon slugs the name — NEVER re-derive `{seq}_{name}` yourself; a hand-built path silently breaks memory-change events).
 - **No args**: AskUserQuestion.
 
@@ -122,9 +122,9 @@ Clean up the explore team, then spawn the **re-ranker** (one agent, `$GMCC_PLUGI
 
 ### Step 4: Synthesize + Complete
 
-Read the ranked record (`gm explore get --prompt-uuid U --json` — full rows under 100 plus stubs; pull ranges via `--max-rating`/`--rating-range` as needed) and synthesize the unified mental model in primary context: consensus vs divergence, and the rated open questions for Clarify (reuse the findings' 0-999 polarity — 0 = critical unknown; the old 1-8/8=critical scale is RETIRED, its polarity is inverted, never mix them).
+Read the ranked record (`gm explore get --prompt-uuid U --json` — full rows under 100 plus stubs; pull ranges via `--max-rating`/`--rating-range` as needed) and synthesize the unified mental model in primary context: consensus vs divergence, and the rated open questions for Clarify (reuse the findings' 0-999 polarity — 0 = critical unknown).
 
-Then seal the record — **NEVER write `memory/explore.md` for a post-m0004 prompt** (the `explore` artifact kind is legacy-only):
+Then seal the record — never write it to a file:
 
 ```bash
 gm explore complete --summary-uuid S --expected-version V --overview "<your unified synthesis>"
@@ -136,17 +136,15 @@ gm explore complete --summary-uuid S --expected-version V --overview "<your unif
 
 ## Phase 3: Clarify (db-native)
 
-Same canonical db-native sequence as `gm_bot_rpi.md` (enter `clarifying` → `gm clarify ask/seal/answer/finalize` → advance to `architecting`), with team-specific additions. **NEVER write `memory/qualified.md` or `memory/architecture.md` for a post-m0002 prompt** — the db rows ARE the record; `SUMMARY_ABSENT` with `prompt_is_legacy: false` means open a summary, never a file fallback:
+Same canonical db-native sequence as `gm_bot_rpi.md` (enter `clarifying` → `gm clarify ask/seal/answer/finalize` → advance to `architecting`), with team-specific additions:
 
-1. **YEET-type detection (FIRST clarify step)** over the prompt row's `goal` + `detail`, cross-referenced with the 4-methodology synthesis. Confidently-resolved detections land pre-answered (`gm clarify ask --category yeet_type --answer ... --source bot_inferred`); unresolved ones become open questions for the user.
+1. **Goal clarification suite.** Extract the rated open questions about the *outcome* from the synthesis — most critical first (start with the 0s and low ratings; 0-999 scale, 0 = critical) — as `gm clarify ask --category goal` rows (embed each `rating:` in the question text).
 
-2. **Goal clarification suite.** Extract the rated open questions about the *outcome* from the synthesis — most critical first (start with the 0s and low ratings; 0-999 scale, 0 = critical) — as `gm clarify ask --category goal` rows (embed each `rating:` in the question text).
+2. **Detail clarification suite.** Extract the rated open questions about the *approach* — most critical first — as `--category detail` rows.
 
-3. **Detail clarification suite.** Extract the rated open questions about the *approach* — most critical first — as `--category detail` rows.
+3. `gm clarify seal`, AskUserQuestion the open questions, record each answer (`gm clarify answer ... --source user`, judgment calls as `bot_inferred`, `--skip` where not applicable).
 
-4. `gm clarify seal`, AskUserQuestion the open questions, record each answer (`gm clarify answer ... --source user`, judgment calls as `bot_inferred`, `--skip` where not applicable).
-
-5. `gm clarify finalize --refined-goal "<acceptance criteria>" --refined-detail "<synthesis + answers integrated>" --backstory-note "<executing tier + methodology-consensus notes>"`, then advance:
+4. `gm clarify finalize --refined-goal "<acceptance criteria>" --refined-detail "<synthesis + answers integrated>" --backstory-note "<executing tier + methodology-consensus notes>"`, then advance:
    ```bash
    gm prompt set-status --prompt-uuid U --expected-version {v} --status architecting --json
    ```
@@ -265,7 +263,7 @@ Return a SHORT summary of what you recorded as your final message — the db row
 
 ### Step 2: Re-Rank + Synthesize + Complete
 
-Tear down the reviewer team, spawn the **re-ranker** (`gmcc_agent_finding_reranker.prompt.md`) for one calibrated `gm review rank` batch (cross-persona duplicates → 999 tombstones), then read the ranked record (`gm review get --prompt-uuid U --json`) and synthesize in primary context. Seal it — **NEVER write `memory/review.md` for a post-m0004 prompt** (the `review` artifact kind is legacy-only):
+Tear down the reviewer team, spawn the **re-ranker** (`gmcc_agent_finding_reranker.prompt.md`) for one calibrated `gm review rank` batch (cross-persona duplicates → 999 tombstones), then read the ranked record (`gm review get --prompt-uuid U --json`) and synthesize in primary context. Seal it — never write it to a file:
 
 ```bash
 gm review complete --summary-uuid S --expected-version V \

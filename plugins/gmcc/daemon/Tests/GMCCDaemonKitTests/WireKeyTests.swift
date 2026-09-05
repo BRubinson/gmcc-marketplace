@@ -48,7 +48,6 @@ final class WireKeyTests: XCTestCase {
             uuid: "u-1", sessionUuid: "s-1", seq: 3, code: "p3",
             name: "demo", status: "draft", version: 2,
             ckfsRelativeStoragePath: "projects/r/prompts/3_demo",
-            isLegacy: false,
             createdAt: "2026-08-22T00:00:00Z", updatedAt: "2026-08-22T00:00:00Z")
         let data = try NDJSON.encodeLine(stub)
         let json = try XCTUnwrap(

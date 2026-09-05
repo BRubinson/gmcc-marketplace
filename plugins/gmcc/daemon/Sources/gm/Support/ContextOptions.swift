@@ -109,51 +109,6 @@ enum CkfsYaml {
     /// (`kbite: [a, b]`), and a bare inline scalar. Returns nil for an
     /// empty/absent registry so the daemon's create-time inheritance (copy
     /// parent junctions) applies instead.
-    static func kbiteCodes(_ relativePath: String) -> [String]? {
-        guard let text = try? String(contentsOf: root.appendingPathComponent(relativePath), encoding: .utf8) else {
-            return nil
-        }
-        var inBlock = false
-        var codes: [String] = []
-        for rawLine in text.split(separator: "\n", omittingEmptySubsequences: false) {
-            let line = String(rawLine)
-            if line.hasPrefix("kbite:") {
-                let remainder = String(line.dropFirst("kbite:".count)).trimmingCharacters(in: .whitespaces)
-                if remainder == "[]" { return nil }
-                if remainder.hasPrefix("[") && remainder.hasSuffix("]") {
-                    // Inline flow list: kbite: [core, "swift"]
-                    codes.append(contentsOf: remainder.dropFirst().dropLast()
-                        .split(separator: ",")
-                        .map { unquoted($0.trimmingCharacters(in: .whitespaces)) }
-                        .filter { !$0.isEmpty })
-                    break
-                }
-                if !remainder.isEmpty && !remainder.hasPrefix("#") {
-                    // Bare inline scalar: kbite: core
-                    codes.append(unquoted(remainder))
-                    break
-                }
-                inBlock = true
-                continue
-            }
-            if inBlock {
-                if !line.hasPrefix(" ") && !line.hasPrefix("-") && !line.isEmpty {
-                    break // next top-level key
-                }
-                let trimmed = line.trimmingCharacters(in: .whitespaces)
-                if trimmed.hasPrefix("- name:") || trimmed.hasPrefix("- code:") {
-                    let value = trimmed.split(separator: ":", maxSplits: 1).last.map {
-                        unquoted($0.trimmingCharacters(in: .whitespaces))
-                    }
-                    if let value, !value.isEmpty { codes.append(value) }
-                } else if trimmed.hasPrefix("- "), !trimmed.contains(":") {
-                    let value = unquoted(String(trimmed.dropFirst(2)).trimmingCharacters(in: .whitespaces))
-                    if !value.isEmpty { codes.append(value) }
-                }
-            }
-        }
-        return codes.isEmpty ? nil : codes
-    }
 }
 
 enum ContextBuilder {
@@ -189,58 +144,6 @@ enum ContextBuilder {
         )
     }
 
-    /// Build a CONTEXT_ENSURE payload from a legacy ckfs session directory
-    /// (projects/{p}/instances/{i}/sessions/{s}) instead of the cwd's git
-    /// identity. Used by /import_legacy_yaml_gmcc to backfill db rows for
-    /// sessions of other repos/branches. Uuids, kbite registries, and the
-    /// instance's system_path are read out of the legacy yamls when present.
-    /// The CkfsYaml.kbiteCodes reads below are the ONLY yaml kbite-registry
-    /// reads left in gm — they exist solely so this legacy-import path can
-    /// carry old `kbite:` lists into the db's create-time seed.
-    static func ensureRequest(fromCkfs path: String) throws -> ContextEnsureRequest {
-        var rel = path
-        let rootPath = CkfsYaml.root.path
-        if rel.hasPrefix(rootPath) {
-            rel = String(rel.dropFirst(rootPath.count))
-        }
-        rel = rel.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        let parts = rel.split(separator: "/").map(String.init)
-        guard parts.count == 6, parts[0] == "projects", parts[2] == "instances", parts[4] == "sessions" else {
-            throw ValidationError("--from-ckfs expects projects/{project}/instances/{instance}/sessions/{session} (relative to ~/gmcc_ckfs or absolute)")
-        }
-        let projectCode = parts[1]
-        let instanceCode = parts[3]
-        let sessionCode = parts[5]
-        let projectRel = "projects/\(projectCode)"
-        let instanceRel = "\(projectRel)/instances/\(instanceCode)"
-        let sessionRel = "\(instanceRel)/sessions/\(sessionCode)"
-        return ContextEnsureRequest(
-            project: ProjectContext(
-                gitRepoName: projectCode,
-                code: projectCode,
-                name: projectCode,
-                ckfsRelativeStoragePath: projectRel,
-                uuid: CkfsYaml.uuid("\(projectRel)/project_data.gmcc.yaml"),
-                kbiteCodes: CkfsYaml.kbiteCodes("\(projectRel)/project_data.gmcc.yaml")
-            ),
-            instance: InstanceContext(
-                code: instanceCode,
-                name: instanceCode,
-                absoluteFileSystemPath: CkfsYaml.scalar("system_path", "\(instanceRel)/instance_data.gmcc.yaml") ?? "",
-                ckfsRelativeStoragePath: instanceRel,
-                uuid: CkfsYaml.uuid("\(instanceRel)/instance_data.gmcc.yaml"),
-                kbiteCodes: CkfsYaml.kbiteCodes("\(instanceRel)/instance_data.gmcc.yaml")
-            ),
-            session: SessionContext(
-                code: sessionCode,
-                name: sessionCode,
-                ckfsRelativeStoragePath: sessionRel,
-                uuid: CkfsYaml.uuid("\(sessionRel)/session_data.gmcc.yaml"),
-                kbiteCodes: CkfsYaml.kbiteCodes("\(sessionRel)/session_data.gmcc.yaml")
-            )
-        )
-    }
-
     /// Idempotent resolve: ensure the chain and return the session uuid.
     /// Used by session/prompt subcommands when no --session-uuid is given.
     static func resolveSessionUuid(_ client: DaemonClient) throws -> String {
@@ -262,7 +165,6 @@ enum KbitePaths {
 // ArgumentParser conformances for wire enums used as CLI options.
 extension ChangeKind: ExpressibleByArgument {}
 extension PromptStatus: ExpressibleByArgument {}
-extension ArtifactKind: ExpressibleByArgument {}
 extension KbiteScope: ExpressibleByArgument {}
 extension KeywordTagLevel: ExpressibleByArgument {}
 extension ClarificationCategory: ExpressibleByArgument {}

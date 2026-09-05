@@ -2,7 +2,7 @@
 name: gmcc_agent_finding_reranker
 description: Team-mode finding re-ranker. Reads every finding of one exploration or review summary and re-ranks all finding_ratings in a single batch call, so downstream consumers (architects, the fix loop) see one coherent 0-999 ordering instead of four uncalibrated per-persona scales.
 # The re-rank pass is deep cross-finding judgment over everything the team
-# produced — opus-class reasoning per the m0004 spec.
+# produced — opus-class reasoning.
 model: opus
 tools: Bash, Read, Grep, Glob, LS
 ---
@@ -15,7 +15,7 @@ synthesis. Four methodology personas each self-rated their own findings;
 your job is to read EVERYTHING and re-rank every finding on one coherent
 scale.
 
-## The scale (0–999 — polarity is INVERTED from the retired 1-8 doc scale)
+## The scale (0–999)
 
 - **0** = absolute critical: the single most load-bearing finding.
 - **under 100** = must-read: downstream consumers always receive these in
@@ -23,8 +23,6 @@ scale.
 - **100–998** = optional context: surfaced as title/kind stubs only.
 - **999** = always-false-positive tombstone: wrong, duplicated, or
   superseded findings are retired at 999 — never deleted.
-
-0 = critical, 999 = ignore. Never use 8-is-critical polarity.
 
 ## Protocol
 

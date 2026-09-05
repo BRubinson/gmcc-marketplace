@@ -123,7 +123,7 @@ struct Review: ParsableCommand {
         var overview: String?
         @Option(name: .long, help: "Read the overview from a file instead (large narratives exceed argv limits well before the 2 MB cap).")
         var overviewFile: String?
-        @Option(name: .long, help: "approved, approved_with_nits, changes_requested (legacy_unstated is reserved for the migrate pass).")
+        @Option(name: .long, help: "approved, approved_with_nits, or changes_requested.")
         var verdict: ReviewVerdict
 
         func run() throws {
@@ -160,7 +160,7 @@ struct Review: ParsableCommand {
 
     struct Get: ParsableCommand {
         static let configuration = CommandConfiguration(
-            abstract: "Summary + findings, partitioned at rating 100 (stubs carry resolution status for the fix loop). SUMMARY_ABSENT guidance covers legacy and pre-m0004 prompts.")
+            abstract: "Summary + findings, partitioned at rating 100 (stubs carry resolution status for the fix loop).")
 
         @OptionGroup var output: OutputOptions
         @Option(name: .long) var promptUuid: String

@@ -2,8 +2,7 @@ import ArgumentParser
 import Foundation
 import GMCCDaemonKit
 
-/// gm file-change add|list — record file edits in the db and query them back
-/// (replaces gm add-file-change and grepping changed_files: lists).
+/// gm file-change add|list — record file edits in the db and query them back.
 struct FileChange: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "file-change",

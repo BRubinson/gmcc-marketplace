@@ -6,7 +6,7 @@ disable-model-invocation: true
 allowed-tools: Read, Write, Edit, Grep, Glob, Bash, Task, AskUserQuestion
 ---
 
-# GM-CDE Bot (Lightweight, v16.3.0)
+# GM-CDE Bot (Lightweight)
 
 You are executing a lightweight development workflow entirely in the primary context.
 
@@ -33,7 +33,7 @@ Exit without proceeding.
 The SessionStart hook exports env, `mkdir`s `$GMCC_SESSION_PATH/prompts/`, and runs `gm context ensure`.
 
 1. `~/gmcc/bin/gm session get --json` for current session state (session row + prompt stubs + change summary). If this exits 2 (daemon unreachable), self-heal: `bash $GMCC_PLUGIN_ROOT/scripts/build_daemon.sh`, then `gm context ensure`, then retry.
-2. One call for the whole session's report state: `gm prompt list --with-reports --json`. Each stub carries its clarification/architecture status, refined goal, backstory note, summary version, and counts. `is_legacy: true` with a null report = a pre-m0002 prompt: read its ckfs artifacts (`gm artifact list`), never fabricate rows. `is_legacy: false` with a null report = simply not opened yet. For topic lookup across prompts use `gm search "<topic>" --json` — do NOT grep the ckfs and do NOT open memory files to find prior context. (`gm search` covers prompt/clarification/architecture/exploration/review text; the stubs also carry exploration/review state — findings, sub-100 counts, unranked resume signals, verdicts.)
+2. One call for the whole session's report state: `gm prompt list --with-reports --json`. Each stub carries its clarification/architecture status, refined goal, backstory note, summary version, and counts; a null report means that summary was never opened. For topic lookup across prompts use `gm search "<topic>" --json` — do NOT grep the ckfs and do NOT open memory files to find prior context. (`gm search` covers prompt/clarification/architecture/exploration/review text; the stubs also carry exploration/review state — findings, sub-100 counts, unranked resume signals, verdicts.)
 
 ---
 
@@ -62,7 +62,6 @@ required.
    - `implementing` → jump to Phase 5 (`gm arch get` is the approved plan + implementation state)
    - `reviewing` → jump to Phase 6
    - `done` → report complete; further work is a NEW prompt
-   - **Legacy fallback**: a pre-m0002 prompt may sit at (or move through) any status with NO clarification/architecture rows — `gm clarify get`/`gm arch get` return `SUMMARY_ABSENT` with `prompt_is_legacy: true`. CHECK the ckfs artifacts instead (`gm artifact list --prompt-uuid U` → qualified/architecture pointers); never create backfill rows. (`prompt_is_legacy: false` means a current prompt that simply hasn't opened one — `gm clarify open`/`gm arch open`, never a file fallback.)
 4. The remaining arguments (if any) become the continuation prompt. With no
    remaining arguments, run the drafted prompt as written — this is the
    GMVibes "run this prompt" path.
@@ -161,7 +160,7 @@ and proceed to Phase 2.
 
 Explore the codebase using Glob/Grep/Read. Identify the files relevant to this prompt, the integration points, and any ambiguities to resolve in Clarify. Keep this in primary context — no subagents.
 
-**Persist the exploration db-natively** — NEVER write `memory/explore.md` for a post-m0004 prompt (the `explore` artifact kind is reserved for pre-migration legacy files, like `qualified`):
+**Persist the exploration db-natively** — never write it to a file:
 
 ```bash
 gm explore open --prompt-uuid U --json                  # explicit; works at draft
@@ -172,18 +171,15 @@ gm explore rank --summary-uuid S --rating <uuid>:<0-999> ...   # rank everything
 gm explore complete --summary-uuid S --expected-version V --overview "<narrative>"
 ```
 
-`complete` refuses while any finding is unranked; the overview is writable only there. On a re-run: `gm explore reopen` → update → re-complete.
+`complete` refuses while any finding is unranked; the overview is writable only there, and exactly one of `--overview` / `--overview-file` is required. `key-file-add`/`finding-add`/`rank` are refused once complete — on a re-run: `gm explore reopen` → update → re-complete.
 
 ---
 
 ## Phase 3: Clarify (db-native)
 
-The clarification is DB-NATIVE. **NEVER write `memory/qualified.md` for a
-post-m0002 prompt** — no "grep-ability mirrors", no duplicate registration:
-the db rows ARE the record and `gm clarify get` is the render. If
-`gm clarify get` returns `SUMMARY_ABSENT` with `prompt_is_legacy: false`,
-OPEN a summary (`gm clarify open`) — do not fall back to files. The file
-mirrors exist only for legacy prompts and only as read-only history.
+The clarification is DB-NATIVE — no file mirror, no "grep-ability"
+duplicate: the db rows ARE the record and `gm clarify get` is the render.
+`SUMMARY_ABSENT` means open a summary (`gm clarify open`).
 Thread `--expected-version` on every transition (capture `.version` from each
 response; on `VERSION_CONFLICT`, re-read and retry). `gm prompt set-status`
 is the ONLY door that moves the prompt; clarify verbs touch the summary only.
@@ -194,20 +190,9 @@ is the ONLY door that moves the prompt; clarify verbs touch the summary only.
    gm clarify get --prompt-uuid U --json        # → summary uuid + version
    ```
 
-2. **YEET-type detection (FIRST clarify step).** Scan the prompt row's `goal` + `detail` for YEETS types:
-   - **Declared** — types named explicitly in the prose.
-   - **Inferred** — data shapes described structurally without a name.
+2. **Goal + detail question suites.** Insert what is underspecified about the *outcome* (`--category goal`: acceptance criteria, scope, definition of done) and the *approach* (`--category detail`: edge cases, integration points, design preferences) as open questions via `gm clarify ask`.
 
-   Resolve each confidently where possible and record it pre-answered:
-   ```bash
-   gm clarify ask --summary-uuid S --category yeet_type \
-     --question "<detection>" --answer "<resolution>" --source bot_inferred
-   ```
-   An unresolvable detection becomes an OPEN yeet_type question (no --answer) to put to the user.
-
-3. **Goal + detail question suites.** Insert what is underspecified about the *outcome* (`--category goal`: acceptance criteria, scope, definition of done) and the *approach* (`--category detail`: edge cases, integration points, design preferences) as open questions via `gm clarify ask`.
-
-4. **Seal and answer.** Lock the question list, put the open questions to the user (AskUserQuestion), and record each answer:
+3. **Seal and answer.** Lock the question list, put the open questions to the user (AskUserQuestion), and record each answer:
    ```bash
    gm clarify seal   --summary-uuid S --expected-version {sv}
    gm clarify answer --clarification-uuid C --expected-version {cv} --answer "<user's answer>" --source user
@@ -215,7 +200,7 @@ is the ONLY door that moves the prompt; clarify verbs touch the summary only.
    gm clarify answer --clarification-uuid C --expected-version {cv} --skip                                             # explicitly not applicable
    ```
 
-5. **Finalize + advance.** Synthesize the refined goal (acceptance criteria) and refined detail (detail + answers integrated); the daemon copies the refined goal into `prompt.goal` (`detail` stays the verbatim human input):
+4. **Finalize + advance.** Synthesize the refined goal (acceptance criteria) and refined detail (detail + answers integrated); the daemon copies the refined goal into `prompt.goal` (`detail` stays the verbatim human input):
    ```bash
    gm clarify finalize --summary-uuid S --expected-version {sv} \
      --refined-goal "<acceptance criteria>" --refined-detail "<integrated detail>" [--backstory-note "..."]
@@ -227,10 +212,8 @@ is the ONLY door that moves the prompt; clarify verbs touch the summary only.
 
 ## Phase 4: Plan (db-native architecture)
 
-The architecture is DB-NATIVE. **NEVER write `memory/architecture.md` for a
-post-m0002 prompt** — the db rows ARE the record and `gm arch get` is the
-render; `SUMMARY_ABSENT` with `prompt_is_legacy: false` means `gm arch open`,
-never a file fallback. Entering `architecting` created the summary
+The architecture is DB-NATIVE — the db rows ARE the record and
+`gm arch get` is the render. Entering `architecting` created the summary
 (`gm arch get` for its uuid).
 
 1. **Persistence check FIRST (universal):** determine whether this prompt touches the persistence layer (SQLite schema, GRDB records, any ORM entity). Record the outcome as `gm arch persist-add` rows — possibly zero — BEFORE any general change.
@@ -263,6 +246,7 @@ never a file fallback. Entering `architecting` created the summary
    gm file-change add --path <repo-relative path> --kind edit|create|delete|rename \
      [--range start:end]... [--content "<short note>"] --prompt-uuid U
    ```
+   `--content` requires EXACTLY ONE `--range`; pass neither to record the file as touched without line detail.
 4. `gm arch get --prompt-uuid U` at any point shows implementation state per change row (touched/untouched), unplanned changes (scope drift), and the persistence-first audit — use it to find what is left and debug drift.
 
 ---
@@ -271,7 +255,7 @@ never a file fallback. Entering `architecting` created the summary
 
 1. **Advance to reviewing** (`gm prompt set-status ... --status reviewing`), or skip straight to `done` when the user wants no review pass (`implementing → done` is the one legal skip edge).
 2. Present a summary: files modified, key decisions, known limitations; check `gm arch get` for unimplemented rows and unplanned drift.
-3. **Persist the review db-natively** — NEVER write `memory/review.md` for a post-m0004 prompt: `gm review open --prompt-uuid U`, `gm review finding-add` per finding (kind/title/body, optional --file-path/--line-start/--line-end), `gm review rank`, then `gm review complete --overview "<narrative>" --verdict approved|approved_with_nits|changes_requested`. During the fix loop record each outcome: `gm review resolve --finding-uuid F --expected-version V --status fixed|accepted|wont_fix` (works after complete — that is when the loop runs; address every finding rated under 100).
+3. **Persist the review db-natively** — never write it to a file: `gm review open --prompt-uuid U`, `gm review finding-add` per finding (kind/title/body, optional --file-path/--line-start/--line-end), `gm review rank`, then `gm review complete --overview "<narrative>" --verdict approved|approved_with_nits|changes_requested`. During the fix loop record each outcome: `gm review resolve --finding-uuid F --expected-version V --status fixed|accepted|wont_fix` (works after complete — that is when the loop runs; address every finding rated under 100).
 4. Wait for user feedback; iterate. When satisfied: `gm prompt set-status ... --status done`.
 
 There is no phase-history record — completion is prompt status `done` plus

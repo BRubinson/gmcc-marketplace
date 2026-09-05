@@ -6,7 +6,7 @@ disable-model-invocation: true
 allowed-tools: Read, Write, Bash, Glob
 ---
 
-# GMCC Session Creation Skill (v16.3.0)
+# GMCC Session Creation Skill
 
 Bootstraps (or repairs) the **current** session on demand. The
 `SessionStart` hook (`scripts/detect_repo.sh`) already does this
@@ -100,10 +100,9 @@ Session ready: $GMCC_SESSION_PATH (artifacts) + ~/gmcc/gmcc.db (data)
 
 ## Notes
 
-- The runtime yamls (session_data.gmcc.yaml, gmcc_session_file_index.yaml,
-  templates) are retired as of v16 — this skill no longer writes any yaml.
-  Legacy yaml trees are handled by `/import_legacy_yaml_gmcc` +
-  `/archive_legacy_yaml_gmcc`.
+- This skill writes no yaml. Any `session_data.gmcc.yaml` /
+  `gmcc_session_file_index.yaml` still on disk is inert — `/gm_cleanup`
+  archives it to cold storage.
 - Kbite inheritance is seeded db-side at row-create time by
   `gm context ensure`. Explicit registry ops afterward are
   `gm kbite add/remove/list` — the db is the sole registry.

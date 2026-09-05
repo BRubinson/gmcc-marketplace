@@ -1,22 +1,20 @@
 ---
 name: gmcc_cleanup
-description: GM-CDE environment auditor. Checks daemon/db health, db-vs-disk drift (memory/ artifacts vs prompt_artifact rows), leftover legacy yaml runtime files (handing off to the import/archive commands), archive hygiene, and persistent env/permission drift (~/.zshrc, ~/.claude/settings.json). Interactively resolves each finding.
+description: GM-CDE environment auditor. Checks daemon/db health, db-vs-disk drift (memory/ artifacts vs prompt_artifact rows), leftover pre-daemon yaml runtime files, archive hygiene, and persistent env/permission drift (~/.zshrc, ~/.claude/settings.json). Interactively resolves each finding.
 user-invocable: true
 disable-model-invocation: true
 allowed-tools: Read, Write, Bash, Glob, AskUserQuestion
 ---
 
-# GMCC Cleanup Skill (v16.3.0)
+# GMCC Cleanup Skill
 
 Audits the GMCC environment — the daemon db (`~/gmcc/gmcc.db` via `gm`),
 the artifact tree (`$GMCC_CKFS_ROOT`), and the persistent host config —
 and interactively resolves each finding.
 
-As of v16, runtime data lives in the db; the ckfs holds only `memory/*.md`
-artifacts and kbite content. This skill's job is keeping the two in sync
-and the host wiring healthy. Legacy yaml runtime trees (the pre-sqlite
-layout) are NOT migrated here — they are handed off to
-`/import_legacy_yaml_gmcc` + `/archive_legacy_yaml_gmcc`.
+Runtime data and all four bot reports live in the db; the ckfs holds only
+prompt-scoped files and kbite content. This skill's job is keeping the two
+in sync and the host wiring healthy.
 
 ---
 
@@ -34,17 +32,17 @@ layout) are NOT migrated here — they are handed off to
 | Category | Detection | Default suggestion |
 |----------|-----------|--------------------|
 | Daemon unhealthy | `gm ping` / `gm status` fails or exits 2 | Run `bash $GMCC_PLUGIN_ROOT/scripts/build_daemon.sh`, then `gm setup` + `gm context ensure` |
-| Legacy yaml runtime files | Any `session_data.gmcc.yaml`, `project_index.gmcc.yaml`, `project_data.gmcc.yaml`, `instance_data.gmcc.yaml`, `gmcc_session_file_index.yaml`, or prompt yaml triad (`*_data.gmcc.yaml` / `*_initial.yaml` / `*_clarified.yaml`) under `$GMCC_PROJECTS` (outside `_archive/`) | Hand off: run `/import_legacy_yaml_gmcc` then `/archive_legacy_yaml_gmcc` (default), or skip |
-| Orphan memory artifact | `prompts/{seq}_{name}/memory/*.md` on disk with no matching `prompt_artifact` row (`gm artifact list --prompt-uuid U`) | Register via `gm artifact add` with the right `--kind` + a caption note (default), or skip |
+| Pre-daemon yaml runtime files | Any `session_data.gmcc.yaml`, `project_index.gmcc.yaml`, `project_data.gmcc.yaml`, `instance_data.gmcc.yaml`, `gmcc_session_file_index.yaml`, or prompt yaml triad (`*_data.gmcc.yaml` / `*_initial.yaml` / `*_clarified.yaml`) under `$GMCC_PROJECTS` (outside `_archive/`) | Archive to `_archive/cold_storage/` (default) — nothing reads these; the db is the runtime. Or skip |
+| Orphan memory artifact | `prompts/{seq}_{name}/memory/*.md` on disk with no matching `prompt_artifact` row (`gm artifact list --prompt-uuid U`) | Register via `gm artifact add` with a caption note (default), or skip |
 | Dangling artifact pointer | `prompt_artifact` row whose `file_path` no longer exists on disk | Flag for user — restore the file from `_archive/` if it was moved, or accept the dangling pointer (rows are history; no gm delete path) |
-| Orphan prompt folder | `prompts/{seq}_{name}/` on disk with no matching prompt row (`gm prompt list`) | If it has a yaml triad → legacy hand-off (above). If memory/-only → flag for user (may belong to another instance/branch) |
+| Orphan prompt folder | `prompts/{seq}_{name}/` on disk with no matching prompt row (`gm prompt list`) | If it has a yaml triad → archive (above). If memory/-only → flag for user (may belong to another instance/branch) |
 | Missing artifact home | Prompt row exists but `prompts/{seq}_{name}/memory/` doesn't | `mkdir -p` it (default) |
 | Archive hygiene | Files under `$GMCC_CKFS_ROOT/_archive/` outside `cold_storage/` | Move into `_archive/cold_storage/` preserving relative structure (default), or skip — cold_storage is the single universal bucket |
 | Unexpected cruft | Top-level `$GMCC_CKFS_ROOT` entries other than `README.md`, `projects/`, `kbites/`, `_archive/`; non-`prompts/` clutter in session dirs | Archive to `_archive/cold_storage/` (default) or keep |
 | Stale chewed provenance path | Inside `kbites/digested/{name}/.../*_chewed.md`, a `**Source**:` or `**Location**:` line points at an absolute path that no longer exists | Rewrite the line to strip the dead absolute prefix and prepend `(retired maw source) `, preserving the relative slug (default), or leave unchanged |
 | Stale `GMCC_PLUGIN_ROOT` in `~/.zshrc` | See "Persistent Env" below | Update to current value (default) |
 | Missing CKFS permission grant in `~/.claude/settings.json` | See "Persistent Permissions" below | Add missing entries (default) |
-| Undigested kbite content | `$GMCC_KBITE_DIGESTED/{name}/` contains `*_chewed.md` files but `gm kbite get --code {name} --json` shows no resources (pre-v16 kbite never backfilled) | Backfill (default): copy the chewed files (+ `KBITE_INDEX.md` / `KBITE_RELATIONSHIPS.md` if present) to `_archive/cold_storage/kbites/digested/{name}/`, then `gm kbite digest --code {name} --kbite-open-path "$GMCC_KBITE_DIGESTED/{name}"`, verify counts via `gm kbite get`, delete the stale `KBITE_INDEX.md` — same procedure as gmcc_migrate_legacy Phase 1 step 4. Or skip |
+| Undigested kbite content | `$GMCC_KBITE_DIGESTED/{name}/` contains `*_chewed.md` files but `gm kbite get --code {name} --json` shows no resources (pre-v16 kbite never backfilled) | Backfill (default): copy the chewed files (+ `KBITE_INDEX.md` / `KBITE_RELATIONSHIPS.md` if present) to `_archive/cold_storage/kbites/digested/{name}/`, then `gm kbite digest --code {name} --kbite-open-path "$GMCC_KBITE_DIGESTED/{name}"`, verify counts via `gm kbite get`, delete the stale `KBITE_INDEX.md` — Or skip |
 | KBite drift: db row without content | A `gm kbite list --all` row whose code has neither `$GMCC_KBITE/{name}/` nor `$GMCC_KBITE_DIGESTED/{name}/` on disk | Report only — digested text legitimately lives db-only; a missing KBITE_PURPOSE.md/raw archive may still be intentional. Flag for user, never auto-delete db rows |
 | KBite drift: content without registry reach | A kbite content dir whose code has db resources but appears in no registry (`gm kbite list --scope project|instance|session` all miss it) | Report only — informational; kbites are registered on explicit request (`gm kbite add`) |
 
@@ -107,7 +105,7 @@ The walk is bounded — never recurses into git repos, kbite resource trees, or 
 1. **Daemon health**: `gm ping`, `gm status`, `gm context get --json`.
 2. **Top-level of `$GMCC_CKFS_ROOT`** — anything other than `README.md`, `projects/`, `kbites/`, `_archive/` is a finding.
 3. **`projects/` tree** — walk `projects/{p}/instances/{i}/sessions/{s}/`:
-   - any legacy runtime yaml (see table) → ONE aggregate legacy-hand-off finding (listing all hits), not one per file;
+   - any pre-daemon runtime yaml (see table) → ONE aggregate archive finding (listing all hits), not one per file;
    - session dirs should contain only `prompts/`.
 4. **Per-session db cross-check** (for sessions resolvable to db rows): `gm prompt list --session-uuid U` vs on-disk `prompts/{seq}_{name}/` folders; `gm artifact list --prompt-uuid U` vs `memory/*.md` files, in both directions.
 5. **`_archive/`** — surface-level only: entries outside `cold_storage/`.
@@ -124,7 +122,6 @@ For each finding, use AskUserQuestion with up to 4 options. The first option is 
 |--------|--------------|
 | **Archive** (default for cruft) | `mv` the path into `~/gmcc_ckfs/_archive/cold_storage/{relative_path}` (structure-preserving). |
 | **Register/repair** (default for db-vs-disk drift) | The matching `gm` call (`artifact add`, `context ensure`) or `mkdir -p`. |
-| **Hand off** (default for legacy yaml) | Point the user at `/import_legacy_yaml_gmcc` + `/archive_legacy_yaml_gmcc`; do not migrate inline. |
 | **Skip** | Leave the finding in place. Always available. |
 
 Bulk actions (e.g. "archive all cruft") are offered after the first 3 similar findings, with an extra confirmation.
@@ -142,7 +139,7 @@ Daemon: {reachable pid N, schema vX | UNREACHABLE}
 Scanned: $GMCC_CKFS_ROOT
 Total findings: {n}
 - Daemon/db health: {n}
-- Legacy yaml runtime files: {n}  ← hand-off to /import_legacy_yaml_gmcc
+- Pre-daemon yaml runtime files: {n}
 - Orphan memory artifacts (unregistered): {n}
 - Dangling artifact pointers: {n}
 - Archive hygiene: {n}

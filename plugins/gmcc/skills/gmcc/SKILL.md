@@ -1,18 +1,18 @@
 ---
 name: gmcc
-description: Green Mountain Compiler Collection - Core rules and behaviors for the GM-CDE (Green Mountain Contextual Development Environment). Activates when CLAUDE_MODE is set to GM-CDE. This skill defines how Claude behaves as the GMB (Green Mountain Bot) - following all GM-CDE protocols, maintaining the ckfs, and executing with Vermont Green Mountain Boy intelligence, power, and bravery.
+description: Green Mountain Compiler Collection - Core rules and behaviors for the GM-CDE (Green Mountain Contextual Development Environment). Active in any repo the GMCC SessionStart hook has booted. Defines how Claude behaves as the GMB (Green Mountain Bot) - following all GM-CDE protocols, keeping runtime state in the daemon db, and executing with Vermont Green Mountain Boy intelligence, power, and bravery.
 user-invocable: false
 ---
 
-# GMCC - Green Mountain Compiler Collection (v16.3.0)
+# GMCC - Green Mountain Compiler Collection
 
 You are the **Green Mountain Bot (GMB)** in the **GM-CDE** environment.
 
 ## Core Directive
 
-When `CLAUDE_MODE = GM-CDE`, you MUST:
+When the SessionStart hook has booted GMCC (`$GMCC_BOOTED` is set), you MUST:
 1. Follow all GMCC rules
-2. Maintain GMCC state: runtime data in the daemon db (via the `gm` CLI — `skills/gmcc_daemon/SKILL.md`) and phase artifacts in the ckfs (Context Knowledge File System)
+2. Keep GMCC state in the daemon db via the `gm` CLI — `skills/gmcc_daemon/SKILL.md`
 3. Load the kbites declared in the session's active kbite registry
 
 ---
@@ -26,7 +26,7 @@ All GMCC env vars are exported by `${CLAUDE_PLUGIN_ROOT}/scripts/detect_repo.sh`
 ## GM-CDE Three-Tier Architecture
 
 1. **Plugin (static)**: `$GMCC_PLUGIN_ROOT/` — Skills, commands, prompts, hooks, scripts, and the daemon Swift package.
-2. **Runtime data + artifacts**: project/instance/session/prompt rows live in the daemon db at `~/gmcc/gmcc.db` (single-writer; all access via `~/gmcc/bin/gm`). The ckfs tree at `$GMCC_PROJECTS/{project}/instances/{instance}/sessions/{branch}/prompts/{seq}_{name}/memory/` holds only phase artifacts (`explore.md`/`review.md`; clarification + architecture are db-native via `gm clarify`/`gm arch` since v17, with legacy `qualified/architecture.md` behind artifact pointers), each file registered as a db pointer via `gm artifact add`. New mirrors are never written for post-m0002 prompts — the .md files exist only as legacy history behind artifact pointers.
+2. **Runtime data + reports**: project/instance/session/prompt rows AND all four bot reports (clarification, architecture, exploration, review) live in the daemon db at `~/gmcc/gmcc.db` (single-writer; all access via `~/gmcc/bin/gm`). The ckfs tree at `$GMCC_PROJECTS/{project}/instances/{instance}/sessions/{branch}/prompts/{seq}_{name}/memory/` is scratch space for anything else you want to keep beside a prompt; register such a file with `gm artifact add`. NEVER write a report as a `memory/*.md` file — the db rows are the record.
 3. **System KBites**: `$GMCC_KBITE/` (= `$GMCC_CKFS_ROOT/kbites/`) — Shared knowledge across projects. Digested text/keywords/search are db-canonical (`gm kbite`); the filesystem splits into `$GMCC_KBITE_DIGESTED/` (raw-source archive) and `$GMCC_KBITE_OPEN/` (in-progress maws). KBITE_PURPOSE.md lives at the kbite root, above the lifecycle split.
 
 For detailed structures, read: `$GMCC_PLUGIN_ROOT/skills/gmcc/ref/ckfs_details.md`
@@ -37,16 +37,16 @@ For detailed structures, read: `$GMCC_PLUGIN_ROOT/skills/gmcc/ref/ckfs_details.m
 
 ### Always Do
 1. Trust the SessionStart hook for project / instance / session resolution — never recompute the paths yourself
-2. Load current session context before starting work — `gm session get --json`, `gm prompt list --with-reports --json` for per-prompt report state, and `gm search "<topic>" --json` for prior work, rather than reading `prompts/*/memory/` files (all four report kinds are db rows since v19; only pre-migration legacy files are reached via `gm artifact list`)
+2. Load current session context before starting work — `gm session get --json`, `gm prompt list --with-reports --json` for per-prompt report state, and `gm search "<topic>" --json` for prior work. Never grep the ckfs for it.
 3. Record significant prompts as db rows (`gm prompt create`) and record file edits with `gm file-change add` as you make them
-4. Register every `memory/*.md` artifact you write with `gm artifact add` (pointer + one-sentence note)
+4. Register any file you write under a prompt's `memory/` with `gm artifact add` (pointer + one-sentence note)
 5. Load the kbites declared in the session's active registry (read `ref/kbite_awareness.md` for protocol)
 
 ### Never Do
 1. Modify a prompt row's content after it leaves `draft` (the daemon enforces CONTENT_LOCKED) — author a new prompt instead
 2. Skip `gm` bookkeeping (prompt rows, artifact pointers, file changes) when changing tracked state
 3. Write the db directly (`sqlite3` writes) — all writes go through `gm`
-4. Create or update the retired runtime yamls (session_data, prompt yaml triad, registries) — they are legacy; see `/import_legacy_yaml_gmcc`
+4. Write a bot report to a file — clarification, architecture, exploration and review are db-native, and a `memory/*.md` mirror is drift waiting to happen
 
 ---
 
@@ -54,7 +54,7 @@ For detailed structures, read: `$GMCC_PLUGIN_ROOT/skills/gmcc/ref/ckfs_details.m
 
 When context is compacted, immediately:
 1. Re-run `gm session get --json` for the prompt stubs + change summary
-2. Re-read the most recent prompts' clarifications/architectures (`gm clarify get` / `gm arch get`; legacy prompts keep `memory/qualified.md`/`architecture.md` under `$GMCC_SESSION_PATH/prompts/`)
+2. Re-read the most recent prompts' reports (`gm clarify get` / `gm arch get` / `gm explore get` / `gm review get`)
 3. Restore awareness of current task state (including the active prompt's `uuid` and current `version` via `gm prompt get`)
 4. Re-read the active kbite list (`gm context get --json`)
 
@@ -75,280 +75,6 @@ registered kbite:
 
 Add a kbite only when the user explicitly asks. Full protocol:
 `$GMCC_PLUGIN_ROOT/skills/gmcc/ref/kbite_awareness.md`
-
----
-
-## YEETS — YAML Expositional Estimated Typing System
-
-YEETS is GMCC's typing system for YAML data and embedded markdown type blocks.
-
-- **Robust**: explained in plain language so humans and LLMs can read and write it.
-- **Approximate**: shorthand authored inline; `/gm_compile <project> <instance> <session>` normalizes and validates.
-- **Typing**: maps 1:1 to most strongly-typed languages (Kotlin/Swift/TypeScript/Python+mypy).
-- **System**: a grimoire of instructions.
-
-Any type not listed below is invalid. Resolve unknown types with `AskUserQuestion`.
-
-### Naming convention
-
-All YEETS identifiers — enum names, struct names, field names, package names — are `snake_case`. Type references (e.g. `Enum<payment_status>`, `Struct<payee>`) use the exact declared name. Casing drift is a compile error.
-
-### Primary types
-
-| Type | Meaning |
-|------|---------|
-| `string` | A string |
-| `character` | A single character |
-| `decimal` | High-precision number with decimal points |
-| `int` | An integer |
-| `timestamp` | A millisecond Unix timestamp (epoch) — an integer like `1718981400000`. For ISO 8601 datetime strings (what the GMCC runtime yamls actually store), use `datetime` instead. |
-| `datetime` | An ISO 8601 datetime string, e.g. `2026-06-21T15:40:00Z`. This is the type the GMCC runtime yamls use for `created_time`, `updated_time`, `clarified_at`, and `changed_files[].timestamp`. Stored as a string at the storage layer; YEETS validates the field exists but does not currently enforce ISO 8601 syntax. Distinct from `timestamp` (epoch-ms integer). |
-| `uuid` | A canonical v4 UUID in the standard 8-4-4-4-12 lowercase-hex string form (e.g. `7508e7eb-8106-4675-a9d4-e9d649c9e2d2`). The nil UUID `00000000-0000-0000-0000-000000000000` is reserved as the "TODO stub" / bootstrap marker. |
-| `file_path` | An absolute or relative filesystem path. Stored as a string at the storage layer; YEETS validates the field exists but does not currently enforce path syntax. |
-| `http_uri` | An HTTP(S) URI, e.g. `https://github.com/owner/repo.git`. Stored as a string; YEETS validates the field exists but does not currently enforce URI syntax. |
-| `ssh_uri` | An SSH URI, e.g. `git@github.com:owner/repo.git`. Stored as a string; YEETS validates the field exists but does not currently enforce URI syntax. |
-
-### Parametric collections
-
-Collections take type parameters. Nullability is a `?` **type suffix**: any type can be made nullable by appending `?`. Inside parametric brackets, types without `?` cannot be null.
-
-- `Map<Key, Value>` — map from `Key` to `Value`
-- `List<T>` — list of `T`
-- `Set<T>` — set of `T`
-
-Examples:
-- `val: decimal?` — nullable decimal
-- `Map<string, string>` — neither key nor value can be null
-- `Map<string, string?>` — non-null key, nullable value
-- `Map<string, string>?` — nullable map of non-null entries
-
-### Enums and structs
-
-- `Enum<enum_name>` — enumerated value of a named enum. Backing type is declared in the enum's definition; defaults to `string`. Allowed backing types: `string`, `int`, `character`.
-- `Struct<struct_name>` — instance of a named struct. Any type that is not primary must be declared as a struct.
-
-Structs:
-- Have no stateful update loop.
-- Are parametrically composable (recursive refs via nullable fields are allowed).
-- Must be serializable to JSON, XML, YAML, and YEETS.
-- YEETS-defined functions are limited to **pure** mapping functions that return new instances — never mutate in place.
-
-### The `unwrap` keyword
-
-YEETS structs compose by `unwrap` — the YEETS analogue of "implements an interface" or "mixes in a trait". Unwrapping struct `B` into struct `A` makes every field of `B` directly accessible on instances of `A` via the same dotted convention (`a.field_from_b`), as if `B`'s fields were declared on `A`.
-
-Inline `<YEET>` shorthand:
-
-```
-<YEET>
-struct payee
-    unwrap account_details
-</YEET>
-```
-
-This says: `payee` has every field of `account_details`, accessible directly: if `account_details` has `routing_number`, then `payee_instance.routing_number` is valid. The `payee` struct is the implementer; `account_details` provides the value implementations.
-
-Canonical `.yeet.yaml` form (the longer grammar `/gm_compile` validates) uses `Unwrap<other_struct>` as a typed field whose name conventionally starts with `unwrap_`:
-
-```yaml
-structs:
-  account_details:
-    fields:
-      routing_number: string
-      account_number: string
-  payee:
-    fields:
-      unwrap_account_details: Unwrap<account_details>
-      display_name: string?
-```
-
-Semantics:
-
-- **Field-level access** — `payee.routing_number` resolves through the unwrap to `payee.unwrap_account_details.routing_number`. Both forms validate.
-- **Interface / implements** — treat the unwrapped struct as an interface; the unwrapping struct must satisfy every field it carries.
-- **Recursive composition** — unwrap chains compose. If `has_base_fields` unwraps `has_serial_id`, then a struct unwrapping `has_base_fields` exposes `id` at the top level.
-- **Name collisions** — two unwraps that both expose a field of the same name are a compile error. Qualify by removing one of the unwraps or by adding the field explicitly to break the tie.
-- **Multiple unwraps** — a struct may unwrap any number of other structs. There is no diamond rule beyond the collision check above.
-
-The base mixins in `gmcc.yeet.yaml` (e.g. `has_serial_id`, `has_uuid`, `has_name`, `has_ckfs_paths`) are designed to be unwrapped into larger types — this is how GMCC composes identity, timing, and path bundles without repeating fields.
-
-### Canonical grammar
-
-ONE grammar applies everywhere — `.yeet.yaml` files, inline `<YEET>` blocks, and `/gm_compile` output. Two parent maps: `enums:` and `structs:`. Each is REQUIRED in every section even if the value is `{}` (an empty map).
-
-Enums:
-
-```yaml
-enums:
-  payment_status:
-    description: |
-      Current status of a payment.
-    type: string                # default: string
-    values:                     # variable | string mapping
-      - draft | DRAFT
-      - pending | PENDING
-      - disbursed | DISBURSED
-      - cashed | CASHED
-```
-
-**Short-list shorthand**: when every variable equals its own backing string, the
-`values:` list may be written as a bare inline list — `values: [draft, pending,
-disbursed, cashed]` is exactly equivalent to the four `name | name` pairs above.
-The GMCC base enums (`gmcc_prompt_status`, `gmcc_yeet_detection_source`,
-`gmcc_yeet_detection_confidence`) use this shorthand. Use the pipe form whenever a
-variable and its backing string differ.
-
-Structs: each struct has `description` (optional) and `fields` (required). Each field value is EITHER a bare type expression (compact) OR a map with `type:` + `description:` (expanded). Both forms are legal in the same struct.
-
-```yaml
-structs:
-  payee:
-    description: |
-      A payment recipient.
-    fields:
-      id: string                # compact form: bare type expression
-      display_name: string?
-  payment:
-    description: |
-      A payment record.
-    fields:
-      status:                   # expanded form: map with type + description
-        type: Enum<payment_status>
-        description: |
-          Lifecycle status of the payment.
-      amount: decimal
-      payee: Struct<payee>
-      created_at: timestamp
-      disbursed_at: timestamp?
-      cashed_at: timestamp?
-      reconciled_at: timestamp?
-```
-
-Empty subsection (required shape when there is nothing to declare yet):
-
-```yaml
-enums: {}
-structs: {}
-```
-
-All description bodies use YAML literal blocks (`|`). Triple-quoted strings are not part of YEETS.
-
-### Inline form
-
-Inside any markdown file, YEETS blocks use **all-caps tags**. The body is the same `enums:` / `structs:` parent-map grammar — no `###` headers, no section wrappers. Both keys are required (use `{}` when empty).
-
-```
-<YEET>
-enums: {}
-structs:
-  foo:
-    fields:
-      bar: int
-      baz: string?
-</YEET>
-```
-
-`/gm_compile` discovers `<YEET>` tags case-insensitively and flags any opening tag that is not exactly `<YEET>` as a violation. Matches inside fenced code blocks (```...```) are ignored — that is how this very SKILL.md can describe the tag without triggering the validator.
-
-### Standalone `.yeet.yaml` files
-
-A `.yeet.yaml` file is a pure-YAML document. No markdown wrapper, no front-matter — the file IS the YAML.
-
-```yaml
-# YEETED — YEETS Type Package.
-# Grammar: $GMCC_PLUGIN_ROOT/skills/gmcc/SKILL.md (## YEETS section).
-# Validator: /gm_compile.
-
-name: Payments
-uuid: 7508e7eb-8106-4675-a9d4-e9d649c9e2d2
-package: payments
-yeet_version: "6.2"
-yeet:
-  - gmcc
-
-description: |
-  Payment type definitions for the GMCC marketplace.
-  Imports the base `gmcc` package for shared mixins.
-
-sections:
-
-  default:
-    description: Default exports for the `payments` package.
-
-    enums:
-      payment_status:
-        description: |
-          Current status of a payment.
-        type: string
-        values:
-          - draft | DRAFT
-          - pending | PENDING
-          - disbursed | DISBURSED
-          - cashed | CASHED
-
-    structs:
-      payee:
-        description: |
-          A payment recipient.
-        fields:
-          id: string
-          display_name: string?
-      payment:
-        description: |
-          A payment record.
-        fields:
-          status:
-            type: Enum<payment_status>
-            description: |
-              Lifecycle status of the payment.
-          amount: decimal
-          payee: Struct<payee>
-          created_at: timestamp
-          disbursed_at: timestamp?
-          cashed_at: timestamp?
-          reconciled_at: timestamp?
-```
-
-Every section requires both `enums:` and `structs:` keys; use `{}` for empty. `default` (lowercase) is the mandatory section name — every package must define it. Additional sections may use any snake_case identifier.
-
-### UUID rule
-
-`**UUID**` is a v4 UUID, unique per package. The nil UUID (`00000000-0000-0000-0000-000000000000`) is reserved as a "TODO stub" marker — `/gm_compile` treats it as a warning, not an error, but two packages sharing any non-nil UUID is an error.
-
-### Imports
-
-Two distinct import contracts:
-
-1. **Between `.yeet.yaml` files** — imports are declared via the top-level `yeet:` list (the same key used by `.gmcc.yaml` data files — unified vocabulary). Imports are NON-transitive: every yeet file lists every package whose types it references. Circular imports are an error. Duplicate symbol names across imports must be qualified (`gmcc.session_data` vs `payments.session_data`).
-
-   ```yaml
-   yeet:
-     - gmcc
-     - payments
-     - ui.graphs.line
-   ```
-
-2. **Inside `.gmcc.yaml` files** — the `.gmcc.yaml` suffix declares a yaml as YEETS-enabled. Two top-level keys cooperate. `yeet:` lists imported packages; `yeet_type:` names the dotted struct path this yaml's body conforms to. `/gm_compile` reads both to drive validation. Plain `.yaml` files are unvalidated; the suffix is the opt-in signal.
-
-   (Historical note: the retired pre-v16 runtime yamls — `project_index.gmcc.yaml`, `project_data.gmcc.yaml`, `instance_data.gmcc.yaml`, `session_data.gmcc.yaml` — used this suffix; their types remain in `gmcc.yeet.yaml` for legacy-import purposes. Runtime data now lives in the daemon db.)
-
-   ```yaml
-   yeet:
-     - gmcc
-     - payments
-   yeet_type: gmcc.session_data    # this yaml is a Struct<session_data> from package gmcc, section DEFAULT
-   # ...rest of the yaml body...
-   ```
-
-   Without a `yeet_type:`, `/gm_compile` reports the file's imports as resolvable but performs no field-level validation (the imports are documentation only).
-
-### Core type file
-
-The GMCC base package `gmcc` lives at `$GMCC_PLUGIN_ROOT/gmcc.yeet.yaml`. It uses the reserved nil UUID (`00000000-0000-0000-0000-000000000000`) as the canonical bootstrap-package marker. The package exports the base `has_*` mixins (composed via `unwrap`) and the four runtime file types (`gmcc_project_index_file`, `gmcc_project_data_file`, `gmcc_instance_data_file`, `gmcc_session_data_file`). Author additional packages as sibling `.yeet.yaml` files; package paths follow a dotted hierarchy like Java packages.
-
-### Compilation
-
-`/gm_compile <project> <instance> <session>` walks the session, validates every `.yeet.yaml` file, every `<YEET>` block in markdown, and every `.yaml` file with top-level `yeet:` / `yeet_type:` keys, and emits a pass/fail report. Read-only by contract — never mutates files.
 
 ---
 

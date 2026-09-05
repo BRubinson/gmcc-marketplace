@@ -21,8 +21,7 @@ import Foundation
 /// (the daemon now slugs the name at derivation).
 ///
 /// Honest limitation: only prompts with a non-empty ckfs_relative_storage_path
-/// resolve (post-m0002 prompts; no backfill by decision) — legacy prompts keep
-/// the client-side poll.
+/// resolve; a prompt row without one keeps the client-side poll.
 final class MemoryWatcher: @unchecked Sendable {
     private let lane = FSEventLane(label: "gmcc.daemon.lane", latency: 1.0)
     /// Lane-confined: mutated only inside a lane turn, read only by the

@@ -2,9 +2,8 @@ import ArgumentParser
 import Foundation
 import GMCCDaemonKit
 
-/// gm artifact add|list — file pointers for bot-phase memory/ files
-/// (explore, architecture, review, qualified, other). Content stays in the
-/// files; the daemon only stores pointers.
+/// gm artifact add|list — file pointers for prompt-scoped files. Content
+/// stays in the files; the daemon only stores pointers.
 struct Artifact: ParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Register and list prompt artifact pointers.",
@@ -20,8 +19,6 @@ struct Artifact: ParsableCommand {
         @Option(name: .long) var promptUuid: String
         @Option(name: .long, help: "Path of the artifact file (content stays in the file).")
         var filePath: String
-        @Option(name: .long, help: "explore, architecture, review, qualified, or other")
-        var kind: ArtifactKind
         @Option(name: .long, help: "One-sentence note.")
         var note: String?
 
@@ -30,14 +27,13 @@ struct Artifact: ParsableCommand {
                 try client.addArtifact(ArtifactAddRequest(
                     promptUuid: promptUuid,
                     filePath: filePath,
-                    kind: kind,
                     note: note
                 ))
             }
             if output.json {
                 printJSON(response)
             } else {
-                print("[gm] artifact registered: [\(response.kind)] \(response.filePath)")
+                print("[gm] artifact registered: \(response.filePath)")
                 print("  uuid: \(response.uuid)")
             }
         }
@@ -61,7 +57,7 @@ struct Artifact: ParsableCommand {
                 print("[gm] \(response.artifacts.count) artifact(s)")
                 for artifact in response.artifacts {
                     let note = artifact.note.map { " — \($0)" } ?? ""
-                    print("  [\(artifact.kind)] \(artifact.filePath)\(note)")
+                    print("  \(artifact.filePath)\(note)")
                 }
             }
         }

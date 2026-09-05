@@ -1,4 +1,4 @@
-# Bot Workflow System Reference (v19.0.0)
+# Bot Workflow System Reference
 
 Read this file when executing bot workflow commands.
 
@@ -26,10 +26,8 @@ $GMCC_SESSION_PATH/prompts/{seq}_{name}/
     memory/                          # usually EMPTY now — reports live in the db
 ```
 
-— the mkdir step stays (legacy/misc artifacts still land there), but new
-prompts normally write no memory files at all. Legacy prompts keep their
-qualified.md / architecture.md / explore.md / review.md files, reachable
-via their artifact pointers.
+— the mkdir step stays (it is where any prompt-scoped scratch file lands),
+but a normal run writes no memory files at all.
 
 A bot run does NOT create a new session — it adds a new **prompt row** to
 the existing session. The canonical lifecycle every tier follows:
@@ -67,9 +65,8 @@ the existing session. The canonical lifecycle every tier follows:
    `gm explore reopen` → update → re-complete (last-run-wins).
 4. **Clarify (db-native)** — `gm prompt set-status ... --status clarifying`
    (locks content; the daemon creates the clarification summary), then:
-   YEET-type detection → `gm clarify ask --category yeet_type` (pre-answered
-   `--source bot_inferred` when confident); the goal + detail question
-   suites → `gm clarify ask --category goal|detail`; `gm clarify seal`;
+   the goal + detail question suites → `gm clarify ask --category
+   goal|detail`; `gm clarify seal`;
    AskUserQuestion → `gm clarify answer` (or `--skip`); finally
    `gm clarify finalize --refined-goal "<acceptance criteria>"
    --refined-detail "<detail + answers integrated>"` — the daemon copies the
@@ -91,6 +88,8 @@ the existing session. The canonical lifecycle every tier follows:
    gm file-change add --path <repo-relative> --kind edit|create|delete|rename \
      [--range start:end]... [--content "<short note>"] --prompt-uuid U
    ```
+   `--content` requires EXACTLY ONE `--range` (the daemon rejects the pair
+   otherwise); omit both to record the file as touched without line detail.
    `gm arch get` shows per-row implementation state, unplanned drift, and
    the persistence-first audit at any point.
 7. **Review (db-native)** — `gm prompt set-status ... --status reviewing`
@@ -134,23 +133,9 @@ The bot:
    `architecting` → Plan (`gm arch get`); `implementing` → Implement
    (`gm arch get` is the plan + implementation state); `reviewing` →
    Review; `done` → complete (new work = new prompt).
-3. **Legacy fallback**: pre-m0002 prompts have no clarify/arch rows
-   (`gm clarify get`/`gm arch get` → `SUMMARY_ABSENT` with
-   `prompt_is_legacy: true`; also visible as `is_legacy` on every stub) —
-   read the ckfs artifacts via `gm artifact list` (kinds
-   qualified/architecture/explore/review) instead; NEVER fabricate backing
-   rows ("fabricate" = inventing structured content; the migrate pass's
-   VERBATIM transfer of a file into an overview is sanctioned, see below).
-   `SUMMARY_ABSENT` with `prompt_is_legacy: false` means a current prompt
-   that simply hasn't opened one — open it, never fall back to files —
-   EXCEPT for explore/review on a prompt created before m0004: its real
-   report may be an on-disk explore.md/review.md behind an artifact
-   pointer. The migrate pass is MANDATORY for those mid-era prompts
-   (`skills/gmcc_migrate_legacy/SKILL.md`, executed by Sonnet 5 agents:
-   overview := file content verbatim, zero findings, review verdict
-   `legacy_unstated`); until it runs, check `gm artifact list` before
-   opening a fresh empty summary. `gm clarify open` on a legacy prompt is
-   the explicit adoption path.
+3. `SUMMARY_ABSENT` means the prompt exists but that summary was never
+   opened — open it (`gm clarify/arch/explore/review open`). It is never a
+   signal to go read a file.
 4. A bare seq (no continuation) runs an externally-authored draft (e.g.
    from the GMVibes editor) as written. `command` is create-time-only in
    the db — if the row's `command` is empty, record the executing tier in
@@ -184,19 +169,7 @@ invent an outcome — the Clarify phase fleshes out the goal later via human
 Q&A, and the only content write past draft is the daemon-side refined-goal
 copy performed by `gm clarify finalize`.
 
-### Clarify phase — detection first, then split suites
-
-When Clarify begins, the **first** action is **YEET-type detection** over
-the prompt row's `goal` + `detail`:
-
-- **Declared** types — named explicitly in the prose (e.g. "a new yeet type for X").
-- **Inferred** types — data shapes described structurally without naming a type.
-
-Each detection is resolved confidently (recorded pre-answered:
-`gm clarify ask --category yeet_type --answer ... --source bot_inferred`)
-or — when it cannot be — inserted as an open yeet_type question the user
-answers after seal. Never skip the detection pass; an empty outcome is
-still a decision.
+### Clarify phase — split suites
 
 The bot then runs **two separate clarification suites** — one for `goal`
 (outcome/acceptance criteria, `--category goal`) and one for `detail`
@@ -209,11 +182,9 @@ status (open/answered/skipped), and answer source (user/bot_inferred); the
 summary carries `refined_goal` (acceptance criteria) and `refined_detail`
 (detail + answers integrated — the from-Clarify source of truth) plus a
 `backstory_note` (executing tier, team-consensus notes). The row's `detail`
-is never modified. Legacy prompts keep `memory/qualified.md` behind their
-`qualified` artifact pointer — **but new mirrors are NEVER written for
-post-m0002 prompts**: no qualified.md, no architecture.md, no "grep-ability"
-duplicates; the `qualified`/`architecture` artifact kinds are reserved for
-true pre-m0002 legacy files only.
+is never modified. **Never mirror a report to a file**: no qualified.md, no
+architecture.md, no "grep-ability" duplicates — the db rows ARE the record
+and `gm search` is the search surface.
 
 ## KBite Integration
 
@@ -259,16 +230,9 @@ verdict) via `complete`, after ranking.
 
 **finding_rating (0–999)**: 0 = absolute critical, 999 = always-false-
 positive tombstone; the read threshold is 100 (gets return full rows under
-it — plus every unranked row — and stubs above; `--full` /
-`--max-rating N` / `--rating-range A:B` widen the window). This scale
-REPLACES the old 1-8 (8=critical) doc scale — polarity is inverted; never
-mix them. Re-runs supersede by re-ranking (999 tombstones), never deletion.
-
-**Artifact kinds are legacy-only**: the `explore`/`review` artifact kinds
-now join `qualified`/`architecture` as reserved for pre-migration legacy
-files only — new mirrors are NEVER written for post-m0004 prompts: no
-explore.md, no review.md, no "grep-ability" duplicates; the db rows ARE the
-record and `gm search` is the search surface.
+it — plus every unranked row — and stubs above; exactly one of `--full` /
+`--max-rating N` / `--rating-range A:B` widens the window). Re-runs
+supersede by re-ranking (999 tombstones), never deletion.
 
 ## Agent System
 
@@ -292,8 +256,6 @@ Agents are specialized personas defined in `$GMCC_PLUGIN_ROOT/prompts/`:
 | `/gm_bot_team` | Agent team workflow (requires agent teams enabled) |
 | `/gm_task` | Load session context (via gm reads) and just do the task; read-only — no db writes unless you explicitly ask for a retroactive write-back |
 | `/gmcc_daemon` | Daemon build/status/lifecycle |
-| `/import_legacy_yaml_gmcc` | Import legacy ckfs yaml prompts into the db (inert until invoked) |
-| `/archive_legacy_yaml_gmcc` | Move imported legacy prompt folders to `_archive/cold_storage/` |
 | `/gmcc_environment_cleanup` | Audit the environment (db-vs-disk drift, daemon health, archive hygiene), interactively resolve |
 | `/gmcc_session_cleanup` | Audit only the current session: memory/ folders vs db rows, artifact + file-change drift |
 | `/gm_crunch_open_maw` | Create maw for collecting kbite crunchables |

@@ -151,18 +151,27 @@ final class MigrationTests: XCTestCase {
         }
     }
 
-    func testM0002AgainstLiveDbCopy() throws {
+    /// Runs whatever migrations the copy still owes, against real accumulated
+    /// data. Assertions are phrased so they hold whether the copy is pre-m0002
+    /// or (as any copy of ~/gmcc/gmcc.db now is) already several migrations in:
+    /// `clarified` maps INTO `done` rather than replacing it, so the expected
+    /// count is the sum of both before-counts.
+    func testAgainstLiveDbCopy() throws {
         // Point GMCC_TEST_LIVE_DB_COPY at a COPY of ~/gmcc/gmcc.db (never the
-        // live file) to prove the migration against real accumulated data.
+        // live file) to prove the migrations against real accumulated data.
         guard let path = ProcessInfo.processInfo.environment["GMCC_TEST_LIVE_DB_COPY"] else {
             throw XCTSkip("GMCC_TEST_LIVE_DB_COPY not set")
         }
         let store = try Store(path: path)
-        let before: (prompts: Int, artifacts: Int, clarified: Int, uuidIds: [String]) =
+        let before: (prompts: Int, artifacts: Int, done: Int, clarified: Int,
+                     clarifications: Int, reviewFindings: Int, uuidIds: [String]) =
             try store.dbQueue.read { db in
                 (try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM prompt") ?? -1,
                  try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM prompt_artifact") ?? -1,
+                 try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM prompt WHERE status = 'done'") ?? -1,
                  try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM prompt WHERE status = 'clarified'") ?? -1,
+                 try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM clarification") ?? 0,
+                 try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM review_finding") ?? 0,
                  try String.fetchAll(db, sql: "SELECT uuid || ':' || id FROM prompt ORDER BY uuid"))
             }
 
@@ -173,7 +182,34 @@ final class MigrationTests: XCTestCase {
             XCTAssertEqual(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM prompt_artifact"), before.artifacts)
             XCTAssertEqual(
                 try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM prompt WHERE status = 'done'"),
-                before.clarified)
+                before.done + before.clarified)
+            // m0005's rebuilds move values, never rows: the clarification and
+            // review_finding populations survive intact (the latter through
+            // the CASCADE-parent review_summary rebuild).
+            XCTAssertEqual(
+                try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM clarification"), before.clarifications)
+            XCTAssertEqual(
+                try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM review_finding"), before.reviewFindings)
+            XCTAssertEqual(
+                try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM clarification WHERE category = 'yeet_type'"), 0)
+            XCTAssertEqual(
+                try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM review_summary WHERE verdict = 'legacy_unstated'"), 0)
+            // The backfill leaves no prompt without either summary.
+            XCTAssertEqual(try Int.fetchOne(db, sql: """
+                SELECT COUNT(*) FROM prompt p WHERE p.status != 'draft' AND NOT EXISTS
+                    (SELECT 1 FROM clarification_summary c WHERE c.prompt_uuid = p.uuid)
+                """), 0)
+            XCTAssertEqual(try Int.fetchOne(db, sql: """
+                SELECT COUNT(*) FROM prompt p WHERE p.status != 'draft' AND NOT EXISTS
+                    (SELECT 1 FROM architecture_summary a WHERE a.prompt_uuid = p.uuid)
+                """), 0)
+            // No draft prompt keeps an m0005 placeholder (m0006).
+            XCTAssertEqual(try Int.fetchOne(db, sql: """
+                SELECT COUNT(*) FROM clarification_summary c
+                  JOIN prompt p ON p.uuid = c.prompt_uuid
+                 WHERE p.status = 'draft'
+                   AND c.backstory_note = 'Backfilled by m0005; not authored by a bot run.'
+                """), 0)
             XCTAssertEqual(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM prompt WHERE status = 'clarified'"), 0)
             XCTAssertEqual(
                 try String.fetchAll(db, sql: "SELECT uuid || ':' || id FROM prompt ORDER BY uuid"),
@@ -264,6 +300,193 @@ final class MigrationTests: XCTestCase {
             XCTAssertEqual(try Int.fetchOne(db, sql:
                 "SELECT COUNT(*) FROM exploration_finding_fts WHERE exploration_finding_fts MATCH 'searchable'"), 0)
 
+            XCTAssertTrue(try Row.fetchAll(db, sql: "PRAGMA foreign_key_check").isEmpty)
+            XCTAssertEqual(try String.fetchOne(db, sql: "PRAGMA integrity_check"), "ok")
+        }
+    }
+
+    /// m0005 is three table rebuilds plus a backfill against accumulated
+    /// data — the riskiest migration since m0002. The fixture is built at
+    /// m0004 (the last schema that still accepts the retired values), seeded
+    /// with every row shape m0005 must move, then migrated the rest of the
+    /// way.
+    func testM0005PurgesLegacyValuesAndBackfillsPlaceholders() throws {
+        let dbPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("m0005-\(UUID().uuidString).db").path
+        defer { try? FileManager.default.removeItem(atPath: dbPath) }
+        let queue = try DatabaseQueue(path: dbPath)
+        try Migrations.migrator.migrate(queue, upTo: "m0004_explorationReviewReports")
+
+        let now = "2026-08-01T00:00:00Z"
+        try queue.write { db in
+            try db.execute(sql: """
+                INSERT INTO project (uuid, version, created_at, updated_at,
+                    git_repo_name, code, name, ckfs_relative_storage_path)
+                VALUES ('proj-1', 0, '\(now)', '\(now)', 'r', 'r', 'r', 'projects/r');
+                INSERT INTO instance (uuid, version, created_at, updated_at,
+                    project_uuid, code, name, absolute_file_system_path, ckfs_relative_storage_path)
+                VALUES ('inst-1', 0, '\(now)', '\(now)', 'proj-1', 'r_1', 'r_1', '/tmp/r', 'projects/r/instances/r_1');
+                INSERT INTO session (uuid, version, created_at, updated_at,
+                    instance_uuid, code, name, backstory, goal, status, ckfs_relative_storage_path)
+                VALUES ('sess-1', 0, '\(now)', '\(now)', 'inst-1', 'main', 'main', '', '', 'active',
+                        'projects/r/instances/r_1/sessions/main');
+
+                -- p1 carries db-native rows; p2 is the pre-m0002 shape with none.
+                INSERT INTO prompt (id, uuid, version, created_at, updated_at,
+                    session_uuid, seq, code, name, backstory, goal, detail, command, status,
+                    ckfs_relative_storage_path)
+                VALUES (1, 'prompt-1', 0, '\(now)', '\(now)', 'sess-1', 1, 'p1', 'one', '', '', '', '', 'done',
+                        'projects/r/instances/r_1/sessions/main/prompts/1_one'),
+                       (2, 'prompt-2', 0, '\(now)', '\(now)', 'sess-1', 2, 'p2', 'two', '', '', '', '', 'done',
+                        'projects/r/instances/r_1/sessions/main/prompts/2_two'),
+                       -- p3 is still draft: m0005 backfills it, m0006 takes it
+                       -- back off again (a draft must be able to author its own
+                       -- clarification, which a terminal placeholder blocks).
+                       (3, 'prompt-3', 0, '\(now)', '\(now)', 'sess-1', 3, 'p3', 'three', '', '', '', '', 'draft',
+                        'projects/r/instances/r_1/sessions/main/prompts/3_three');
+
+                INSERT INTO clarification_summary (uuid, version, created_at, updated_at,
+                    prompt_uuid, status, backstory_note, refined_goal, refined_detail)
+                VALUES ('cls-1', 0, '\(now)', '\(now)', 'prompt-1', 'complete', '', 'g', 'd');
+
+                -- One row per retired + surviving category; ids pinned so the
+                -- rowid-stability assertion is meaningful.
+                INSERT INTO clarification (id, uuid, version, created_at, updated_at,
+                    clarification_summary_uuid, seq, category, question, answer, answer_source, status)
+                VALUES (10, 'clr-goal', 0, '\(now)', '\(now)', 'cls-1', 1, 'goal', 'q goal', 'a', 'user', 'answered'),
+                       (11, 'clr-yeet', 2, '\(now)', '\(now)', 'cls-1', 2, 'yeet_type', 'searchable q yeet',
+                        'a', 'bot_inferred', 'answered'),
+                       (12, 'clr-det', 0, '\(now)', '\(now)', 'cls-1', 3, 'detail', 'q detail', NULL, NULL, 'open');
+
+                INSERT INTO architecture_summary (uuid, version, created_at, updated_at,
+                    prompt_uuid, body, status)
+                VALUES ('ars-1', 0, '\(now)', '\(now)', 'prompt-1', 'b', 'approved');
+
+                -- Every retired artifact kind plus the surviving one.
+                INSERT INTO prompt_artifact (uuid, version, created_at, updated_at,
+                    prompt_uuid, file_path, kind, note)
+                VALUES ('art-1', 0, '\(now)', '\(now)', 'prompt-1', 'm/qualified.md', 'qualified', 'n1'),
+                       ('art-2', 0, '\(now)', '\(now)', 'prompt-1', 'm/architecture.md', 'architecture', NULL),
+                       ('art-3', 0, '\(now)', '\(now)', 'prompt-1', 'm/explore.md', 'explore', NULL),
+                       ('art-4', 0, '\(now)', '\(now)', 'prompt-1', 'm/review.md', 'review', NULL),
+                       ('art-5', 0, '\(now)', '\(now)', 'prompt-1', 'm/notes.md', 'other', 'n5');
+
+                -- legacy_unstated + a survivor; review_finding CASCADE-children
+                -- of the summary being rebuilt.
+                INSERT INTO review_summary (id, uuid, version, created_at, updated_at,
+                    prompt_uuid, status, verdict, overview)
+                VALUES (20, 'rvs-1', 3, '\(now)', '\(now)', 'prompt-1', 'complete', 'legacy_unstated',
+                        'searchable overview one'),
+                       (21, 'rvs-2', 0, '\(now)', '\(now)', 'prompt-2', 'complete', 'changes_requested',
+                        'searchable overview two');
+
+                INSERT INTO review_finding (uuid, version, created_at, updated_at,
+                    review_summary_uuid, kind, title, body, agent_name, finding_rating)
+                VALUES ('rvf-1', 0, '\(now)', '\(now)', 'rvs-1', 'other', 't1', 'b1', 'a', 5),
+                       ('rvf-2', 0, '\(now)', '\(now)', 'rvs-1', 'other', 't2', 'b2', 'a', 500);
+                """)
+        }
+
+        try Migrations.migrator.migrate(queue)
+
+        try queue.write { db in
+            // Retired values are gone from the data…
+            XCTAssertEqual(try Int.fetchOne(
+                db, sql: "SELECT COUNT(*) FROM clarification WHERE category = 'yeet_type'"), 0)
+            XCTAssertEqual(try Int.fetchOne(
+                db, sql: "SELECT COUNT(*) FROM clarification WHERE category = 'detail'"), 2)
+            XCTAssertEqual(try Int.fetchOne(
+                db, sql: "SELECT COUNT(*) FROM clarification WHERE category = 'goal'"), 1)
+            XCTAssertEqual(try Int.fetchOne(
+                db, sql: "SELECT COUNT(*) FROM review_summary WHERE verdict = 'legacy_unstated'"), 0)
+            XCTAssertEqual(try Int.fetchOne(
+                db, sql: "SELECT COUNT(*) FROM review_summary WHERE verdict = 'approved'"), 1)
+
+            // …and from the schema: the CHECKs now refuse them.
+            XCTAssertThrowsError(try db.execute(sql: """
+                INSERT INTO clarification (uuid, version, created_at, updated_at,
+                    clarification_summary_uuid, seq, category, question, answer, answer_source, status)
+                VALUES ('clr-bad', 0, '\(now)', '\(now)', 'cls-1', 9, 'yeet_type', 'q', NULL, NULL, 'open')
+                """), "category CHECK still accepts yeet_type")
+            XCTAssertThrowsError(try db.execute(sql: """
+                UPDATE review_summary SET verdict = 'legacy_unstated' WHERE uuid = 'rvs-2'
+                """), "verdict CHECK still accepts legacy_unstated")
+
+            // prompt_artifact kept every row and lost the column.
+            XCTAssertEqual(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM prompt_artifact"), 5)
+            XCTAssertEqual(try String.fetchOne(
+                db, sql: "SELECT note FROM prompt_artifact WHERE uuid = 'art-1'"), "n1")
+            let artifactSql = try String.fetchOne(
+                db, sql: "SELECT sql FROM sqlite_master WHERE name = 'prompt_artifact'") ?? ""
+            XCTAssertFalse(artifactSql.contains("kind"), "kind column survived the rebuild")
+            XCTAssertTrue(artifactSql.contains("UNIQUE(prompt_uuid, file_path)"))
+
+            // review_finding CASCADE-children survived the review_summary drop.
+            XCTAssertEqual(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM review_finding"), 2)
+
+            // Rowids (and therefore the FTS content_rowid join) are stable,
+            // and versions copied verbatim — a rebuild is not a write.
+            XCTAssertEqual(try Int.fetchOne(
+                db, sql: "SELECT id FROM clarification WHERE uuid = 'clr-yeet'"), 11)
+            XCTAssertEqual(try Int.fetchOne(
+                db, sql: "SELECT version FROM clarification WHERE uuid = 'clr-yeet'"), 2)
+            XCTAssertEqual(try Int.fetchOne(
+                db, sql: "SELECT id FROM review_summary WHERE uuid = 'rvs-1'"), 20)
+            XCTAssertEqual(try Int.fetchOne(
+                db, sql: "SELECT version FROM review_summary WHERE uuid = 'rvs-1'"), 3)
+
+            // FTS mirrors + triggers survived the rebuild and still match.
+            for table in ["clarification", "review_summary"] {
+                for suffix in ["ai", "ad", "au"] {
+                    XCTAssertEqual(try Int.fetchOne(
+                        db, sql: "SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name = ?",
+                        arguments: ["\(table)_\(suffix)"]), 1, "missing trigger \(table)_\(suffix)")
+                }
+            }
+            XCTAssertEqual(try Int.fetchOne(db, sql:
+                "SELECT COUNT(*) FROM clarification_fts WHERE clarification_fts MATCH 'searchable'"), 1)
+            XCTAssertEqual(try Int.fetchOne(db, sql:
+                "SELECT COUNT(*) FROM review_summary_fts WHERE review_summary_fts MATCH 'searchable'"), 2)
+
+            // The backfill: every prompt PAST DRAFT now has both summaries,
+            // so SUMMARY_ABSENT can never again mean "this one is legacy".
+            XCTAssertEqual(try Int.fetchOne(db, sql: """
+                SELECT COUNT(*) FROM prompt p WHERE p.status != 'draft' AND NOT EXISTS
+                    (SELECT 1 FROM clarification_summary c WHERE c.prompt_uuid = p.uuid)
+                """), 0)
+            XCTAssertEqual(try Int.fetchOne(db, sql: """
+                SELECT COUNT(*) FROM prompt p WHERE p.status != 'draft' AND NOT EXISTS
+                    (SELECT 1 FROM architecture_summary a WHERE a.prompt_uuid = p.uuid)
+                """), 0)
+            // …and m0006 took the draft prompt's placeholders back off, so it
+            // can still open a `building` summary and author its own rows.
+            XCTAssertNil(try String.fetchOne(
+                db, sql: "SELECT uuid FROM clarification_summary WHERE prompt_uuid = 'prompt-3'"))
+            XCTAssertNil(try String.fetchOne(
+                db, sql: "SELECT uuid FROM architecture_summary WHERE prompt_uuid = 'prompt-3'"))
+            // A bot-authored summary on a draft prompt is NOT collateral.
+            XCTAssertEqual(try String.fetchOne(
+                db, sql: "SELECT refined_goal FROM clarification_summary WHERE prompt_uuid = 'prompt-1'"), "g")
+            // The pre-existing summary was NOT overwritten…
+            XCTAssertEqual(try String.fetchOne(
+                db, sql: "SELECT refined_goal FROM clarification_summary WHERE prompt_uuid = 'prompt-1'"), "g")
+            // …and the placeholder points at the on-disk file, at terminal status.
+            let placeholder = try String.fetchOne(
+                db, sql: "SELECT refined_detail FROM clarification_summary WHERE prompt_uuid = 'prompt-2'") ?? ""
+            XCTAssertTrue(placeholder.contains("2_two/memory/qualified.md"), placeholder)
+            XCTAssertEqual(try String.fetchOne(
+                db, sql: "SELECT status FROM clarification_summary WHERE prompt_uuid = 'prompt-2'"), "complete")
+            XCTAssertEqual(try String.fetchOne(
+                db, sql: "SELECT status FROM architecture_summary WHERE prompt_uuid = 'prompt-2'"), "approved")
+            // A placeholder asserts nothing it cannot back up: no child rows.
+            XCTAssertEqual(try Int.fetchOne(db, sql: """
+                SELECT COUNT(*) FROM clarification c
+                  JOIN clarification_summary s ON s.uuid = c.clarification_summary_uuid
+                 WHERE s.prompt_uuid = 'prompt-2'
+                """), 0)
+
+            XCTAssertEqual(try Int.fetchOne(db, sql: "SELECT MAX(version) FROM schema_migrations"),
+                           Migrations.currentSchemaVersion)
             XCTAssertTrue(try Row.fetchAll(db, sql: "PRAGMA foreign_key_check").isEmpty)
             XCTAssertEqual(try String.fetchOne(db, sql: "PRAGMA integrity_check"), "ok")
         }

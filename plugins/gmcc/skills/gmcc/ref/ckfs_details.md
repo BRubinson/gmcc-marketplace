@@ -1,16 +1,12 @@
-# CKFS Detailed Structure Reference (v16.3.0)
+# CKFS Detailed Structure Reference
 
 Read this file on-demand when performing ckfs operations.
 
-**v16 model**: prompt/session/instance/project DATA lives in the daemon's
-SQLite db at `~/gmcc/gmcc.db`, accessed exclusively through the `gm` CLI
-(see `skills/gmcc_daemon/SKILL.md`). The ckfs on disk is now a **file
-artifact tree only** — bot phase artifacts under `memory/`, plus the kbite
-content store. The runtime yamls (`session_data.gmcc.yaml`, the prompt
-yaml triad, `project_index`/`project_data`/`instance_data`,
-`gmcc_session_file_index.yaml`) are RETIRED: nothing creates or updates
-them anymore. Legacy trees are imported/archived by
-`/import_legacy_yaml_gmcc` + `/archive_legacy_yaml_gmcc`.
+Prompt/session/instance/project data AND all four bot reports live in the
+daemon's SQLite db at `~/gmcc/gmcc.db`, accessed exclusively through the
+`gm` CLI (see `skills/gmcc_daemon/SKILL.md`). The ckfs on disk is a **file
+tree only** — prompt-scoped scratch files under `memory/`, plus the kbite
+content store.
 
 ## Static Plugin Files (Installed to ~/.claude/plugins/gmcc/)
 ```
@@ -24,8 +20,7 @@ them anymore. Legacy trees are imported/archived by
 │   ├── gmcc_kbite/                # KBite knowledge system
 │   ├── gmcc_maw/                  # KBite web-fetch skill
 │   ├── gmcc_boot/                 # Boot validation
-│   ├── gmcc_cleanup/              # Environment auditing
-│   └── gmcc_migrate_legacy/       # Legacy yaml → db import/archive (inert)
+│   └── gmcc_cleanup/              # Environment auditing
 ├── commands/gm_*.md               # All GM commands
 ├── prompts/gmcc_agent_*.md        # Agent prompt files
 ├── scripts/detect_repo.sh         # SessionStart hook script
@@ -54,9 +49,8 @@ them anymore. Legacy trees are imported/archived by
 │                   └── {sanitized_branch}/                   # $GMCC_SESSION_PATH
 │                       └── prompts/
 │                           └── {id}_{name}/                  # one folder per prompt
-│                               └── memory/                  # usually empty since v19 — all
-│                                                             # reports are db rows; legacy
-│                                                             # prompts keep their .md files here
+│                               └── memory/                  # usually empty — every report
+│                                                             # is a db row
 └── kbites/                                                   # $GMCC_KBITE
     ├── {kbite_name}/KBITE_PURPOSE.md                         # identity-level
     ├── digested/{kbite_name}/...                             # $GMCC_KBITE_DIGESTED — raw-source archive (text is db-canonical)
@@ -152,24 +146,21 @@ Each prompt is a folder whose `memory/` subdir is usually EMPTY now:
 
 ```
 prompts/{id}_{name}/
-    memory/                          # legacy report files + misc artifacts only
+    memory/                          # prompt-scoped scratch files only
 ```
 
-(All four phase reports are DB-NATIVE — clarify/arch since v17, explore/
-review since v19/m0004 — `gm clarify` / `gm arch` / `gm explore` /
-`gm review` rows; legacy prompts keep their qualified.md / architecture.md /
-explore.md / review.md files behind artifact pointers until the mandatory
-migrate pass transfers the explore/review ones into rows. The mkdir of
-memory/ at prompt creation stays — misc `--kind other` artifacts still land
-there.)
+(All four phase reports are DB-NATIVE — `gm clarify` / `gm arch` /
+`gm explore` / `gm review` rows. NEVER write a report as a file here. The
+mkdir of memory/ at prompt creation stays: it is where any other
+prompt-scoped file you register with `gm artifact add` lands.)
 
 `{id}` is the db prompt row's `seq`; `{name}` its `name`. All identity,
 content (`backstory`/`goal`/`detail`), status, and command live on the
-prompt row. Each `memory/*.md` write is registered with:
+prompt row. Any file you write under `memory/` is registered with:
 
 ```bash
 gm artifact add --prompt-uuid U --file-path <abs path> \
-  --kind explore|architecture|review|qualified|other --note "<one-sentence caption>"
+  --note "<one-sentence caption>"
 ```
 
 (Upserts on `(prompt_uuid, file_path)` — last-run-wins overwrite of the
@@ -184,8 +175,8 @@ otherwise. Content edits are draft-only (`CONTENT_LOCKED` after; the one
 exemption is `gm clarify finalize`'s daemon-side refined-goal copy).
 Gates: entering `clarifying` creates the clarification summary;
 `clarifying → architecting` requires it complete; `architecting →
-implementing` requires the architecture approved. Pre-m0002 prompts bypass
-absent-backing-row gates (never fabricate rows).
+implementing` requires the architecture approved. There is no bypass — an
+absent backing row fails the gate.
 
 1. **draft** — `/gm_bot*` runs:
    ```bash
@@ -197,9 +188,7 @@ absent-backing-row gates (never fabricate rows).
    Never split, infer, or author these fields. Then
    `mkdir -p prompts/{seq}_{name}/memory/`.
 2. **clarifying** — enter with `gm prompt set-status ... --status
-   clarifying` (locks content; the daemon creates the summary). Phase 3's
-   first step is YEET-type detection (`gm clarify ask --category
-   yeet_type`, pre-answered `--source bot_inferred` when confident); then
+   clarifying` (locks content; the daemon creates the summary). Then
    the goal and detail suites (`--category goal|detail`); `gm clarify
    seal`; user answers via `gm clarify answer`; `gm clarify finalize
    --refined-goal ... --refined-detail ...` (the daemon copies the refined
@@ -221,10 +210,10 @@ gm file-change add --path <repo-relative> --kind edit|create|delete|rename \
   [--range start:end]... [--content "<note>"] --prompt-uuid <U>
 ```
 
-Run from inside the repo — git context is auto-detected. This replaces
-the retired `changed_files:` yaml list. There is no `phase_history`
-equivalent — run completion is represented by prompt status `done` plus
-the clarification/architecture rows and registered artifacts.
+Run from inside the repo — git context is auto-detected. `--content`
+requires EXACTLY ONE `--range`. There is no `phase_history` equivalent —
+run completion is prompt status `done` plus the clarification/architecture/
+exploration/review rows and registered artifacts.
 `gm arch get` derives per-change implementation state from these records.
 
 ## KBite Registry
@@ -232,9 +221,7 @@ the clarification/architecture rows and registered artifacts.
 Kbites are inherited at create time down the chain
 (project → instance → session → prompt) into the `*_active_kbite`
 junction tables; after seeding, each level is independent. The db is the
-sole registry — the only remaining yaml `kbite:` reads are inside
-`gm context ensure --from-ckfs` (the legacy-import seed). Read the
-active list from `gm context get` / `gm session get` / `gm prompt get`
+sole registry. Read the active list from `gm context get` / `gm session get` / `gm prompt get`
 (`kbite_codes`) or `gm kbite list --scope ...` (`--all` for every kbite
 row in the db). Kbites are added only on explicit user request
 (`gm kbite add`) — see `ref/kbite_awareness.md`. Digested kbite text is

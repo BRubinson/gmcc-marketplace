@@ -4,8 +4,7 @@ import GMCCDaemonKit
 
 /// gm setup — client-side initialization: ensure ~/gmcc/ dirs, autostart the
 /// daemon (which creates and migrates the db), and optionally install a
-/// launchd agent. The legacy SETUP wire message is retired — CONTEXT_ENSURE
-/// covers daemon-side bootstrap.
+/// launchd agent. CONTEXT_ENSURE covers daemon-side bootstrap.
 struct Setup: ParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Initialize ~/gmcc/ runtime dir, database, and (optionally) a launchd agent.")

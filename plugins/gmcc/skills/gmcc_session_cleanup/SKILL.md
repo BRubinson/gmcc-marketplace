@@ -6,7 +6,7 @@ disable-model-invocation: true
 allowed-tools: Read, Write, Bash, Glob, AskUserQuestion
 ---
 
-# GMCC Session Cleanup Skill (v16.3.0)
+# GMCC Session Cleanup Skill
 
 Audits the **current session** — the artifact tree at `$GMCC_SESSION_PATH`
 cross-checked against the daemon db rows (`gm session get`, `gm prompt
@@ -46,8 +46,8 @@ filesystem moves within the session.
 | Finding | Example | Default suggestion |
 |---------|---------|--------------------|
 | Missing memory/ dir | prompt row exists but `prompts/{seq}_{name}/memory/` doesn't | `mkdir -p` it (default) |
-| Orphan prompt folder | `prompts/{seq}_{name}/` on disk but no row with that `seq` in `gm prompt list` | If it contains a legacy yaml triad → hand off to `/import_legacy_yaml_gmcc`; if memory/-only → flag for user (archive or leave) |
-| Legacy yaml files | `*_data.gmcc.yaml` / `*_initial.yaml` / `*_clarified.yaml` inside a prompt folder, or `session_data.gmcc.yaml` / `gmcc_session_file_index.yaml` at the session root | Hand off: `/import_legacy_yaml_gmcc` then `/archive_legacy_yaml_gmcc` (default), or skip |
+| Orphan prompt folder | `prompts/{seq}_{name}/` on disk but no row with that `seq` in `gm prompt list` | If it contains a yaml triad → archive to cold storage; if memory/-only → flag for user (archive or leave) |
+| Pre-daemon yaml files | `*_data.gmcc.yaml` / `*_initial.yaml` / `*_clarified.yaml` inside a prompt folder, or `session_data.gmcc.yaml` / `gmcc_session_file_index.yaml` at the session root | Archive to `_archive/cold_storage/` (default) — nothing reads these. Or skip |
 | Loose file at prompts/ root | any file directly under `prompts/` (not in a `{seq}_{name}/` folder) | Move into the correct prompt folder, or archive to cold storage |
 | Folder/row name drift | on-disk folder `{seq}_{name}` doesn't match the row's `seq`/`name` | Rename folder to match the row (source of truth), or skip |
 
@@ -55,10 +55,9 @@ filesystem moves within the session.
 
 | Finding | Example | Default suggestion |
 |---------|---------|--------------------|
-| Unregistered artifact | a pre-m0004 `memory/{explore,review}.md` (or legacy `qualified/architecture.md`) on disk with no `prompt_artifact` row (`gm artifact list --prompt-uuid U`) | Register via `gm artifact add` with the matching `--kind` + caption note (default), or skip. Then flag the prompt for the mandatory mid-era migrate pass (`skills/gmcc_migrate_legacy/SKILL.md`) — its report belongs in db rows. |
-| Post-m0004 report mirror | a `memory/explore.md`/`review.md` written for a prompt whose exploration/review rows exist (or should) | DRIFT: the report kinds are legacy-only since m0004. Suggest transferring the content verbatim through the normal verbs (`gm explore/review open → complete --overview <file content>`) if no rows exist yet, then archiving the file to cold storage |
+| Unregistered artifact | a file under `memory/` with no `prompt_artifact` row (`gm artifact list --prompt-uuid U`) | Register via `gm artifact add` with a caption note (default), or skip |
+| Report written as a file | any `memory/{qualified,architecture,explore,review}.md` | DRIFT: every report is db-native. Transfer the content through the normal verbs (`gm explore/review open` → `complete --overview-file <path>`) if no rows exist yet, then archive the file to cold storage |
 | Dangling pointer | artifact row whose `file_path` doesn't exist on disk | Flag for user — restore the file if recoverable, or accept (pointers are history; no gm delete path) |
-| Unknown memory file | a `memory/*.md` not matching a known kind | Register as `--kind other` (default), or skip |
 
 ### (c) File-change trail sanity
 
@@ -83,12 +82,12 @@ Bounded to the session. Order:
    reachable daemon + session row, only filesystem findings can be
    audited (offer to fix health first).
 2. **Session root** — expect only `prompts/`; anything else (including
-   legacy `session_data.gmcc.yaml` / `gmcc_session_file_index.yaml`) is a
+   `session_data.gmcc.yaml` / `gmcc_session_file_index.yaml`) is a
    finding.
 3. **Db → disk** — for each stub in `gm prompt list --json`: check the
    `{seq}_{name}/memory/` dir, then `gm artifact list` rows vs disk files.
 4. **Disk → db** — for each `prompts/{seq}_{name}/` folder: check a
-   matching row exists; flag legacy yamls and unknown files.
+   matching row exists; flag stray yamls and unknown files.
 5. **File-change trail** — `gm file-change list --json` path sanity.
 
 Never judge the *content* of `memory/*.md` files (free-form artifacts) —
@@ -104,7 +103,6 @@ always the recommended, non-destructive default. Standard options:
 | Option | What it does |
 |--------|--------------|
 | **Register / repair** (default for db-vs-disk drift) | The matching `gm` call (`artifact add`, `context ensure`) or `mkdir -p`/rename. |
-| **Hand off** (default for legacy yaml) | Point at `/import_legacy_yaml_gmcc` + `/archive_legacy_yaml_gmcc`; never migrate inline. |
 | **Archive** | `mv` into `$GMCC_CKFS_ROOT/_archive/cold_storage/{relative_path}` (structure-preserving, reversible). |
 | **Skip** | Leave the finding in place. Always available. |
 
@@ -123,7 +121,7 @@ Total findings: {n}
 - Prompt folder ↔ row integrity: {n}
 - Artifact pointers: {n}
 - File-change trail: {n}
-- Legacy yaml (hand-off): {n}
+- Pre-daemon yaml: {n}
 
 Beginning interactive resolution. You can abort at any time — completed actions are NOT rolled back.
 ```

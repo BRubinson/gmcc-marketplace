@@ -94,38 +94,28 @@ struct Prompt: ParsableCommand {
                     let session = all ? "  session \(stub.sessionUuid.prefix(8))" : ""
                     print("  \(stub.seq). \(stub.name) [\(stub.status)] v\(stub.version) \(stub.uuid)\(session)")
                     guard withReports else { continue }
-                    // Surface the three-state signal: nil report + is_legacy
-                    // discriminates "pre-m0002, read the ckfs artifact" from
-                    // "simply not opened yet".
+                    // A nil report means that summary was never opened.
                     if let clar = stub.reports?.clarification {
                         print("     clarification: \(clar.status) (\(clar.openQuestionCount) open / \(clar.questionCount)) v\(clar.version)")
-                    } else if stub.isLegacy {
-                        print("     clarification: none — legacy prompt, use `gm artifact list`")
                     } else {
                         print("     clarification: none — not opened yet (`gm clarify open`)")
                     }
                     if let arch = stub.reports?.architecture {
                         print("     architecture:  \(arch.status) (\(arch.persistenceChangeCount) persist / \(arch.generalChangeCount) general) v\(arch.version)")
-                    } else if stub.isLegacy {
-                        print("     architecture:  none — legacy prompt, use `gm artifact list`")
                     } else {
                         print("     architecture:  none — not opened yet (`gm arch open`)")
                     }
                     if let explore = stub.reports?.exploration {
                         let unranked = explore.unrankedFindingCount > 0 ? ", \(explore.unrankedFindingCount) unranked" : ""
                         print("     exploration:   \(explore.status) (\(explore.findingCount) findings, \(explore.sub100FindingCount) sub-100\(unranked); \(explore.keyFileCount) key files) v\(explore.version)")
-                    } else if stub.isLegacy {
-                        print("     exploration:   none — legacy prompt, use `gm artifact list`")
                     } else {
-                        print("     exploration:   none — not opened yet (`gm explore open`; pre-m0004 reports live behind `gm artifact list` until migrated)")
+                        print("     exploration:   none — not opened yet (`gm explore open`)")
                     }
                     if let review = stub.reports?.review {
                         let unranked = review.unrankedFindingCount > 0 ? ", \(review.unrankedFindingCount) unranked" : ""
                         print("     review:        \(review.status) (verdict \(review.verdict ?? "-"); \(review.findingCount) findings, \(review.sub100FindingCount) sub-100, \(review.openFindingCount) open\(unranked)) v\(review.version)")
-                    } else if stub.isLegacy {
-                        print("     review:        none — legacy prompt, use `gm artifact list`")
                     } else {
-                        print("     review:        none — not opened yet (`gm review open`; pre-m0004 reports live behind `gm artifact list` until migrated)")
+                        print("     review:        none — not opened yet (`gm review open`)")
                     }
                 }
             }
@@ -154,7 +144,7 @@ struct Prompt: ParsableCommand {
                 print("  kbites:  \(response.kbiteCodes.isEmpty ? "—" : response.kbiteCodes.joined(separator: ", "))")
                 print("  artifacts:")
                 for artifact in response.artifacts {
-                    print("    [\(artifact.kind)] \(artifact.filePath)")
+                    print("    \(artifact.filePath)")
                 }
                 let c = response.changeSummary
                 print("  changes: \(c.changeCount) across \(c.distinctFiles) file(s)")

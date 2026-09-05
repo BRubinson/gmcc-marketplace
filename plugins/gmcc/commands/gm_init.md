@@ -6,7 +6,7 @@ disable-model-invocation: true
 allowed-tools: Bash, Read, Write, Glob, AskUserQuestion
 ---
 
-# Initialize GM-CDE System (v16.3.0)
+# Initialize GM-CDE System
 
 You are initializing the GM-CDE system at the user level.
 
@@ -72,10 +72,10 @@ pointers) lives in the daemon db at ~/gmcc/gmcc.db, accessed via
 ```
 ~/gmcc_ckfs/
 ├── README.md                                  # This file
-├── _archive/cold_storage/                     # archived legacy material (structure-preserving)
+├── _archive/cold_storage/                     # archived material (structure-preserving)
 ├── projects/                                  # Artifact tree (auto-created per repo)
 │   └── {project_name}/instances/{basename}_{hash4}/sessions/{sanitized_branch}/
-│       └── prompts/{seq}_{name}/memory/       # usually empty since v19 (reports are db rows; legacy files only)
+│       └── prompts/{seq}_{name}/memory/       # usually empty (every report is a db row)
 └── kbites/                                    # System-wide kbites (created on first kbite op)
     ├── {kbite_name}/KBITE_PURPOSE.md          # identity-level
     ├── digested/{kbite_name}/...              # persisted indexes
@@ -269,7 +269,4 @@ Next steps:
 2. Restart Claude Code — the SessionStart hook will ensure the db rows
    and artifact directories for that repo automatically
 3. Run /gm_bot, /gm_bot_rpi, or /gm_bot_team to start a workflow
-
-Have a legacy yaml-based ckfs? Run /import_legacy_yaml_gmcc to import it
-into the db, then /archive_legacy_yaml_gmcc to cold-store the yamls.
 ```

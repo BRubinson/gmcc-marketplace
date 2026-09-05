@@ -23,7 +23,7 @@ struct Cheatsheet: ParsableCommand {
       gm paths
       gm config set --key ckfs_root|kbite_root|kbite_open_root|kbite_digested_root --value V
     CONTEXT / BROWSE / SEARCH
-      gm context ensure [--from-ckfs projects/{p}/instances/{i}/sessions/{s}]
+      gm context ensure
       gm context get
       gm project list
       gm instance list [--project-uuid U]
@@ -42,7 +42,7 @@ struct Cheatsheet: ParsableCommand {
       gm prompt set-status --prompt-uuid U --expected-version V --status clarifying|architecting|implementing|reviewing|done
     CLARIFY (summary: building → answering → complete; reopen: complete → answering)
       gm clarify open --prompt-uuid U
-      gm clarify ask --summary-uuid S --category goal|detail|yeet_type --question Q [--answer A] [--source user|bot_inferred]
+      gm clarify ask --summary-uuid S --category goal|detail --question Q [--answer A] [--source user|bot_inferred]
       gm clarify seal --summary-uuid S --expected-version V
       gm clarify answer --clarification-uuid C --expected-version V [--answer A] [--source user|bot_inferred] [--skip]
       gm clarify reopen --summary-uuid S --expected-version V
@@ -58,26 +58,26 @@ struct Cheatsheet: ParsableCommand {
       gm arch approve --summary-uuid S --expected-version V
       gm arch revise --summary-uuid S --expected-version V
       gm arch get --prompt-uuid U
-    EXPLORE (summary: exploring → complete; reopen: complete → exploring; rating 0=critical … 999=ignore, read threshold 100)
+    EXPLORE (summary: exploring → complete; reopen: complete → exploring; rating 0=critical … 999=ignore, read threshold 100; key-file-add/finding-add/rank require status exploring)
       gm explore open --prompt-uuid U
       gm explore key-file-add --summary-uuid S --file-path P
       gm explore finding-add --summary-uuid S --kind persistence_model|implementation_pattern|existing_functionality|scope_creep_risk|general_relevant_change|other --title T --body B --agent-name A [--rating 0-999]
-      gm explore rank --summary-uuid S --rating <finding-uuid>:<0-999> ...   (atomic batch; re-run re-ranks)
-      gm explore complete --summary-uuid S --expected-version V [--overview TEXT | --overview-file PATH]   (refuses while any finding unranked)
+      gm explore rank --summary-uuid S --rating <finding-uuid>:<0-999> ...   (atomic batch; re-run re-ranks; refused once complete — reopen first)
+      gm explore complete --summary-uuid S --expected-version V (--overview TEXT | --overview-file PATH)   (exactly one overview source required; refuses while any finding unranked)
       gm explore reopen --summary-uuid S --expected-version V
-      gm explore get --prompt-uuid U [--full] [--max-rating N] [--rating-range A:B]
+      gm explore get --prompt-uuid U [--full | --max-rating N | --rating-range A:B]   (mutually exclusive)
     REVIEW (same shape as explore + resolve/verdict; the fix loop runs AFTER complete)
       gm review open --prompt-uuid U
       gm review finding-add --summary-uuid S --kind correctness_bug|spec_deviation|regression_risk|security|simplification|other --title T --body B [--file-path P] [--line-start N [--line-end N]] --agent-name A [--rating 0-999]
-      gm review rank --summary-uuid S --rating <finding-uuid>:<0-999> ...
+      gm review rank --summary-uuid S --rating <finding-uuid>:<0-999> ...   (same batch contract; refused once complete — reopen first)
       gm review resolve --finding-uuid F --expected-version V --status fixed|accepted|wont_fix   (post-complete; never back to open)
-      gm review complete --summary-uuid S --expected-version V [--overview TEXT | --overview-file PATH] --verdict approved|approved_with_nits|changes_requested
+      gm review complete --summary-uuid S --expected-version V (--overview TEXT | --overview-file PATH) --verdict approved|approved_with_nits|changes_requested
       gm review reopen --summary-uuid S --expected-version V
-      gm review get --prompt-uuid U [--full] [--max-rating N] [--rating-range A:B]
+      gm review get --prompt-uuid U [--full | --max-rating N | --rating-range A:B]   (mutually exclusive)
     ARTIFACT / FILE-CHANGE
-      gm artifact add --prompt-uuid U --file-path P --kind explore|architecture|review|qualified|other [--note N]   (legacy pointers only post-m0004)
+      gm artifact add --prompt-uuid U --file-path P [--note N]
       gm artifact list --prompt-uuid U
-      gm file-change add --path P [--kind edit|create|delete|rename] [--range start:end]... [--content TEXT] [--prompt-uuid U]
+      gm file-change add --path P [--kind edit|create|delete|rename] [--range start:end]... [--content TEXT] [--prompt-uuid U]   (--content requires exactly one --range)
       gm file-change list [--session-uuid U] [--prompt-uuid U] [--path P] [--limit N] [--all]
     KBITE
       gm kbite list [--scope project|instance|session|prompt] [--owner-uuid U] [--all]
@@ -95,7 +95,7 @@ struct Cheatsheet: ParsableCommand {
       - Thread --expected-version on every mutation; on VERSION_CONFLICT re-run the matching get, take .version, retry.
       - gm prompt set-status is the ONLY door that moves a prompt; clarify/arch/explore/review verbs touch their summary only.
       - Always pass --prompt-uuid on gm file-change add — the implementation-state comparison sees only attributed changes.
-      - SUMMARY_ABSENT with prompt_is_legacy=true ⇒ read ckfs artifacts (gm artifact list); prompt_is_legacy=false ⇒ open the summary — never a file fallback.
+      - SUMMARY_ABSENT means the prompt exists but that summary was never opened — open it (gm clarify/arch/explore/review open); never a file fallback.
       - Values starting with a dash need --flag=value form (e.g. --content="- item").
       - After gm prompt create, mkdir -p $GMCC_CKFS_ROOT/<ckfs_relative_storage_path>/memory verbatim from the response — never re-derive {seq}_{name}.
     RESPONSE NOTES

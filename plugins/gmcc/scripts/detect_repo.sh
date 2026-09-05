@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# GM-CDE Repository Detection Script — v16.3.0
+# GM-CDE Repository Detection Script
 #
 # Runs on SessionStart. When inside a git repository, this script:
 #   1. Resolves the active project (= git repo dir basename)
@@ -12,8 +12,8 @@
 #      warn-and-continue if the daemon/binary is unavailable)
 #   6. Exports all GMCC_* env vars via $CLAUDE_ENV_FILE
 #
-# v16: the runtime yamls are RETIRED. No template copies, no registry
-# appends, no kbite seeding in bash — project/instance/session rows live in
+# This script writes no yaml: no template copies, no registry appends, no
+# kbite seeding in bash — project/instance/session rows live in
 # ~/gmcc/gmcc.db, created idempotently by `gm context ensure` (which derives
 # the SAME instance code / branch slug as this script — the two
 # implementations must stay in lockstep).

@@ -65,8 +65,8 @@ final class MachineTests: XCTestCase {
         let q1 = try store.clarifyAsk(ClarifyAskRequest(
             summaryUuid: summary.uuid, category: .goal, question: "What is the goal?")).clarification
         _ = try store.clarifyAsk(ClarifyAskRequest(
-            summaryUuid: summary.uuid, category: .yeetType, question: "Detected type?",
-            answer: "swift wire lowering", answerSource: .botInferred))
+            summaryUuid: summary.uuid, category: .detail, question: "Which integration point?",
+            answer: "the wire codec", answerSource: .botInferred))
         // Answer while building is refused.
         XCTAssertThrowsError(try store.clarifyAnswer(ClarifyAnswerRequest(
             clarificationUuid: q1.uuid, expectedVersion: q1.version, answer: "early")))
@@ -163,21 +163,22 @@ final class MachineTests: XCTestCase {
         XCTAssertThrowsError(try setStatus(.draft))        // backward
     }
 
-    func testLegacyPromptBypassesGatesWithNoSyntheticRows() throws {
-        // Backdate the prompt before the m0002 epoch.
+    /// m0005 removed the legacy tier: create-on-enter is now universal, so
+    /// draft → clarifying always materialises a clarification summary and the
+    /// clarifying → architecting gate always has a summary to check. The old
+    /// backdate-the-prompt bypass has no remaining code path.
+    func testCreateOnEnterIsUniversalWithNoLegacyBypass() throws {
         try store.dbQueue.write { db in
             try db.execute(
                 sql: "UPDATE prompt SET created_at = '2020-01-01T00:00:00Z' WHERE uuid = ?",
                 arguments: [promptUuid!])
         }
-        // Walks every state with NO backing rows created.
-        for status in [PromptStatus.clarifying, .architecting, .implementing, .reviewing, .done] {
-            XCTAssertEqual(try setStatus(status).status, status.rawValue)
-        }
+        XCTAssertEqual(try setStatus(.clarifying).status, "clarifying")
         try store.dbQueue.read { db in
-            XCTAssertEqual(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM clarification_summary"), 0)
-            XCTAssertEqual(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM architecture_summary"), 0)
+            XCTAssertEqual(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM clarification_summary"), 1)
         }
+        // An old created_at buys no gate bypass: the summary is still building.
+        XCTAssertThrowsError(try setStatus(.architecting))
     }
 
     func testArchGetComparisonBuckets() throws {
@@ -358,17 +359,16 @@ final class MachineTests: XCTestCase {
         _ = try store.reviewResolve(ReviewResolveRequest(
             findingUuid: f2.uuid, expectedVersion: f2.version, status: .wontFix))
 
-        // SUMMARY_ABSENT discrimination on a fresh current prompt: no review
-        // summary, prompt_is_legacy false — and prompt transitions never
-        // created one behind our back (skip-to-done legality).
+        // SUMMARY_ABSENT on a fresh prompt: no review summary, and prompt
+        // transitions never created one behind our back (skip-to-done
+        // legality).
         let fresh = try store.createPrompt(PromptCreateRequest(
             sessionUuid: sessionUuid, name: "fresh", detail: "d")).uuid
         do {
             _ = try store.reviewGet(ReviewGetRequest(promptUuid: fresh))
             XCTFail("expected summaryAbsent")
-        } catch let StoreError.summaryAbsent(entity, _, promptIsLegacy) {
+        } catch let StoreError.summaryAbsent(entity, _) {
             XCTAssertEqual(entity, "review")
-            XCTAssertFalse(promptIsLegacy)
         }
     }
 }

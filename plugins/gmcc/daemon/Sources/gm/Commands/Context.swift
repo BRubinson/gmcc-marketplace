@@ -13,22 +13,12 @@ struct Context: ParsableCommand {
 
     struct Ensure: ParsableCommand {
         static let configuration = CommandConfiguration(
-            abstract: "Upsert the context chain from the current repo/branch (or a legacy ckfs path); idempotent.")
+            abstract: "Upsert the context chain from the current repo/branch; idempotent.")
 
         @OptionGroup var output: OutputOptions
 
-        @Option(name: .customLong("from-ckfs"), help: """
-            Build the chain from a legacy ckfs session directory \
-            (projects/{p}/instances/{i}/sessions/{s}, relative to ~/gmcc_ckfs \
-            or absolute) instead of the cwd's git identity. Reuses uuids and \
-            kbite registries found in the legacy yamls. Used by \
-            /import_legacy_yaml_gmcc.
-            """)
-        var fromCkfs: String?
-
         func run() throws {
-            let request = try fromCkfs.map(ContextBuilder.ensureRequest(fromCkfs:))
-                ?? ContextBuilder.ensureRequest()
+            let request = try ContextBuilder.ensureRequest()
             let response = try withClient { client in
                 try client.ensureContext(request)
             }

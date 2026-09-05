@@ -34,7 +34,7 @@ struct Clarify: ParsableCommand {
 
         @OptionGroup var output: OutputOptions
         @Option(name: .long) var summaryUuid: String
-        @Option(name: .long, help: "goal, detail, or yeet_type") var category: ClarificationCategory
+        @Option(name: .long, help: "goal or detail") var category: ClarificationCategory
         @Option(name: .long) var question: String
         @Option(name: .long, help: "Pre-answer the question at insert time.") var answer: String?
         @Option(name: .long, help: "user or bot_inferred (default bot_inferred when --answer is given).")

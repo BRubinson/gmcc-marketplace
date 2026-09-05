@@ -6,7 +6,7 @@ disable-model-invocation: true
 allowed-tools: Read, Write, Edit, Grep, Glob, Bash, Task, AskUserQuestion
 ---
 
-# GM-CDE Task (Context-loaded, read-only, v16.3.0)
+# GM-CDE Task (Context-loaded, read-only)
 
 You are executing a task with full GMCC context loaded, but **without** the
 prompt-authoring ceremony of `/gm_bot`. You load context, you do the work, and
@@ -49,11 +49,8 @@ Load **session context** — this is the default scope. These are all reads.
    / `gm arch get` / `gm explore get` / `gm review get` for full detail on
    the ones that matter. `gm search "<topic>" --json` finds prior work
    across prompts (incl. exploration/review text) — do not grep the ckfs for
-   it. Only when a stub reports `is_legacy: true` (or a get returns
-   `SUMMARY_ABSENT` with `prompt_is_legacy: true`) fall back to that
-   prompt's ckfs artifacts via `gm artifact list --prompt-uuid U`; a
-   pre-m0004 prompt's explore/review report may also be a file artifact
-   until the mandatory migrate pass runs.
+   it. `gm artifact list --prompt-uuid U` shows any other files registered
+   against a prompt.
 
 **KBites on demand.** If a task clearly benefits from a kbite, load it from
 the db: read `$GMCC_KBITE/{name}/KBITE_PURPOSE.md`, then
@@ -124,6 +121,6 @@ it is recording work already done at the user's request, not splitting a
 human prompt.) If you have artifacts to drop there, mkdir the memory dir at
 the RETURNED `ckfs_relative_storage_path` (relative to `gm paths` →
 ckfs_root) — never re-derive `{seq}_{name}` yourself; the daemon slugs the
-name — registering each with `gm artifact add --kind other --note "..."`.
+name — registering each with `gm artifact add --note "..."`.
 
 After any write-back, state plainly what was persisted and where.

@@ -1,6 +1,6 @@
 ---
 name: gmcc_environment_cleanup
-description: Audit the GMCC environment — daemon/db health, db-vs-disk drift, leftover legacy yaml runtime files, archive hygiene, host config drift — and interactively resolve each finding with the user. Environment-wide counterpart to /gmcc_session_cleanup.
+description: Audit the GMCC environment — daemon/db health, db-vs-disk drift, leftover pre-daemon yaml runtime files, archive hygiene, host config drift — and interactively resolve each finding with the user. Environment-wide counterpart to /gmcc_session_cleanup.
 argument-hint: "[--dry-run]"
 disable-model-invocation: true
 allowed-tools: Read, Write, Bash, Glob, AskUserQuestion
@@ -41,9 +41,6 @@ Follow that skill's protocol:
 5. **NEVER auto-fix.** For each finding, AskUserQuestion with the per-category options (default first, always non-destructive).
 6. Apply the user's chosen action (db repairs via `gm` only; filesystem moves into `_archive/cold_storage/`).
 7. Print the cleanup-complete summary.
-
-Legacy yaml runtime trees are NOT migrated here — hand off to
-`/import_legacy_yaml_gmcc` + `/archive_legacy_yaml_gmcc`.
 
 ---
 

@@ -5,7 +5,7 @@ user-invocable: true
 allowed-tools: Bash, Read
 ---
 
-# GMCC Boot System (v16.3.0)
+# GMCC Boot System
 
 The GMCC boot system runs automatically on SessionStart via the `detect_repo.sh` hook.
 
