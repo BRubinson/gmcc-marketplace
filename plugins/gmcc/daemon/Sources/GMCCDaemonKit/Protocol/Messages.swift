@@ -61,6 +61,8 @@ public enum DaemonEventKind: String, Codable, Hashable, CaseIterable, Sendable {
     // exploration/review report machines.
     case explorationChange = "EXPLORATION_CHANGE"
     case reviewChange = "REVIEW_CHANGE"
+    // v11 — durable rows: the DOPED domain-modeling machine.
+    case dopeChange = "DOPE_CHANGE"
     /// Ephemeral broadcast only (id 0, never a daemon_event row, never a
     /// replay cursor) — emitted by MemoryWatcher when a prompt's memory/
     /// directory changes on disk.
@@ -2146,5 +2148,294 @@ public struct ConfigSetResponse: Codable, Hashable, Sendable {
     public init(key: ConfigKey, value: String) {
         self.key = key
         self.value = value
+    }
+}
+
+// MARK: - DOPE_* (v11)
+
+/// Create-or-return a dope scope (idempotent, the archOpen precedent).
+/// scope_type is derived: PROMPT when promptUuid is present, else
+/// SESSION_BASE. `cloneFromSessionBase` forks the session's SESSION_BASE
+/// tree of the same code into a freshly created PROMPT scope.
+public struct DopeInitRequest: Codable, Hashable, Sendable {
+    public let sessionUuid: String
+    public let promptUuid: String?
+    public let code: String
+    public let name: String
+    public let description: String?
+    public let cloneFromSessionBase: Bool?
+
+    public init(
+        sessionUuid: String,
+        promptUuid: String? = nil,
+        code: String,
+        name: String,
+        description: String? = nil,
+        cloneFromSessionBase: Bool? = nil
+    ) {
+        self.sessionUuid = sessionUuid
+        self.promptUuid = promptUuid
+        self.code = code
+        self.name = name
+        self.description = description
+        self.cloneFromSessionBase = cloneFromSessionBase
+    }
+}
+
+public struct DopeScopeResponse: Codable, Hashable, Sendable {
+    public let scope: DopeScopeRow
+    public let created: Bool
+
+    public init(scope: DopeScopeRow, created: Bool) {
+        self.scope = scope
+        self.created = created
+    }
+}
+
+/// Tree read. With promptUuid set, the PROMPT scope is preferred and the
+/// SESSION_BASE tree is the fallback (resolvedVia reports which). With
+/// several scopes matching and no code, the store answers BAD_REQUEST
+/// naming the candidate codes.
+public struct DopeGetRequest: Codable, Hashable, Sendable {
+    public let sessionUuid: String
+    public let promptUuid: String?
+    public let code: String?
+
+    public init(sessionUuid: String, promptUuid: String? = nil, code: String? = nil) {
+        self.sessionUuid = sessionUuid
+        self.promptUuid = promptUuid
+        self.code = code
+    }
+}
+
+public struct DopeGetResponse: Codable, Hashable, Sendable {
+    public let tree: DopeScopeTree
+    /// "prompt" | "session_base"
+    public let resolvedVia: String
+
+    public init(tree: DopeScopeTree, resolvedVia: String) {
+        self.tree = tree
+        self.resolvedVia = resolvedVia
+    }
+}
+
+/// The generic node-mutation payload. nil = leave alone; the clear* flags
+/// mean "set NULL" — a distinction plain optionals cannot express. Which
+/// fields a level owns is DopeLevelSpec's ownedFields; a misdirected field
+/// is a precise BAD_REQUEST.
+public struct DopeNodeFields: Codable, Hashable, Sendable {
+    public let code: String?
+    public let name: String?
+    public let description: String?
+    public let sortOrder: Int?
+    public let entityType: DopeEntityType?
+    public let repoRepresentativeFile: String?
+    public let dataType: DopePropertyDataType?
+    public let nullable: Bool?
+    public let isUnique: Bool?
+    public let autoIncrement: Bool?
+    public let textCharLimit: Int?
+    public let enumUuid: String?
+    public let relatedPropertyUuid: String?
+    public let clearRepoRepresentativeFile: Bool?
+    public let clearAutoIncrement: Bool?
+    public let clearTextCharLimit: Bool?
+    public let clearEnum: Bool?
+    public let clearRelatedProperty: Bool?
+
+    public init(
+        code: String? = nil,
+        name: String? = nil,
+        description: String? = nil,
+        sortOrder: Int? = nil,
+        entityType: DopeEntityType? = nil,
+        repoRepresentativeFile: String? = nil,
+        dataType: DopePropertyDataType? = nil,
+        nullable: Bool? = nil,
+        isUnique: Bool? = nil,
+        autoIncrement: Bool? = nil,
+        textCharLimit: Int? = nil,
+        enumUuid: String? = nil,
+        relatedPropertyUuid: String? = nil,
+        clearRepoRepresentativeFile: Bool? = nil,
+        clearAutoIncrement: Bool? = nil,
+        clearTextCharLimit: Bool? = nil,
+        clearEnum: Bool? = nil,
+        clearRelatedProperty: Bool? = nil
+    ) {
+        self.code = code
+        self.name = name
+        self.description = description
+        self.sortOrder = sortOrder
+        self.entityType = entityType
+        self.repoRepresentativeFile = repoRepresentativeFile
+        self.dataType = dataType
+        self.nullable = nullable
+        self.isUnique = isUnique
+        self.autoIncrement = autoIncrement
+        self.textCharLimit = textCharLimit
+        self.enumUuid = enumUuid
+        self.relatedPropertyUuid = relatedPropertyUuid
+        self.clearRepoRepresentativeFile = clearRepoRepresentativeFile
+        self.clearAutoIncrement = clearAutoIncrement
+        self.clearTextCharLimit = clearTextCharLimit
+        self.clearEnum = clearEnum
+        self.clearRelatedProperty = clearRelatedProperty
+    }
+}
+
+public struct DopeNodeAddRequest: Codable, Hashable, Sendable {
+    public let level: DopeLevel
+    public let parentUuid: String
+    public let fields: DopeNodeFields
+
+    public init(level: DopeLevel, parentUuid: String, fields: DopeNodeFields) {
+        self.level = level
+        self.parentUuid = parentUuid
+        self.fields = fields
+    }
+}
+
+public struct DopeNodeUpdateRequest: Codable, Hashable, Sendable {
+    public let level: DopeLevel
+    public let nodeUuid: String
+    public let expectedVersion: Int64
+    public let fields: DopeNodeFields
+
+    public init(level: DopeLevel, nodeUuid: String, expectedVersion: Int64, fields: DopeNodeFields) {
+        self.level = level
+        self.nodeUuid = nodeUuid
+        self.expectedVersion = expectedVersion
+        self.fields = fields
+    }
+}
+
+public struct DopeNodeDeleteRequest: Codable, Hashable, Sendable {
+    public let level: DopeLevel
+    public let nodeUuid: String
+    public let expectedVersion: Int64
+
+    public init(level: DopeLevel, nodeUuid: String, expectedVersion: Int64) {
+        self.level = level
+        self.nodeUuid = nodeUuid
+        self.expectedVersion = expectedVersion
+    }
+}
+
+public struct DopeNodeResponse: Codable, Hashable, Sendable {
+    public let level: DopeLevel
+    public let uuid: String
+    public let version: Int64
+    public let scopeUuid: String
+    /// The scope's whole-tree content counter after this mutation.
+    public let revision: Int64
+
+    public init(level: DopeLevel, uuid: String, version: Int64, scopeUuid: String, revision: Int64) {
+        self.level = level
+        self.uuid = uuid
+        self.version = version
+        self.scopeUuid = scopeUuid
+        self.revision = revision
+    }
+}
+
+public struct DopeNodeDeleteResponse: Codable, Hashable, Sendable {
+    public let deletedUuid: String
+    public let cascaded: DopeTreeCounts
+    public let scopeUuid: String
+    public let revision: Int64
+
+    public init(deletedUuid: String, cascaded: DopeTreeCounts, scopeUuid: String, revision: Int64) {
+        self.deletedUuid = deletedUuid
+        self.cascaded = cascaded
+        self.scopeUuid = scopeUuid
+        self.revision = revision
+    }
+}
+
+/// Parse + validate the on-disk tree. Never writes. Exactly one of scopeUuid
+/// (resolve the scope's own instance root) or dirPath (an explicit instance
+/// root — read-only, still required to be a git checkout) must be present.
+public struct DopeReadRepoRequest: Codable, Hashable, Sendable {
+    public let scopeUuid: String?
+    public let dirPath: String?
+
+    public init(scopeUuid: String? = nil, dirPath: String? = nil) {
+        self.scopeUuid = scopeUuid
+        self.dirPath = dirPath
+    }
+}
+
+public struct DopeReadRepoResponse: Codable, Hashable, Sendable {
+    public let bundle: DopeDocumentBundle
+    public let onDiskRevision: Int64
+    public let dbRevision: Int64?
+    public let drift: Bool?
+    public let warnings: [String]
+
+    public init(
+        bundle: DopeDocumentBundle,
+        onDiskRevision: Int64,
+        dbRevision: Int64?,
+        drift: Bool?,
+        warnings: [String]
+    ) {
+        self.bundle = bundle
+        self.onDiskRevision = onDiskRevision
+        self.dbRevision = dbRevision
+        self.drift = drift
+        self.warnings = warnings
+    }
+}
+
+/// db → files. Refuses when the on-disk version is AHEAD of the db revision
+/// (the files hold edits never ingested) unless force. Does not modify the
+/// db beyond the audit event; does not bump revision (a projection, so a
+/// repeat run is byte-idempotent).
+public struct DopeWriteRepoRequest: Codable, Hashable, Sendable {
+    public let scopeUuid: String
+    public let force: Bool?
+
+    public init(scopeUuid: String, force: Bool? = nil) {
+        self.scopeUuid = scopeUuid
+        self.force = force
+    }
+}
+
+public struct DopeWriteRepoResponse: Codable, Hashable, Sendable {
+    public let dopeRoot: String
+    public let filesWritten: [String]
+    public let filesPruned: [String]
+    public let revision: Int64
+
+    public init(dopeRoot: String, filesWritten: [String], filesPruned: [String], revision: Int64) {
+        self.dopeRoot = dopeRoot
+        self.filesWritten = filesWritten
+        self.filesPruned = filesPruned
+        self.revision = revision
+    }
+}
+
+/// files → db, whole-tree overwrite (no smart diff): the on-disk version
+/// must equal db revision + 1 exactly. Every child uuid changes on every
+/// ingest — the locked consequence of uuid-free JSON.
+public struct DopeIngestRequest: Codable, Hashable, Sendable {
+    public let scopeUuid: String
+    /// Explicit instance root to read from; nil = the scope's own.
+    public let dirPath: String?
+
+    public init(scopeUuid: String, dirPath: String? = nil) {
+        self.scopeUuid = scopeUuid
+        self.dirPath = dirPath
+    }
+}
+
+public struct DopeIngestResponse: Codable, Hashable, Sendable {
+    public let scope: DopeScopeRow
+    public let counts: DopeTreeCounts
+
+    public init(scope: DopeScopeRow, counts: DopeTreeCounts) {
+        self.scope = scope
+        self.counts = counts
     }
 }

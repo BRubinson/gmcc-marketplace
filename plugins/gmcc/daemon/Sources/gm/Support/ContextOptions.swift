@@ -176,3 +176,5 @@ extension ExplorationFindingKind: ExpressibleByArgument {}
 extension ReviewFindingKind: ExpressibleByArgument {}
 extension ReviewVerdict: ExpressibleByArgument {}
 extension ReviewFindingStatus: ExpressibleByArgument {}
+extension DopeEntityType: ExpressibleByArgument {}
+extension DopePropertyDataType: ExpressibleByArgument {}

@@ -1074,3 +1074,44 @@ public struct ReviewFindingStub: Codable, Hashable, Sendable {
         self.status = status
     }
 }
+
+public struct DopeScopeRow: Codable, Hashable, Sendable {
+    public let uuid: String
+    public let version: Int64
+    public let sessionUuid: String
+    public let promptUuid: String?
+    public let scopeType: String
+    public let code: String
+    public let name: String
+    public let description: String
+    /// The whole-tree content counter — IS the .doped.json version field.
+    public let revision: Int64
+    public let createdAt: String
+    public let updatedAt: String
+
+    public init(
+        uuid: String,
+        version: Int64,
+        sessionUuid: String,
+        promptUuid: String?,
+        scopeType: String,
+        code: String,
+        name: String,
+        description: String,
+        revision: Int64,
+        createdAt: String,
+        updatedAt: String
+    ) {
+        self.uuid = uuid
+        self.version = version
+        self.sessionUuid = sessionUuid
+        self.promptUuid = promptUuid
+        self.scopeType = scopeType
+        self.code = code
+        self.name = name
+        self.description = description
+        self.revision = revision
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+}

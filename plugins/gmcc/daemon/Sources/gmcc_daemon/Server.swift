@@ -416,6 +416,23 @@ final class Server: @unchecked Sendable {
             case .reviewGet:
                 return try ReviewGetHandler.handle(line: line, head: head, store: store)
 
+            case .dopeInit:
+                return try DopeInitHandler.handle(line: line, head: head, store: store)
+            case .dopeGet:
+                return try DopeGetHandler.handle(line: line, head: head, store: store)
+            case .dopeNodeAdd:
+                return try DopeNodeAddHandler.handle(line: line, head: head, store: store)
+            case .dopeNodeUpdate:
+                return try DopeNodeUpdateHandler.handle(line: line, head: head, store: store)
+            case .dopeNodeDelete:
+                return try DopeNodeDeleteHandler.handle(line: line, head: head, store: store)
+            case .dopeReadRepo:
+                return try DopeReadRepoHandler.handle(line: line, head: head, store: store)
+            case .dopeWriteRepo:
+                return try DopeWriteRepoHandler.handle(line: line, head: head, store: store)
+            case .dopeIngest:
+                return try DopeIngestHandler.handle(line: line, head: head, store: store)
+
             case .sessionResolve:
                 return try SessionResolveHandler.handle(line: line, head: head, store: store)
             case .instanceCurrentSession:

@@ -74,6 +74,18 @@ struct Cheatsheet: ParsableCommand {
       gm review complete --summary-uuid S --expected-version V (--overview TEXT | --overview-file PATH) --verdict approved|approved_with_nits|changes_requested
       gm review reopen --summary-uuid S --expected-version V
       gm review get --prompt-uuid U [--full | --max-rating N | --rating-range A:B]   (mutually exclusive)
+    DOPE (domain modeling; dope_scope.revision = the whole-tree counter = the .doped.json version field; json refs are dot-path codes, granular verbs take uuids)
+      gm dope init --session-uuid U --code C --name N [--prompt-uuid U] [--description D] [--clone-from-session-base]   (idempotent; PROMPT-typed iff --prompt-uuid)
+      gm dope get --session-uuid U [--prompt-uuid U] [--code C]   (PROMPT scope preferred, SESSION_BASE fallback; --code disambiguates)
+      gm dope scope-update --uuid U --expected-version V [--code C] [--name N] [--description D]
+      gm dope domain-add · gm dope entity-add · gm dope enum-add · gm dope option-add --parent-uuid U --code C --name N [--description D] [--sort-order N] (entity also: [--entity-type MODEL|JUNCTION]; entity/enum also: [--repo-representative-file P])
+      gm dope property-add --parent-uuid U --code C --name N --data-type enum|relationship|boolean|uuid|int|long|decimal|text|datetime [--nullable|--no-nullable] [--is-unique|--no-is-unique] [--auto-increment|--no-auto-increment] [--text-char-limit N] [--enum-uuid U] [--related-property-uuid U] [--description D] [--sort-order N]
+      gm dope domain-update · gm dope entity-update · gm dope enum-update · gm dope option-update --uuid U --expected-version V [--code C] [--name N] [--description D] [--sort-order N] (entity also: [--entity-type T]; entity/enum also: [--repo-representative-file P] [--clear-repo-representative-file])
+      gm dope property-update --uuid U --expected-version V [--code C] [--name N] [--description D] [--sort-order N] [--data-type T] [--nullable|--no-nullable] [--is-unique|--no-is-unique] [--auto-increment|--no-auto-increment] [--text-char-limit N] [--enum-uuid U] [--related-property-uuid U] [--clear-enum] [--clear-related-property] [--clear-auto-increment] [--clear-text-char-limit]
+      gm dope domain-delete · gm dope entity-delete · gm dope property-delete · gm dope enum-delete · gm dope option-delete --uuid U --expected-version V   (subtree cascades; still-referenced targets refused naming the referrer; scope delete not offered yet)
+      gm dope read-repo (--scope-uuid U | --dir-path P)   (parse + validate {instance_root}/.gmcc/dope; never writes; reports drift)
+      gm dope write-repo --scope-uuid U [--force]   (db -> files, atomic whole-tree swap; refuses when files are AHEAD of the db unless --force)
+      gm dope ingest --scope-uuid U [--dir-path P]   (files -> db whole-tree overwrite, no smart diff, child uuids change; on-disk version must be EXACTLY db revision + 1)
     ARTIFACT / FILE-CHANGE
       gm artifact add --prompt-uuid U --file-path P [--note N]
       gm artifact list --prompt-uuid U
@@ -96,6 +108,7 @@ struct Cheatsheet: ParsableCommand {
       - gm prompt set-status is the ONLY door that moves a prompt; clarify/arch/explore/review verbs touch their summary only.
       - Always pass --prompt-uuid on gm file-change add — the implementation-state comparison sees only attributed changes.
       - SUMMARY_ABSENT means the prompt exists but that summary was never opened — open it (gm clarify/arch/explore/review open); never a file fallback.
+      - Dope refs in .doped.json are dot-path codes, never uuids (domain.entity.property / domain.enums.enum_code); granular dope verbs bump revision by 1 each and leave row versions to --expected-version.
       - Values starting with a dash need --flag=value form (e.g. --content="- item").
       - After gm prompt create, mkdir -p $GMCC_CKFS_ROOT/<ckfs_relative_storage_path>/memory verbatim from the response — never re-derive {seq}_{name}.
     RESPONSE NOTES

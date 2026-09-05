@@ -24,6 +24,10 @@ public enum StoreError: Error, Sendable {
     /// (clarification_summary, architecture_summary). Maps onto the SAME wire
     /// code as the prompt-typed case — no new ErrorCode needed.
     case invalidEntityTransition(entity: String, from: String, to: String, reason: String?)
+    /// Dope whole-tree revision gate failure. Maps onto the SAME wire code as
+    /// versionConflict (the invalidEntityTransition precedent) so a pinned-Kit
+    /// GMVibes always decodes it.
+    case revisionConflict(scopeUuid: String, expected: Int64, actual: Int64)
 
     public var errorPayload: ErrorPayload {
         switch self {
@@ -70,6 +74,10 @@ public enum StoreError: Error, Sendable {
             return ErrorPayload(
                 code: .invalidTransition,
                 message: "illegal \(entity) transition \(from) → \(to)\(suffix)")
+        case .revisionConflict(let scopeUuid, let expected, let actual):
+            return ErrorPayload(
+                code: .versionConflict,
+                message: "dope_scope \(scopeUuid): expected revision \(expected), actual \(actual)")
         }
     }
 }
@@ -278,6 +286,29 @@ public final class Store: @unchecked Sendable {
         let values: [(any DatabaseValueConvertible)?] =
             keys.map { set[$0] ?? nil } + [Store.isoNow(), uuid, expectedVersion]
         try db.execute(sql: sql, arguments: StatementArguments(values))
+        guard db.changesCount == 0 else { return }
+        guard let actual = try Int64.fetchOne(
+            db, sql: "SELECT version FROM \(table) WHERE uuid = ?", arguments: [uuid]
+        ) else {
+            throw StoreError.notFound(entity: table, key: uuid)
+        }
+        throw StoreError.versionConflict(entity: table, uuid: uuid, expected: expectedVersion, actual: actual)
+    }
+
+    /// Guarded delete — the DELETE twin of updateBase, with the same
+    /// zero-rows discrimination into NOT_FOUND vs VERSION_CONFLICT. Nothing
+    /// in the schema deleted a versioned row before dope's granular verbs.
+    /// FK CASCADEs report no count here; callers wanting cascade accounting
+    /// COUNT before deleting, in the same transaction.
+    func deleteBase(
+        _ db: Database,
+        table: String,
+        uuid: String,
+        expectedVersion: Int64
+    ) throws {
+        try db.execute(
+            sql: "DELETE FROM \(table) WHERE uuid = ? AND version = ?",
+            arguments: [uuid, expectedVersion])
         guard db.changesCount == 0 else { return }
         guard let actual = try Int64.fetchOne(
             db, sql: "SELECT version FROM \(table) WHERE uuid = ?", arguments: [uuid]

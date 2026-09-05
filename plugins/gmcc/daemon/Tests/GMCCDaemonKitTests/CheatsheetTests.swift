@@ -41,6 +41,12 @@ final class CheatsheetTests: XCTestCase {
     ///     once the summary is complete (reopen first).
     ///   - `gm prompt list` / `gm file-change list` / `gm search`: `--all` is
     ///     not combinable with `--session-uuid`.
+    ///   - `gm dope property-add/-update`: `--enum-uuid` / `--related-property-uuid`
+    ///     are coupled to `--data-type` (enum/relationship exactly) and mutually
+    ///     exclusive; `gm dope ingest` requires the on-disk version to be exactly
+    ///     db revision + 1; `gm dope write-repo` refuses when the files are ahead
+    ///     of the db without `--force`; `gm dope read-repo` needs exactly one of
+    ///     `--scope-uuid` / `--dir-path`.
 
     func testEveryLeafSubcommandAppearsInCheatsheet() {
         let leaves = GM.configuration.subcommands.flatMap { leafPaths($0, prefix: "gm") }
