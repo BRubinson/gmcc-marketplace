@@ -2264,8 +2264,10 @@ public struct DopeNodeFields: Codable, Hashable, Sendable {
     public let textCharLimit: Int?
     public let enumUuid: String?
     public let relatedPropertyUuid: String?
+    public let baseOriginPropertyUuid: String?
     public let clearRepoRepresentativeFile: Bool?
     public let clearBaseComposable: Bool?
+    public let clearBaseOrigin: Bool?
     public let clearAutoIncrement: Bool?
     public let clearTextCharLimit: Bool?
     public let clearEnum: Bool?
@@ -2286,8 +2288,10 @@ public struct DopeNodeFields: Codable, Hashable, Sendable {
         textCharLimit: Int? = nil,
         enumUuid: String? = nil,
         relatedPropertyUuid: String? = nil,
+        baseOriginPropertyUuid: String? = nil,
         clearRepoRepresentativeFile: Bool? = nil,
         clearBaseComposable: Bool? = nil,
+        clearBaseOrigin: Bool? = nil,
         clearAutoIncrement: Bool? = nil,
         clearTextCharLimit: Bool? = nil,
         clearEnum: Bool? = nil,
@@ -2307,8 +2311,10 @@ public struct DopeNodeFields: Codable, Hashable, Sendable {
         self.textCharLimit = textCharLimit
         self.enumUuid = enumUuid
         self.relatedPropertyUuid = relatedPropertyUuid
+        self.baseOriginPropertyUuid = baseOriginPropertyUuid
         self.clearRepoRepresentativeFile = clearRepoRepresentativeFile
         self.clearBaseComposable = clearBaseComposable
+        self.clearBaseOrigin = clearBaseOrigin
         self.clearAutoIncrement = clearAutoIncrement
         self.clearTextCharLimit = clearTextCharLimit
         self.clearEnum = clearEnum

@@ -159,6 +159,7 @@ DopeNodeFields.description -> description
 DopeNodeFields.sortOrder -> sort_order
 DopeNodeFields.entityType -> entity_type
 DopeNodeFields.repoRepresentativeFile -> repo_representative_file
+DopeNodeFields.baseComposableUuid -> base_composable_uuid
 DopeNodeFields.dataType -> data_type
 DopeNodeFields.nullable -> nullable
 DopeNodeFields.isUnique -> is_unique
@@ -166,7 +167,10 @@ DopeNodeFields.autoIncrement -> auto_increment
 DopeNodeFields.textCharLimit -> text_char_limit
 DopeNodeFields.enumUuid -> enum_uuid
 DopeNodeFields.relatedPropertyUuid -> related_property_uuid
+DopeNodeFields.baseOriginPropertyUuid -> base_origin_property_uuid
 DopeNodeFields.clearRepoRepresentativeFile -> clear_repo_representative_file
+DopeNodeFields.clearBaseComposable -> clear_base_composable
+DopeNodeFields.clearBaseOrigin -> clear_base_origin
 DopeNodeFields.clearAutoIncrement -> clear_auto_increment
 DopeNodeFields.clearTextCharLimit -> clear_text_char_limit
 DopeNodeFields.clearEnum -> clear_enum

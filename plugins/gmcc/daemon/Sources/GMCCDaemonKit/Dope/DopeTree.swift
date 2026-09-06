@@ -87,12 +87,16 @@ public struct DopePropertyBody: Codable, Hashable, Sendable {
     public let enumRef: String?
     /// `domain.entity.property` — non-nil iff dataType == "relationship".
     public let relatedPropertyRef: String?
+    /// `domain.entity.property` — the BASE_COMPOSABLE property this one
+    /// materializes. Provenance only: the row is real and FK-referenceable;
+    /// the tag records where it came from. Orthogonal to dataType.
+    public let baseOriginRef: String?
 
     public init(
         code: String, name: String, description: String, sortOrder: Int,
         dataType: String, nullable: Bool, isUnique: Bool,
         autoIncrement: Bool?, textCharLimit: Int?,
-        enumRef: String?, relatedPropertyRef: String?
+        enumRef: String?, relatedPropertyRef: String?, baseOriginRef: String?
     ) {
         self.code = code
         self.name = name
@@ -105,6 +109,7 @@ public struct DopePropertyBody: Codable, Hashable, Sendable {
         self.textCharLimit = textCharLimit
         self.enumRef = enumRef
         self.relatedPropertyRef = relatedPropertyRef
+        self.baseOriginRef = baseOriginRef
     }
 }
 

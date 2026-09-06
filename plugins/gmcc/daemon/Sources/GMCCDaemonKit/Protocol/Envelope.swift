@@ -7,7 +7,7 @@ import Foundation
 /// rejected — the daemon stays up (an old pinned-Kit GMVibes must never be
 /// able to kill-loop a fresh daemon).
 public enum GMCCWireProtocol {
-    public static let version = 13
+    public static let version = 14
 }
 
 /// Discriminator for every NDJSON message on the socket. One case per spec

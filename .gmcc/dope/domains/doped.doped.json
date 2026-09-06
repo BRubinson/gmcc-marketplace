@@ -10,6 +10,16 @@
       "name" : "Dope Scope",
       "properties" : [
         {
+          "base_origin_ref" : "base.base_entity.uuid",
+          "code" : "uuid",
+          "data_type" : "uuid",
+          "description" : "Stable external identifier (base entity)",
+          "is_unique" : true,
+          "name" : "UUID",
+          "nullable" : false,
+          "sort_order" : 2
+        },
+        {
           "code" : "session_uuid",
           "data_type" : "relationship",
           "description" : "Owning session; cascade on delete",
@@ -88,6 +98,16 @@
       "name" : "Dope Domain",
       "properties" : [
         {
+          "base_origin_ref" : "base.base_entity.uuid",
+          "code" : "uuid",
+          "data_type" : "uuid",
+          "description" : "Stable external identifier (base entity)",
+          "is_unique" : true,
+          "name" : "UUID",
+          "nullable" : false,
+          "sort_order" : 2
+        },
+        {
           "code" : "dope_scope_uuid",
           "data_type" : "relationship",
           "description" : "Owning scope; cascade on delete",
@@ -145,6 +165,16 @@
       "entity_type" : "MODEL",
       "name" : "Dope Domain Entity",
       "properties" : [
+        {
+          "base_origin_ref" : "base.base_entity.uuid",
+          "code" : "uuid",
+          "data_type" : "uuid",
+          "description" : "Stable external identifier (base entity)",
+          "is_unique" : true,
+          "name" : "UUID",
+          "nullable" : false,
+          "sort_order" : 2
+        },
         {
           "code" : "dope_domain_uuid",
           "data_type" : "relationship",
@@ -222,6 +252,16 @@
       "entity_type" : "MODEL",
       "name" : "Dope Domain Entity Property",
       "properties" : [
+        {
+          "base_origin_ref" : "base.base_entity.uuid",
+          "code" : "uuid",
+          "data_type" : "uuid",
+          "description" : "Stable external identifier (base entity)",
+          "is_unique" : true,
+          "name" : "UUID",
+          "nullable" : false,
+          "sort_order" : 2
+        },
         {
           "code" : "dope_domain_entity_uuid",
           "data_type" : "relationship",
@@ -347,6 +387,16 @@
       "name" : "Dope Domain Enum",
       "properties" : [
         {
+          "base_origin_ref" : "base.base_entity.uuid",
+          "code" : "uuid",
+          "data_type" : "uuid",
+          "description" : "Stable external identifier (base entity)",
+          "is_unique" : true,
+          "name" : "UUID",
+          "nullable" : false,
+          "sort_order" : 2
+        },
+        {
           "code" : "dope_domain_uuid",
           "data_type" : "relationship",
           "description" : "Owning domain; cascade on delete",
@@ -413,6 +463,16 @@
       "entity_type" : "MODEL",
       "name" : "Dope Domain Enum Option",
       "properties" : [
+        {
+          "base_origin_ref" : "base.base_entity.uuid",
+          "code" : "uuid",
+          "data_type" : "uuid",
+          "description" : "Stable external identifier (base entity)",
+          "is_unique" : true,
+          "name" : "UUID",
+          "nullable" : false,
+          "sort_order" : 2
+        },
         {
           "code" : "dope_domain_enum_uuid",
           "data_type" : "relationship",

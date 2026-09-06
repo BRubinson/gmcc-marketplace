@@ -18,7 +18,7 @@ shipping three products:
   via `DaemonEventSubscription`).
 
 Transport: NDJSON over a unix socket at `~/gmcc/daemon.sock` (wire protocol
-v13, schema m0008, one spec-named message per handler). Clients autostart the daemon when
+v14, schema m0009, one spec-named message per handler). Clients autostart the daemon when
 the socket is dead. The protocol handshake is DIRECTIONAL: a newer client
 makes a stale daemon self-exit after rebuilds; an older client is rejected
 while the daemon stays up — you never need to manage daemon lifecycle
@@ -215,7 +215,7 @@ schema_migrations (unwrapped ledger).
   `gm kbite file-get` for full content — not by browsing the digested
   filesystem tree.
 
-## DOPE — DOPED domain modeling (wire v13)
+## DOPE — DOPED domain modeling (wire v14)
 
 `gm dope` models a codebase's persistence layer as a tree:
 scope → domain → { entity → property, enum → option }. `dope_scope.revision`
@@ -246,7 +246,20 @@ carries) that other entities point at via `--base-composable-uuid`
 - **Lookup, not inheritance.** The base's properties are NOT copied onto the
   composing entity in the db or in the JSON — exactly like an enum ref. Every
   consumer of the gmcc protocol knows to union the base's properties in at
-  render time.
+  render time — except where a composing entity deliberately **materializes**
+  one (below), in which case the local row wins and the inherited copy is
+  suppressed.
+- **Materialized properties.** A property that must exist as a real,
+  FK-referenceable row (relationship refs target `domain.entity.property`, so
+  `uuid` is the canonical case) may be materialized on the composing entity
+  and TAGGED with its origin: `--base-origin-uuid` on the verbs,
+  `base_origin_ref: "domain.entity.property"` in the JSON. Rules, enforced
+  granularly and by the whole-tree validator: the origin must live on a
+  BASE_COMPOSABLE the entity composes (directly or through the chain), the
+  materialized property keeps the origin's data_type, changing an entity's
+  base in a way that strands a tag is refused naming the property, and
+  deleting a tagged origin (or its entity/domain) is refused naming the
+  referrer. The tag is provenance and orthogonal to data_type.
 - **Same scope, enforced type.** The target must live in the same scope and
   must itself be a BASE_COMPOSABLE. Demoting a still-composed entity to
   MODEL/JUNCTION is refused naming its composers.

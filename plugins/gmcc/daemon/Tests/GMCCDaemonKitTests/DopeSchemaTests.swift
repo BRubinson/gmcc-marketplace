@@ -313,6 +313,61 @@ final class DopeSchemaTests: XCTestCase {
         }
     }
 
+    // MARK: - m0009 (base_origin_property_uuid)
+
+    func testM0009ColumnAndIndexExistAndLedgerAdvanced() throws {
+        let (store, dbPath) = try makeMigratedStore()
+        defer { try? FileManager.default.removeItem(atPath: dbPath) }
+        try store.dbQueue.read { db in
+            let column = try Row.fetchOne(db, sql: """
+                SELECT "notnull" AS nn, dflt_value AS dflt
+                FROM pragma_table_info('dope_domain_entity_property')
+                WHERE name = 'base_origin_property_uuid'
+                """)
+            XCTAssertNotNil(column, "column missing")
+            XCTAssertEqual(column?["nn"] as Int?, 0, "must be nullable")
+            XCTAssertNil(column?["dflt"] as String?, "must have no default")
+            XCTAssertEqual(
+                try Int.fetchOne(db, sql: """
+                    SELECT COUNT(*) FROM sqlite_master
+                    WHERE type = 'index' AND name = 'idx_dope_property_base_origin_fk'
+                    """), 1)
+            XCTAssertEqual(
+                try Int.fetchOne(db, sql: "SELECT MAX(version) FROM schema_migrations"),
+                Migrations.currentSchemaVersion)
+        }
+    }
+
+    func testBaseOriginSchemaBehaviour() throws {
+        let (store, dbPath) = try makeMigratedStore()
+        defer { try? FileManager.default.removeItem(atPath: dbPath) }
+        try store.dbQueue.write { db in
+            try insertScope(db, uuid: "sc-1", code: "gmcc")
+            try insertTree(db)
+            let now = Store.isoNow()
+            // data_type-independent at the schema level: a text property may
+            // carry a base_origin (no accidental CHECK coupling)…
+            try db.execute(sql: """
+                INSERT INTO dope_domain_entity_property (uuid, version, created_at, updated_at,
+                    dope_domain_entity_uuid, code, name, data_type, nullable,
+                    base_origin_property_uuid)
+                VALUES ('prop-tagged', 0, '\(now)', '\(now)', 'ent-1', 'note', 'Note',
+                        'text', 1, 'prop-id')
+                """)
+            // …a dangling origin is refused (the FK survived the ADD COLUMN)…
+            XCTAssertThrowsError(try db.execute(sql: """
+                INSERT INTO dope_domain_entity_property (uuid, version, created_at, updated_at,
+                    dope_domain_entity_uuid, code, name, data_type, nullable,
+                    base_origin_property_uuid)
+                VALUES ('prop-dangling', 0, '\(now)', '\(now)', 'ent-1', 'dang', 'Dang',
+                        'text', 1, 'no-such-property')
+                """))
+            // …and RESTRICT refuses deleting a tagged origin.
+            XCTAssertThrowsError(try db.execute(
+                sql: "DELETE FROM dope_domain_entity_property WHERE uuid = 'prop-id'"))
+        }
+    }
+
     func testBaseRestrictRefusesDeletingComposedEntity() throws {
         let (store, dbPath) = try makeMigratedStore()
         defer { try? FileManager.default.removeItem(atPath: dbPath) }

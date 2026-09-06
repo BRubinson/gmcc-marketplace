@@ -377,6 +377,8 @@ extension Store {
                     textCharLimit: row["text_char_limit"],
                     enumRef: (row["dope_domain_enum_uuid"] as String?).flatMap { enumRef[$0] },
                     relatedPropertyRef: (row["related_property_uuid"] as String?)
+                        .flatMap { propertyRef[$0] },
+                    baseOriginRef: (row["base_origin_property_uuid"] as String?)
                         .flatMap { propertyRef[$0] }))
             propertiesByEntity[row["dope_domain_entity_uuid"], default: []].append(node)
         }
@@ -443,8 +445,10 @@ extension Store {
         var enumUuidByRef = [String: String]()
         var propertyUuidByRef = [String: String]()
         var entityUuidByRef = [String: String]()
+        var entityRefByUuid = [String: String]()
         var pendingRelationship: [(entityUuid: String, body: DopePropertyBody)] = []
         var pendingBase: [(entityUuid: String, ref: String)] = []
+        var pendingBaseOrigin: [(propertyUuid: String, ref: String)] = []
 
         // Pass 1 — ALL domains, then ALL enums + options, across every file
         // BEFORE any property is inserted: enum refs are cross-domain-capable
@@ -498,8 +502,10 @@ extension Store {
                     "repo_representative_file": entity.body.repoRepresentativeFile,
                 ])
                 counts.entities += 1
-                entityUuidByRef[DopeCode.formatEntityRef(
-                    domain: file.body.code, entity: entity.body.code)] = entityUuid
+                let entityRef = DopeCode.formatEntityRef(
+                    domain: file.body.code, entity: entity.body.code)
+                entityUuidByRef[entityRef] = entityUuid
+                entityRefByUuid[entityUuid] = entityRef
                 if let ref = entity.body.baseComposableRef {
                     pendingBase.append((entityUuid, ref))
                 }
@@ -533,6 +539,9 @@ extension Store {
                     propertyUuidByRef[DopeCode.formatPropertyRef(
                         domain: file.body.code, entity: entity.body.code,
                         property: body.code)] = uuid
+                    if let originRef = body.baseOriginRef {
+                        pendingBaseOrigin.append((uuid, originRef))
+                    }
                 }
             }
         }
@@ -559,7 +568,7 @@ extension Store {
                 throw StoreError.badRequest(
                     detail: "relationship property '\(body.code)' target '\(body.relatedPropertyRef ?? "nil")' did not resolve during insert")
             }
-            _ = try insertBase(db, table: "dope_domain_entity_property", extra: [
+            let uuid = try insertBase(db, table: "dope_domain_entity_property", extra: [
                 "dope_domain_entity_uuid": pending.entityUuid,
                 "code": body.code, "name": body.name,
                 "description": body.description, "sort_order": body.sortOrder,
@@ -572,6 +581,25 @@ extension Store {
                 "related_property_uuid": target,
             ])
             counts.properties += 1
+            if let entityRef = entityRefByUuid[pending.entityUuid] {
+                propertyUuidByRef["\(entityRef).\(body.code)"] = uuid
+            }
+            if let originRef = body.baseOriginRef {
+                pendingBaseOrigin.append((uuid, originRef))
+            }
+        }
+        // Pass 5 — base_origin back-fill, after EVERY property (including the
+        // deferred relationship rows) exists: origins are cross-domain-capable
+        // and, unlike relationship targets, may themselves be relationship
+        // properties. Same plain-UPDATE reasoning as pass 3.
+        for pending in pendingBaseOrigin {
+            guard let target = propertyUuidByRef[pending.ref] else {
+                throw StoreError.badRequest(
+                    detail: "property base_origin_ref '\(pending.ref)' did not resolve during insert")
+            }
+            try db.execute(sql: """
+                UPDATE dope_domain_entity_property SET base_origin_property_uuid = ? WHERE uuid = ?
+                """, arguments: [target, pending.propertyUuid])
         }
         return DopeTreeCounts(domains: counts.domains, entities: counts.entities,
                               properties: counts.properties, enums: counts.enums,
@@ -592,6 +620,17 @@ extension Store {
              WHERE base_composable_uuid IS NOT NULL
                AND dope_domain_uuid IN (
                 SELECT uuid FROM dope_domain WHERE dope_scope_uuid = ?)
+            """, arguments: [scopeUuid])
+        // base_origin is data_type-INDEPENDENT, so the relationship-first
+        // DELETE split below cannot separate origin referrers from their
+        // targets — NULL every tag before either property DELETE runs.
+        try db.execute(sql: """
+            UPDATE dope_domain_entity_property SET base_origin_property_uuid = NULL
+             WHERE base_origin_property_uuid IS NOT NULL
+               AND dope_domain_entity_uuid IN (
+                SELECT e.uuid FROM dope_domain_entity e
+                  JOIN dope_domain d ON d.uuid = e.dope_domain_uuid
+                 WHERE d.dope_scope_uuid = ?)
             """, arguments: [scopeUuid])
         try db.execute(sql: """
             DELETE FROM dope_domain_entity_property
@@ -642,6 +681,9 @@ extension Store {
         if fields.relatedPropertyUuid != nil || fields.clearRelatedProperty == true {
             carried.append(.relatedPropertyUuid)
         }
+        if fields.baseOriginPropertyUuid != nil || fields.clearBaseOrigin == true {
+            carried.append(.baseOriginPropertyUuid)
+        }
         for field in carried where !spec.ownedFields.contains(field) {
             throw StoreError.badRequest(
                 detail: "level '\(level.rawValue)' has no field '\(field.rawValue)'")
@@ -661,8 +703,9 @@ extension Store {
     /// state. The schema CHECKs are the backstop; this produces the friendly
     /// message and enforces what SQL cannot see (same scope, no chain refs).
     private func validatePropertyShape(
-        _ db: Database, scope: DopeScopeRow,
+        _ db: Database, scope: DopeScopeRow, propertyUuid: String?, entityUuid: String,
         dataType: String, enumUuid: String?, relatedPropertyUuid: String?,
+        baseOriginPropertyUuid: String?,
         autoIncrement: Bool?, textCharLimit: Int?
     ) throws {
         guard let type = DopePropertyDataType(rawValue: dataType) else {
@@ -703,6 +746,68 @@ extension Store {
                     detail: "target property \(relatedPropertyUuid) is itself a relationship — chain refs are not allowed")
             }
         }
+        if let origin = baseOriginPropertyUuid {
+            if origin == propertyUuid {
+                throw StoreError.badRequest(detail: "a property cannot originate from itself")
+            }
+            let owner = try self.dopeOwningScope(db, level: .property, nodeUuid: origin)
+            guard owner.uuid == scope.uuid else {
+                throw StoreError.badRequest(
+                    detail: "base origin property \(origin) belongs to a different dope scope")
+            }
+            // dopeOwningScope proves existence + scope; the origin's
+            // data_type, owning entity, and that entity's kind ride in on
+            // one join.
+            guard let row = try Row.fetchOne(db, sql: """
+                SELECT p.data_type AS data_type,
+                       e.uuid AS entity_uuid,
+                       e.entity_type AS entity_type
+                  FROM dope_domain_entity_property p
+                  JOIN dope_domain_entity e ON e.uuid = p.dope_domain_entity_uuid
+                 WHERE p.uuid = ?
+                """, arguments: [origin])
+            else {
+                throw StoreError.corruptState(
+                    entity: "dope_domain_entity_property",
+                    detail: "base origin \(origin) vanished")
+            }
+            let originEntity: String = row["entity_uuid"]
+            // Defense-in-depth only: every base_composable target is
+            // type-checked on write and the demotion guard holds it, so this
+            // fires only on corrupt or hand-edited rows.
+            guard (row["entity_type"] as String?) == DopeEntityType.baseComposable.rawValue else {
+                throw StoreError.badRequest(detail:
+                    "base origin property \(origin) lives on \(originEntity), which is not a BASE_COMPOSABLE")
+            }
+            try self.requireBaseChainReaches(db, entityUuid: entityUuid, targetUuid: originEntity)
+            let originType: String = row["data_type"]
+            guard originType == dataType else {
+                throw StoreError.badRequest(detail:
+                    "base origin property \(origin) is '\(originType)', not '\(dataType)' — a materialized property must keep the origin's data_type")
+            }
+        }
+    }
+
+    /// The materialization rule: `entityUuid` must actually compose
+    /// `targetUuid`, directly or through the chain. Out-degree is 1, so this
+    /// is requireAcyclicBase's pointer-chase walked forwards; the visited set
+    /// keeps a pre-existing cycle from hanging the walk.
+    private func requireBaseChainReaches(
+        _ db: Database, entityUuid: String, targetUuid: String
+    ) throws {
+        var seen: Set<String> = []
+        var node: String? = try String.fetchOne(
+            db, sql: "SELECT base_composable_uuid FROM dope_domain_entity WHERE uuid = ?",
+            arguments: [entityUuid]) ?? nil
+        while let current = node {
+            if current == targetUuid { return }
+            guard seen.insert(current).inserted else { break }
+            node = try String.fetchOne(
+                db, sql: "SELECT base_composable_uuid FROM dope_domain_entity WHERE uuid = ?",
+                arguments: [current]) ?? nil
+        }
+        throw StoreError.badRequest(detail:
+            "entity \(entityUuid) does not compose \(targetUuid) — a property may only be materialized from a base its entity composes")
     }
 
     /// Same-scope + shape checks for an entity's final (post-mutation) state.
@@ -742,6 +847,39 @@ extension Store {
                 throw StoreError.badRequest(detail:
                     "cannot set entity_type \(entityType.rawValue): still composed by "
                     + referrers.joined(separator: ", "))
+            }
+        }
+        // Strand guard: this entity's materialized properties tag origins on
+        // base entities the FINAL chain must still reach. Receives the final
+        // (not requested) base — passing the requested value would
+        // false-refuse ordinary updates. Fires on ANY base change that
+        // strands a tag (clear OR re-point); no-op on add (no properties
+        // yet) and self-neutralizing when the base is unchanged.
+        if let entityUuid {
+            let tagged = try Row.fetchAll(db, sql: """
+                SELECT p.code AS code, oe.uuid AS origin_entity
+                  FROM dope_domain_entity_property p
+                  JOIN dope_domain_entity_property op ON op.uuid = p.base_origin_property_uuid
+                  JOIN dope_domain_entity oe ON oe.uuid = op.dope_domain_entity_uuid
+                 WHERE p.dope_domain_entity_uuid = ?
+                   AND p.base_origin_property_uuid IS NOT NULL
+                """, arguments: [entityUuid])
+            if !tagged.isEmpty {
+                var reachable = Set<String>()
+                var node = baseComposableUuid
+                while let current = node, reachable.insert(current).inserted {
+                    node = try String.fetchOne(
+                        db, sql: "SELECT base_composable_uuid FROM dope_domain_entity WHERE uuid = ?",
+                        arguments: [current]) ?? nil
+                }
+                let stranded = tagged.filter { !reachable.contains($0["origin_entity"] as String) }
+                    .map { $0["code"] as String }
+                guard stranded.isEmpty else {
+                    throw StoreError.badRequest(detail:
+                        "cannot change base_composable: property "
+                        + stranded.joined(separator: ", ")
+                        + " still originates from a base this entity would no longer compose")
+                }
             }
         }
     }
@@ -838,9 +976,11 @@ extension Store {
                     throw StoreError.badRequest(detail: "property-add requires --data-type")
                 }
                 try self.validatePropertyShape(
-                    db, scope: scope, dataType: dataType.rawValue,
+                    db, scope: scope, propertyUuid: nil, entityUuid: req.parentUuid,
+                    dataType: dataType.rawValue,
                     enumUuid: req.fields.enumUuid,
                     relatedPropertyUuid: req.fields.relatedPropertyUuid,
+                    baseOriginPropertyUuid: req.fields.baseOriginPropertyUuid,
                     autoIncrement: req.fields.autoIncrement,
                     textCharLimit: req.fields.textCharLimit)
                 extra["data_type"] = dataType.rawValue
@@ -850,6 +990,7 @@ extension Store {
                 extra["text_char_limit"] = req.fields.textCharLimit
                 extra["dope_domain_enum_uuid"] = req.fields.enumUuid
                 extra["related_property_uuid"] = req.fields.relatedPropertyUuid
+                extra["base_origin_property_uuid"] = req.fields.baseOriginPropertyUuid
             default:
                 break
             }
@@ -943,10 +1084,16 @@ extension Store {
                 var finalCharLimit: Int? = current["text_char_limit"]
                 if let limit = req.fields.textCharLimit { finalCharLimit = limit }
                 if req.fields.clearTextCharLimit == true { finalCharLimit = nil }
+                var finalBaseOrigin: String? = current["base_origin_property_uuid"]
+                if let origin = req.fields.baseOriginPropertyUuid { finalBaseOrigin = origin }
+                if req.fields.clearBaseOrigin == true { finalBaseOrigin = nil }
 
                 try self.validatePropertyShape(
-                    db, scope: scope, dataType: finalDataType,
+                    db, scope: scope, propertyUuid: req.nodeUuid,
+                    entityUuid: current["dope_domain_entity_uuid"],
+                    dataType: finalDataType,
                     enumUuid: finalEnum, relatedPropertyUuid: finalRelated,
+                    baseOriginPropertyUuid: finalBaseOrigin,
                     autoIncrement: finalAutoIncrement, textCharLimit: finalCharLimit)
 
                 if let dataType = req.fields.dataType { set["data_type"] = dataType.rawValue }
@@ -963,6 +1110,11 @@ extension Store {
                 }
                 if req.fields.relatedPropertyUuid != nil || req.fields.clearRelatedProperty == true {
                     set["related_property_uuid"] = finalRelated
+                }
+                if req.fields.baseOriginPropertyUuid != nil || req.fields.clearBaseOrigin == true {
+                    // updateValue, not subscript — the typed-nil clear trap
+                    // (same shape as base_composable_uuid above).
+                    set.updateValue(finalBaseOrigin, forKey: "base_origin_property_uuid")
                 }
             }
 
@@ -1008,6 +1160,15 @@ extension Store {
                     UPDATE dope_domain_entity SET base_composable_uuid = NULL
                      WHERE dope_domain_uuid = ? AND base_composable_uuid IS NOT NULL
                     """, arguments: [req.nodeUuid])
+                // Origin tags are data_type-independent — NULL them before
+                // BOTH property DELETEs, or a tagged origin that is itself a
+                // relationship property trips the RESTRICT mid-statement.
+                try db.execute(sql: """
+                    UPDATE dope_domain_entity_property SET base_origin_property_uuid = NULL
+                     WHERE base_origin_property_uuid IS NOT NULL
+                       AND dope_domain_entity_uuid IN (
+                        SELECT uuid FROM dope_domain_entity WHERE dope_domain_uuid = ?)
+                    """, arguments: [req.nodeUuid])
                 try db.execute(sql: """
                     DELETE FROM dope_domain_entity_property
                      WHERE data_type = 'relationship'
@@ -1023,6 +1184,11 @@ extension Store {
                 // Same relationship-first split as the domain case: a bulk
                 // delete can scan a same-entity relationship TARGET before
                 // its referencer and trip the RESTRICT FK mid-statement.
+                try db.execute(sql: """
+                    UPDATE dope_domain_entity_property SET base_origin_property_uuid = NULL
+                     WHERE base_origin_property_uuid IS NOT NULL
+                       AND dope_domain_entity_uuid = ?
+                    """, arguments: [req.nodeUuid])
                 try db.execute(sql: """
                     DELETE FROM dope_domain_entity_property
                      WHERE data_type = 'relationship'
@@ -1073,6 +1239,13 @@ extension Store {
                 JOIN dope_domain d ON d.uuid = e.dope_domain_uuid
                 WHERE p.related_property_uuid = ? LIMIT 5
                 """, [nodeUuid]))
+            queries.append(("""
+                SELECT d.code || '.' || e.code || '.' || p.code
+                FROM dope_domain_entity_property p
+                JOIN dope_domain_entity e ON e.uuid = p.dope_domain_entity_uuid
+                JOIN dope_domain d ON d.uuid = e.dope_domain_uuid
+                WHERE p.base_origin_property_uuid = ? LIMIT 5
+                """, [nodeUuid]))
         case .entity:
             queries.append(("""
                 SELECT d.code || '.' || e.code || '.' || p.code
@@ -1089,6 +1262,15 @@ extension Store {
                 JOIN dope_domain d ON d.uuid = e.dope_domain_uuid
                 WHERE e.base_composable_uuid = ? LIMIT 5
                 """, [nodeUuid]))
+            queries.append(("""
+                SELECT d.code || '.' || e.code || '.' || p.code
+                FROM dope_domain_entity_property p
+                JOIN dope_domain_entity e ON e.uuid = p.dope_domain_entity_uuid
+                JOIN dope_domain d ON d.uuid = e.dope_domain_uuid
+                JOIN dope_domain_entity_property op ON op.uuid = p.base_origin_property_uuid
+                WHERE op.dope_domain_entity_uuid = ?
+                  AND p.dope_domain_entity_uuid != ? LIMIT 5
+                """, [nodeUuid, nodeUuid]))
         case .domain:
             queries.append(("""
                 SELECT d.code || '.' || e.code || '.' || p.code
@@ -1111,6 +1293,18 @@ extension Store {
                 WHERE d.uuid != ?
                   AND e.base_composable_uuid IN
                       (SELECT uuid FROM dope_domain_entity WHERE dope_domain_uuid = ?)
+                LIMIT 5
+                """, [nodeUuid, nodeUuid]))
+            queries.append(("""
+                SELECT d.code || '.' || e.code || '.' || p.code
+                FROM dope_domain_entity_property p
+                JOIN dope_domain_entity e ON e.uuid = p.dope_domain_entity_uuid
+                JOIN dope_domain d ON d.uuid = e.dope_domain_uuid
+                WHERE d.uuid != ?
+                  AND p.base_origin_property_uuid IN
+                      (SELECT pp.uuid FROM dope_domain_entity_property pp
+                        JOIN dope_domain_entity ee ON ee.uuid = pp.dope_domain_entity_uuid
+                       WHERE ee.dope_domain_uuid = ?)
                 LIMIT 5
                 """, [nodeUuid, nodeUuid]))
         case .scope, .option:

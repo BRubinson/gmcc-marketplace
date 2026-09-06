@@ -532,6 +532,187 @@ final class DopeMachineTests: XCTestCase {
         }
     }
 
+    // MARK: - Materialized base properties (m0009)
+
+    private func expectBadRequest(
+        _ containing: String, file: StaticString = #filePath, line: UInt = #line,
+        _ block: () throws -> Void
+    ) {
+        XCTAssertThrowsError(try block(), file: file, line: line) { error in
+            guard case StoreError.badRequest(let detail) = error else {
+                return XCTFail("wrong error: \(error)", file: file, line: line)
+            }
+            XCTAssertTrue(detail.contains(containing), detail, file: file, line: line)
+        }
+    }
+
+    /// Base entity + one datetime property on it, plus a MODEL entity.
+    private func makeBaseWithProperty(
+        scopeUuid: String
+    ) throws -> (domain: String, base: String, originProp: String, model: String) {
+        let domain = try addNode(.domain, parent: scopeUuid,
+                                 DopeNodeFields(code: "core", name: "Core"))
+        let base = try addBase("base_entity", domain: domain.uuid)
+        let origin = try addNode(.property, parent: base.uuid,
+                                 DopeNodeFields(code: "created_at", name: "Created At",
+                                                dataType: .datetime, nullable: false))
+        let model = try addNode(.entity, parent: domain.uuid,
+                                DopeNodeFields(code: "user", name: "User",
+                                               baseComposableUuid: base.uuid))
+        return (domain.uuid, base.uuid, origin.uuid, model.uuid)
+    }
+
+    func testBaseOriginRequiresTheOwningEntityToComposeTheOrigin() throws {
+        let scope = try initScope().scope
+        let ids = try makeBaseWithProperty(scopeUuid: scope.uuid)
+        let loner = try addNode(.entity, parent: ids.domain,
+                                DopeNodeFields(code: "loner", name: "Loner"))
+        expectBadRequest("does not compose") {
+            _ = try self.addNode(.property, parent: loner.uuid,
+                                 DopeNodeFields(code: "created_at", name: "Created At",
+                                                dataType: .datetime,
+                                                baseOriginPropertyUuid: ids.originProp))
+        }
+        // The composing entity may materialize it.
+        _ = try addNode(.property, parent: ids.model,
+                        DopeNodeFields(code: "created_at", name: "Created At",
+                                       dataType: .datetime,
+                                       baseOriginPropertyUuid: ids.originProp))
+    }
+
+    func testBaseOriginResolvesThroughAChain() throws {
+        let scope = try initScope().scope
+        let domain = try addNode(.domain, parent: scope.uuid,
+                                 DopeNodeFields(code: "core", name: "Core"))
+        let b2 = try addBase("b_two", domain: domain.uuid)
+        let stamp = try addNode(.property, parent: b2.uuid,
+                                DopeNodeFields(code: "stamp", name: "Stamp",
+                                               dataType: .datetime))
+        let b1 = try addNode(.entity, parent: domain.uuid,
+                             DopeNodeFields(code: "b_one", name: "b_one",
+                                            entityType: .baseComposable,
+                                            baseComposableUuid: b2.uuid))
+        let leaf = try addNode(.entity, parent: domain.uuid,
+                               DopeNodeFields(code: "leaf", name: "Leaf",
+                                              baseComposableUuid: b1.uuid))
+        _ = try addNode(.property, parent: leaf.uuid,
+                        DopeNodeFields(code: "stamp", name: "Stamp", dataType: .datetime,
+                                       baseOriginPropertyUuid: stamp.uuid))
+    }
+
+    func testBaseOriginMustMatchTheOriginDataType() throws {
+        let scope = try initScope().scope
+        let ids = try makeBaseWithProperty(scopeUuid: scope.uuid)
+        expectBadRequest("must keep the origin's data_type") {
+            _ = try self.addNode(.property, parent: ids.model,
+                                 DopeNodeFields(code: "created_at", name: "Created At",
+                                                dataType: .text,
+                                                baseOriginPropertyUuid: ids.originProp))
+        }
+    }
+
+    func testBaseOriginCannotPointAtItself() throws {
+        let scope = try initScope().scope
+        let ids = try makeBaseWithProperty(scopeUuid: scope.uuid)
+        let prop = try addNode(.property, parent: ids.model,
+                               DopeNodeFields(code: "created_at", name: "Created At",
+                                              dataType: .datetime))
+        expectBadRequest("originate from itself") {
+            _ = try self.store.dopeNodeUpdate(DopeNodeUpdateRequest(
+                level: .property, nodeUuid: prop.uuid, expectedVersion: 0,
+                fields: DopeNodeFields(baseOriginPropertyUuid: prop.uuid)))
+        }
+    }
+
+    func testClearingOrRepointingTheBaseThatStrandsATagIsRefused() throws {
+        let scope = try initScope().scope
+        let ids = try makeBaseWithProperty(scopeUuid: scope.uuid)
+        _ = try addNode(.property, parent: ids.model,
+                        DopeNodeFields(code: "created_at", name: "Created At",
+                                       dataType: .datetime,
+                                       baseOriginPropertyUuid: ids.originProp))
+        // Clear strands the tag.
+        expectBadRequest("still originates from a base") {
+            _ = try self.store.dopeNodeUpdate(DopeNodeUpdateRequest(
+                level: .entity, nodeUuid: ids.model, expectedVersion: 0,
+                fields: DopeNodeFields(clearBaseComposable: true)))
+        }
+        // Re-pointing to a different base strands it just as thoroughly.
+        let other = try addBase("other_base", domain: ids.domain)
+        expectBadRequest("still originates from a base") {
+            _ = try self.store.dopeNodeUpdate(DopeNodeUpdateRequest(
+                level: .entity, nodeUuid: ids.model, expectedVersion: 0,
+                fields: DopeNodeFields(baseComposableUuid: other.uuid)))
+        }
+        // An unrelated update with tags intact is allowed (self-neutralizing).
+        _ = try store.dopeNodeUpdate(DopeNodeUpdateRequest(
+            level: .entity, nodeUuid: ids.model, expectedVersion: 0,
+            fields: DopeNodeFields(name: "User Renamed")))
+    }
+
+    func testDeleteOriginPropertyRefusedWhileTaggedThenAllowed() throws {
+        let scope = try initScope().scope
+        let ids = try makeBaseWithProperty(scopeUuid: scope.uuid)
+        let tagged = try addNode(.property, parent: ids.model,
+                                 DopeNodeFields(code: "created_at", name: "Created At",
+                                                dataType: .datetime,
+                                                baseOriginPropertyUuid: ids.originProp))
+        expectBadRequest("core.user.created_at") {
+            _ = try self.store.dopeNodeDelete(DopeNodeDeleteRequest(
+                level: .property, nodeUuid: ids.originProp, expectedVersion: 0))
+        }
+        // Deleting the base entity (and its domain) is refused the same way.
+        expectBadRequest("core.user.created_at") {
+            _ = try self.store.dopeNodeDelete(DopeNodeDeleteRequest(
+                level: .entity, nodeUuid: ids.base, expectedVersion: 0))
+        }
+        _ = try store.dopeNodeUpdate(DopeNodeUpdateRequest(
+            level: .property, nodeUuid: tagged.uuid, expectedVersion: 0,
+            fields: DopeNodeFields(clearBaseOrigin: true)))
+        _ = try store.dopeNodeDelete(DopeNodeDeleteRequest(
+            level: .property, nodeUuid: ids.originProp, expectedVersion: 0))
+    }
+
+    func testDomainDeleteRefusedWhileACrossDomainTagPointsIn() throws {
+        let scope = try initScope().scope
+        let baseDomain = try addNode(.domain, parent: scope.uuid,
+                                     DopeNodeFields(code: "base", name: "Base"))
+        let base = try addBase("base_entity", domain: baseDomain.uuid)
+        let origin = try addNode(.property, parent: base.uuid,
+                                 DopeNodeFields(code: "stamp", name: "Stamp",
+                                                dataType: .datetime))
+        let coreDomain = try addNode(.domain, parent: scope.uuid,
+                                     DopeNodeFields(code: "core", name: "Core"))
+        let user = try addNode(.entity, parent: coreDomain.uuid,
+                               DopeNodeFields(code: "user", name: "User",
+                                              baseComposableUuid: base.uuid))
+        _ = try addNode(.property, parent: user.uuid,
+                        DopeNodeFields(code: "stamp", name: "Stamp", dataType: .datetime,
+                                       baseOriginPropertyUuid: origin.uuid))
+        expectBadRequest("core.user.stamp") {
+            _ = try self.store.dopeNodeDelete(DopeNodeDeleteRequest(
+                level: .domain, nodeUuid: baseDomain.uuid, expectedVersion: 0))
+        }
+    }
+
+    /// Base and composer in the SAME domain: the domain delete succeeds only
+    /// because the base_origin NULL-out precedes both property DELETEs.
+    func testDomainDeleteWithInternalBaseOriginTags() throws {
+        let scope = try initScope().scope
+        let ids = try makeBaseWithProperty(scopeUuid: scope.uuid)
+        _ = try addNode(.property, parent: ids.model,
+                        DopeNodeFields(code: "created_at", name: "Created At",
+                                       dataType: .datetime,
+                                       baseOriginPropertyUuid: ids.originProp))
+        let deleted = try store.dopeNodeDelete(DopeNodeDeleteRequest(
+            level: .domain, nodeUuid: ids.domain, expectedVersion: 0))
+        XCTAssertEqual(deleted.cascaded.properties, 2)
+        try store.dbQueue.read { db in
+            XCTAssertEqual(try Int.fetchOne(
+                db, sql: "SELECT COUNT(*) FROM dope_domain_entity_property"), 0)
+        }
+    }
+
     func testEntityBaseFieldOwnership() throws {
         let scope = try initScope().scope
         let ids = try buildSmallTree(scopeUuid: scope.uuid)
@@ -544,6 +725,12 @@ final class DopeMachineTests: XCTestCase {
                 return XCTFail("wrong error: \(error)")
             }
             XCTAssertTrue(detail.contains("has no field"), detail)
+        }
+        // …and baseOriginPropertyUuid is property-owned, not entity-owned.
+        expectBadRequest("has no field") {
+            _ = try self.store.dopeNodeUpdate(DopeNodeUpdateRequest(
+                level: .entity, nodeUuid: ids.entity, expectedVersion: 0,
+                fields: DopeNodeFields(baseOriginPropertyUuid: ids.property)))
         }
     }
 }

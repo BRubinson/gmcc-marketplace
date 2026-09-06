@@ -10,6 +10,16 @@
       "name" : "Project",
       "properties" : [
         {
+          "base_origin_ref" : "base.base_entity.uuid",
+          "code" : "uuid",
+          "data_type" : "uuid",
+          "description" : "Stable external identifier (base entity)",
+          "is_unique" : true,
+          "name" : "UUID",
+          "nullable" : false,
+          "sort_order" : 2
+        },
+        {
           "code" : "git_repo_name",
           "data_type" : "text",
           "description" : "Git repository name the project tracks",
@@ -56,6 +66,16 @@
       "entity_type" : "MODEL",
       "name" : "Instance",
       "properties" : [
+        {
+          "base_origin_ref" : "base.base_entity.uuid",
+          "code" : "uuid",
+          "data_type" : "uuid",
+          "description" : "Stable external identifier (base entity)",
+          "is_unique" : true,
+          "name" : "UUID",
+          "nullable" : false,
+          "sort_order" : 2
+        },
         {
           "code" : "project_uuid",
           "data_type" : "relationship",
@@ -113,6 +133,16 @@
       "entity_type" : "MODEL",
       "name" : "Session",
       "properties" : [
+        {
+          "base_origin_ref" : "base.base_entity.uuid",
+          "code" : "uuid",
+          "data_type" : "uuid",
+          "description" : "Stable external identifier (base entity)",
+          "is_unique" : true,
+          "name" : "UUID",
+          "nullable" : false,
+          "sort_order" : 2
+        },
         {
           "code" : "instance_uuid",
           "data_type" : "relationship",
@@ -189,6 +219,16 @@
       "entity_type" : "MODEL",
       "name" : "Prompt",
       "properties" : [
+        {
+          "base_origin_ref" : "base.base_entity.uuid",
+          "code" : "uuid",
+          "data_type" : "uuid",
+          "description" : "Stable external identifier (base entity)",
+          "is_unique" : true,
+          "name" : "UUID",
+          "nullable" : false,
+          "sort_order" : 2
+        },
         {
           "code" : "session_uuid",
           "data_type" : "relationship",

@@ -10,6 +10,16 @@
       "name" : "Clarification Summary",
       "properties" : [
         {
+          "base_origin_ref" : "base.base_entity.uuid",
+          "code" : "uuid",
+          "data_type" : "uuid",
+          "description" : "Stable external identifier (base entity)",
+          "is_unique" : true,
+          "name" : "UUID",
+          "nullable" : false,
+          "sort_order" : 2
+        },
+        {
           "code" : "prompt_uuid",
           "data_type" : "relationship",
           "description" : "Owning prompt; one summary per prompt",
@@ -67,6 +77,16 @@
       "entity_type" : "MODEL",
       "name" : "Clarification",
       "properties" : [
+        {
+          "base_origin_ref" : "base.base_entity.uuid",
+          "code" : "uuid",
+          "data_type" : "uuid",
+          "description" : "Stable external identifier (base entity)",
+          "is_unique" : true,
+          "name" : "UUID",
+          "nullable" : false,
+          "sort_order" : 2
+        },
         {
           "code" : "clarification_summary_uuid",
           "data_type" : "relationship",
@@ -146,6 +166,16 @@
       "name" : "Architecture Summary",
       "properties" : [
         {
+          "base_origin_ref" : "base.base_entity.uuid",
+          "code" : "uuid",
+          "data_type" : "uuid",
+          "description" : "Stable external identifier (base entity)",
+          "is_unique" : true,
+          "name" : "UUID",
+          "nullable" : false,
+          "sort_order" : 2
+        },
+        {
           "code" : "prompt_uuid",
           "data_type" : "relationship",
           "description" : "Owning prompt; one summary per prompt",
@@ -185,6 +215,16 @@
       "entity_type" : "MODEL",
       "name" : "Architecture Persistence Change",
       "properties" : [
+        {
+          "base_origin_ref" : "base.base_entity.uuid",
+          "code" : "uuid",
+          "data_type" : "uuid",
+          "description" : "Stable external identifier (base entity)",
+          "is_unique" : true,
+          "name" : "UUID",
+          "nullable" : false,
+          "sort_order" : 2
+        },
         {
           "code" : "architecture_summary_uuid",
           "data_type" : "relationship",
@@ -242,6 +282,16 @@
       "entity_type" : "MODEL",
       "name" : "Architecture Persistence Field Change",
       "properties" : [
+        {
+          "base_origin_ref" : "base.base_entity.uuid",
+          "code" : "uuid",
+          "data_type" : "uuid",
+          "description" : "Stable external identifier (base entity)",
+          "is_unique" : true,
+          "name" : "UUID",
+          "nullable" : false,
+          "sort_order" : 2
+        },
         {
           "code" : "persistence_change_uuid",
           "data_type" : "relationship",
@@ -345,6 +395,16 @@
       "name" : "Architecture General Change",
       "properties" : [
         {
+          "base_origin_ref" : "base.base_entity.uuid",
+          "code" : "uuid",
+          "data_type" : "uuid",
+          "description" : "Stable external identifier (base entity)",
+          "is_unique" : true,
+          "name" : "UUID",
+          "nullable" : false,
+          "sort_order" : 2
+        },
+        {
           "code" : "architecture_summary_uuid",
           "data_type" : "relationship",
           "description" : "Owning summary; cascade on delete",
@@ -421,6 +481,16 @@
       "name" : "Exploration Summary",
       "properties" : [
         {
+          "base_origin_ref" : "base.base_entity.uuid",
+          "code" : "uuid",
+          "data_type" : "uuid",
+          "description" : "Stable external identifier (base entity)",
+          "is_unique" : true,
+          "name" : "UUID",
+          "nullable" : false,
+          "sort_order" : 2
+        },
+        {
           "code" : "prompt_uuid",
           "data_type" : "relationship",
           "description" : "Owning prompt; one summary per prompt",
@@ -461,6 +531,16 @@
       "name" : "Exploration Key File",
       "properties" : [
         {
+          "base_origin_ref" : "base.base_entity.uuid",
+          "code" : "uuid",
+          "data_type" : "uuid",
+          "description" : "Stable external identifier (base entity)",
+          "is_unique" : true,
+          "name" : "UUID",
+          "nullable" : false,
+          "sort_order" : 2
+        },
+        {
           "code" : "exploration_summary_uuid",
           "data_type" : "relationship",
           "description" : "Owning summary; cascade on delete",
@@ -490,6 +570,16 @@
       "entity_type" : "MODEL",
       "name" : "Exploration Finding",
       "properties" : [
+        {
+          "base_origin_ref" : "base.base_entity.uuid",
+          "code" : "uuid",
+          "data_type" : "uuid",
+          "description" : "Stable external identifier (base entity)",
+          "is_unique" : true,
+          "name" : "UUID",
+          "nullable" : false,
+          "sort_order" : 2
+        },
         {
           "code" : "exploration_summary_uuid",
           "data_type" : "relationship",
@@ -558,6 +648,16 @@
       "name" : "Review Summary",
       "properties" : [
         {
+          "base_origin_ref" : "base.base_entity.uuid",
+          "code" : "uuid",
+          "data_type" : "uuid",
+          "description" : "Stable external identifier (base entity)",
+          "is_unique" : true,
+          "name" : "UUID",
+          "nullable" : false,
+          "sort_order" : 2
+        },
+        {
           "code" : "prompt_uuid",
           "data_type" : "relationship",
           "description" : "Owning prompt; one summary per prompt",
@@ -607,6 +707,16 @@
       "entity_type" : "MODEL",
       "name" : "Review Finding",
       "properties" : [
+        {
+          "base_origin_ref" : "base.base_entity.uuid",
+          "code" : "uuid",
+          "data_type" : "uuid",
+          "description" : "Stable external identifier (base entity)",
+          "is_unique" : true,
+          "name" : "UUID",
+          "nullable" : false,
+          "sort_order" : 2
+        },
         {
           "code" : "review_summary_uuid",
           "data_type" : "relationship",
@@ -712,6 +822,16 @@
       "name" : "Session File",
       "properties" : [
         {
+          "base_origin_ref" : "base.base_entity.uuid",
+          "code" : "uuid",
+          "data_type" : "uuid",
+          "description" : "Stable external identifier (base entity)",
+          "is_unique" : true,
+          "name" : "UUID",
+          "nullable" : false,
+          "sort_order" : 2
+        },
+        {
           "code" : "session_uuid",
           "data_type" : "relationship",
           "description" : "Owning session",
@@ -750,6 +870,16 @@
       "entity_type" : "MODEL",
       "name" : "File Change",
       "properties" : [
+        {
+          "base_origin_ref" : "base.base_entity.uuid",
+          "code" : "uuid",
+          "data_type" : "uuid",
+          "description" : "Stable external identifier (base entity)",
+          "is_unique" : true,
+          "name" : "UUID",
+          "nullable" : false,
+          "sort_order" : 2
+        },
         {
           "code" : "session_file_uuid",
           "data_type" : "relationship",
@@ -802,6 +932,16 @@
       "name" : "File Change Range",
       "properties" : [
         {
+          "base_origin_ref" : "base.base_entity.uuid",
+          "code" : "uuid",
+          "data_type" : "uuid",
+          "description" : "Stable external identifier (base entity)",
+          "is_unique" : true,
+          "name" : "UUID",
+          "nullable" : false,
+          "sort_order" : 2
+        },
+        {
           "code" : "file_change_uuid",
           "data_type" : "relationship",
           "description" : "Owning change; cascade on delete",
@@ -849,6 +989,16 @@
       "entity_type" : "MODEL",
       "name" : "Prompt Artifact",
       "properties" : [
+        {
+          "base_origin_ref" : "base.base_entity.uuid",
+          "code" : "uuid",
+          "data_type" : "uuid",
+          "description" : "Stable external identifier (base entity)",
+          "is_unique" : true,
+          "name" : "UUID",
+          "nullable" : false,
+          "sort_order" : 2
+        },
         {
           "code" : "prompt_uuid",
           "data_type" : "relationship",

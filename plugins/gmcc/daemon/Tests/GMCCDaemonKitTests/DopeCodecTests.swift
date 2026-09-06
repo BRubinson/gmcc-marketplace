@@ -34,13 +34,15 @@ final class DopeCodecTests: XCTestCase {
                                     code: "id", name: "Id", description: "", sortOrder: 0,
                                     dataType: "uuid", nullable: false, isUnique: true,
                                     autoIncrement: nil, textCharLimit: nil,
-                                    enumRef: nil, relatedPropertyRef: nil)),
+                                    enumRef: nil, relatedPropertyRef: nil,
+                                    baseOriginRef: nil)),
                 DopePropertyNode(identity: identity(22),
                                  body: DopePropertyBody(
                                     code: "state", name: "State", description: "", sortOrder: 1,
                                     dataType: "enum", nullable: false, isUnique: false,
                                     autoIncrement: nil, textCharLimit: nil,
-                                    enumRef: "core.enums.status", relatedPropertyRef: nil)),
+                                    enumRef: "core.enums.status", relatedPropertyRef: nil,
+                                    baseOriginRef: nil)),
             ])
         let post = DopeEntityNode(
             identity: identity(30),
@@ -54,13 +56,25 @@ final class DopeCodecTests: XCTestCase {
                                     code: "author", name: "Author", description: "", sortOrder: 0,
                                     dataType: "relationship", nullable: false, isUnique: false,
                                     autoIncrement: nil, textCharLimit: nil,
-                                    enumRef: nil, relatedPropertyRef: "core.user.id")),
+                                    enumRef: nil, relatedPropertyRef: "core.user.id",
+                                    baseOriginRef: nil)),
                 DopePropertyNode(identity: identity(32),
                                  body: DopePropertyBody(
                                     code: "title", name: "Title", description: "", sortOrder: 1,
                                     dataType: "text", nullable: false, isUnique: false,
                                     autoIncrement: nil, textCharLimit: 200,
-                                    enumRef: nil, relatedPropertyRef: nil)),
+                                    enumRef: nil, relatedPropertyRef: nil,
+                                    baseOriginRef: nil)),
+                // Materialized from the base — covers base_origin_ref in the
+                // round-trip / determinism / no-uuid tests.
+                DopePropertyNode(identity: identity(33),
+                                 body: DopePropertyBody(
+                                    code: "created_at", name: "Created At", description: "",
+                                    sortOrder: 2,
+                                    dataType: "datetime", nullable: false, isUnique: false,
+                                    autoIncrement: nil, textCharLimit: nil,
+                                    enumRef: nil, relatedPropertyRef: nil,
+                                    baseOriginRef: "core.base_entity.created_at")),
             ])
         let baseEntity = DopeEntityNode(
             identity: identity(40),
@@ -75,7 +89,8 @@ final class DopeCodecTests: XCTestCase {
                                     sortOrder: 0,
                                     dataType: "datetime", nullable: false, isUnique: false,
                                     autoIncrement: nil, textCharLimit: nil,
-                                    enumRef: nil, relatedPropertyRef: nil)),
+                                    enumRef: nil, relatedPropertyRef: nil,
+                                    baseOriginRef: nil)),
             ])
         let core = DopeDomainNode(
             identity: identity(2),
@@ -153,7 +168,7 @@ final class DopeCodecTests: XCTestCase {
             code: "BadCode", name: "x", description: "", sortOrder: 0,
             dataType: "enum", nullable: true, isUnique: false,
             autoIncrement: nil, textCharLimit: nil,
-            enumRef: "core.enums.missing", relatedPropertyRef: nil))
+            enumRef: "core.enums.missing", relatedPropertyRef: nil, baseOriginRef: nil))
         let entity = DopeEntityDocument(
             body: DopeEntityBody(code: "extra", name: "Extra", entityType: "MODEL",
                                  description: "", sortOrder: 9,
@@ -193,7 +208,7 @@ final class DopeCodecTests: XCTestCase {
             code: "chain", name: "Chain", description: "", sortOrder: 7,
             dataType: "relationship", nullable: true, isUnique: false,
             autoIncrement: nil, textCharLimit: nil,
-            enumRef: nil, relatedPropertyRef: "core.post.author"))   // author is a relationship
+            enumRef: nil, relatedPropertyRef: "core.post.author", baseOriginRef: nil))   // author is a relationship
         let user = bundle.domainFiles[0].entities[0]
         let patchedUser = DopeEntityDocument(body: user.body,
                                              properties: user.properties + [chain])
@@ -291,6 +306,90 @@ final class DopeCodecTests: XCTestCase {
             XCTAssertTrue(error.errors.contains { $0.contains("base_composable cycle") },
                           "missing cycle error: \(error.errors)")
         }
+    }
+
+    private func propertyDoc(
+        _ code: String, dataType: String = "text", origin: String? = nil
+    ) -> DopePropertyDocument {
+        DopePropertyDocument(body: DopePropertyBody(
+            code: code, name: code, description: "", sortOrder: 0,
+            dataType: dataType, nullable: true, isUnique: false,
+            autoIncrement: nil, textCharLimit: nil,
+            enumRef: nil, relatedPropertyRef: nil, baseOriginRef: origin))
+    }
+
+    func testValidatorRejectsBadBaseOriginRefs() throws {
+        var bundle = DopeProjection.documents(from: makeTree())
+        let cases = [
+            DopeEntityDocument(
+                body: DopeEntityBody(code: "no_chain", name: "x", entityType: "MODEL",
+                                     description: "", sortOrder: 20,
+                                     repoRepresentativeFile: nil, baseComposableRef: nil),
+                // Entity composes nothing → chain-reach failure.
+                properties: [propertyDoc("a", dataType: "datetime",
+                                         origin: "core.base_entity.created_at")]),
+            DopeEntityDocument(
+                body: DopeEntityBody(code: "bad_refs", name: "x", entityType: "MODEL",
+                                     description: "", sortOrder: 21,
+                                     repoRepresentativeFile: nil,
+                                     baseComposableRef: "core.base_entity"),
+                properties: [
+                    propertyDoc("b", origin: "core.base_entity"),               // 2-segment
+                    propertyDoc("c", origin: "core.base_entity.missing"),       // unresolvable
+                    propertyDoc("d", origin: "core.user.id"),                   // origin on a MODEL
+                    propertyDoc("e", origin: "core.base_entity.created_at"),    // data_type mismatch (text vs datetime)
+                ]),
+        ]
+        let file = DopeDomainFileDocument(
+            version: bundle.main.version,
+            body: bundle.domainFiles[0].body,
+            entities: bundle.domainFiles[0].entities + cases,
+            enums: bundle.domainFiles[0].enums)
+        bundle = DopeDocumentBundle(main: bundle.main, domainFiles: [file])
+
+        do {
+            try DopeValidator.validate(bundle)
+            XCTFail("expected BundleError")
+        } catch let error as DopeValidator.BundleError {
+            XCTAssertTrue(error.errors.contains { $0.contains("does not compose") },
+                          "missing chain-reach error: \(error.errors)")
+            XCTAssertTrue(error.errors.contains { $0.contains("must be domain.entity.property") },
+                          "missing parse error: \(error.errors)")
+            XCTAssertTrue(error.errors.contains { $0.contains("does not resolve") },
+                          "missing unresolvable error: \(error.errors)")
+            XCTAssertTrue(error.errors.contains { $0.contains("not a BASE_COMPOSABLE") },
+                          "missing origin-type error: \(error.errors)")
+            XCTAssertTrue(error.errors.contains { $0.contains("differs from the origin's") },
+                          "missing data_type error: \(error.errors)")
+        }
+    }
+
+    func testValidatorAcceptsBaseOriginThroughAChain() throws {
+        var bundle = DopeProjection.documents(from: makeTree())
+        let chain = [
+            entityDoc("m_one", type: "BASE_COMPOSABLE", sortOrder: 20, base: "core.m_two"),
+            DopeEntityDocument(
+                body: DopeEntityBody(code: "m_two", name: "m_two",
+                                     entityType: "BASE_COMPOSABLE",
+                                     description: "", sortOrder: 21,
+                                     repoRepresentativeFile: nil, baseComposableRef: nil),
+                properties: [propertyDoc("stamp", dataType: "datetime")]),
+            DopeEntityDocument(
+                body: DopeEntityBody(code: "leaf", name: "leaf", entityType: "MODEL",
+                                     description: "", sortOrder: 22,
+                                     repoRepresentativeFile: nil,
+                                     baseComposableRef: "core.m_one"),
+                // Reaches m_two through m_one.
+                properties: [propertyDoc("stamp", dataType: "datetime",
+                                         origin: "core.m_two.stamp")]),
+        ]
+        let file = DopeDomainFileDocument(
+            version: bundle.main.version,
+            body: bundle.domainFiles[0].body,
+            entities: bundle.domainFiles[0].entities + chain,
+            enums: bundle.domainFiles[0].enums)
+        bundle = DopeDocumentBundle(main: bundle.main, domainFiles: [file])
+        try DopeValidator.validate(bundle)
     }
 
     func testValidatorAcceptsBaseChain() throws {

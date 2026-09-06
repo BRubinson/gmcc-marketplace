@@ -243,6 +243,45 @@ public enum DopeValidator {
                             }
                         } catch { errors.append(String(describing: error)) }
                     }
+                    if let raw = body.baseOriginRef {
+                        do {
+                            let ref = try DopeCode.parseRef(raw, field: "property '\(path)' base_origin_ref")
+                            guard case let .property(originDomain, originEntityCode, _) = ref else {
+                                throw DopeCode.ValidationError(
+                                    "property '\(path)' base_origin_ref '\(raw)' is not a domain.entity.property path")
+                            }
+                            guard let originType = propertyIndex[raw] else {
+                                errors.append("property '\(path)' base_origin_ref '\(raw)' does not resolve")
+                                continue
+                            }
+                            let originEntity = DopeCode.formatEntityRef(
+                                domain: originDomain, entity: originEntityCode)
+                            guard entityIndex[originEntity] == DopeEntityType.baseComposable.rawValue else {
+                                errors.append(
+                                    "property '\(path)' base_origin_ref '\(raw)' originates from '\(originEntity)', which is not a BASE_COMPOSABLE")
+                                continue
+                            }
+                            // Materialization is only legal DOWN a composition
+                            // chain. Bounded walk with a visited set: a cyclic
+                            // tree is already an error above, and errors are
+                            // COLLECTED here, so this must not hang.
+                            let ownEntity = "\(file.body.code).\(entity.body.code)"
+                            var seen: Set<String> = [ownEntity]
+                            var cursor = baseEdge[ownEntity]
+                            while let node = cursor, node != originEntity, seen.insert(node).inserted {
+                                cursor = baseEdge[node]
+                            }
+                            guard cursor == originEntity else {
+                                errors.append(
+                                    "property '\(path)' base_origin_ref '\(raw)': '\(ownEntity)' does not compose '\(originEntity)'")
+                                continue
+                            }
+                            if originType != body.dataType {
+                                errors.append(
+                                    "property '\(path)' base_origin_ref '\(raw)': data_type '\(body.dataType)' differs from the origin's '\(originType)'")
+                            }
+                        } catch { errors.append(String(describing: error)) }
+                    }
                 }
             }
         }

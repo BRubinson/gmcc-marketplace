@@ -64,7 +64,8 @@ struct Dope: ParsableCommand {
             dataType: partial.dataType, nullable: partial.nullable,
             isUnique: partial.isUnique, autoIncrement: partial.autoIncrement,
             textCharLimit: partial.textCharLimit, enumUuid: partial.enumUuid,
-            relatedPropertyUuid: partial.relatedPropertyUuid)
+            relatedPropertyUuid: partial.relatedPropertyUuid,
+            baseOriginPropertyUuid: partial.baseOriginPropertyUuid)
         let response = try withClient {
             try $0.dopeNodeAdd(DopeNodeAddRequest(
                 level: level, parentUuid: common.parentUuid, fields: fields))
@@ -87,8 +88,10 @@ struct Dope: ParsableCommand {
             isUnique: partial.isUnique, autoIncrement: partial.autoIncrement,
             textCharLimit: partial.textCharLimit, enumUuid: partial.enumUuid,
             relatedPropertyUuid: partial.relatedPropertyUuid,
+            baseOriginPropertyUuid: partial.baseOriginPropertyUuid,
             clearRepoRepresentativeFile: partial.clearRepoRepresentativeFile,
             clearBaseComposable: partial.clearBaseComposable,
+            clearBaseOrigin: partial.clearBaseOrigin,
             clearAutoIncrement: partial.clearAutoIncrement,
             clearTextCharLimit: partial.clearTextCharLimit,
             clearEnum: partial.clearEnum,
@@ -136,8 +139,10 @@ struct Dope: ParsableCommand {
         var textCharLimit: Int?
         var enumUuid: String?
         var relatedPropertyUuid: String?
+        var baseOriginPropertyUuid: String?
         var clearRepoRepresentativeFile: Bool?
         var clearBaseComposable: Bool?
+        var clearBaseOrigin: Bool?
         var clearAutoIncrement: Bool?
         var clearTextCharLimit: Bool?
         var clearEnum: Bool?
@@ -360,6 +365,8 @@ struct Dope: ParsableCommand {
         var enumUuid: String?
         @Option(name: .long, help: "Target property uuid (same scope, not itself a relationship) — required iff --data-type relationship.")
         var relatedPropertyUuid: String?
+        @Option(name: .long, help: "Base property uuid this one materializes (same scope; its entity must be a BASE_COMPOSABLE this entity composes; same data_type).")
+        var baseOriginUuid: String?
         func run() throws {
             try Dope.runAdd(.property, common, output) {
                 $0.dataType = dataType
@@ -369,6 +376,7 @@ struct Dope: ParsableCommand {
                 $0.textCharLimit = textCharLimit
                 $0.enumUuid = enumUuid
                 $0.relatedPropertyUuid = relatedPropertyUuid
+                $0.baseOriginPropertyUuid = baseOriginUuid
             }
         }
     }
@@ -390,10 +398,13 @@ struct Dope: ParsableCommand {
         @Option(name: .long) var textCharLimit: Int?
         @Option(name: .long) var enumUuid: String?
         @Option(name: .long) var relatedPropertyUuid: String?
+        @Option(name: .long, help: "Base property uuid this one materializes (same scope; its entity must be a BASE_COMPOSABLE this entity composes; same data_type).")
+        var baseOriginUuid: String?
         @Flag(name: .long, help: "Set the enum ref to NULL.") var clearEnum = false
         @Flag(name: .long, help: "Set the relationship target to NULL.") var clearRelatedProperty = false
         @Flag(name: .long, help: "Set auto_increment to NULL.") var clearAutoIncrement = false
         @Flag(name: .long, help: "Set text_char_limit to NULL.") var clearTextCharLimit = false
+        @Flag(name: .long, help: "Set base_origin_property_uuid to NULL.") var clearBaseOrigin = false
         func run() throws {
             try Dope.runUpdate(.property, target, common, output) {
                 $0.dataType = dataType
@@ -403,10 +414,12 @@ struct Dope: ParsableCommand {
                 $0.textCharLimit = textCharLimit
                 $0.enumUuid = enumUuid
                 $0.relatedPropertyUuid = relatedPropertyUuid
+                $0.baseOriginPropertyUuid = baseOriginUuid
                 if clearEnum { $0.clearEnum = true }
                 if clearRelatedProperty { $0.clearRelatedProperty = true }
                 if clearAutoIncrement { $0.clearAutoIncrement = true }
                 if clearTextCharLimit { $0.clearTextCharLimit = true }
+                if clearBaseOrigin { $0.clearBaseOrigin = true }
             }
         }
     }
