@@ -13,7 +13,7 @@ struct Dope: ParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "DOPED domain modeling: init, get, granular node edits, and whole-tree repo JSON I/O.",
         subcommands: [
-            Init.self, Get.self, ScopeUpdate.self,
+            Init.self, List.self, Get.self, ScopeUpdate.self,
             DomainAdd.self, DomainUpdate.self, DomainDelete.self,
             EntityAdd.self, EntityUpdate.self, EntityDelete.self,
             PropertyAdd.self, PropertyUpdate.self, PropertyDelete.self,
@@ -167,6 +167,29 @@ struct Dope: ParsableCommand {
                 let s = response.scope
                 print("[gm] dope scope \(response.created ? "created" : "exists"): "
                     + "\(s.uuid) (\(s.scopeType) '\(s.code)', revision \(s.revision))")
+            }
+        }
+    }
+
+    struct List: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Enumerate dope scopes for a picker. Without --prompt-uuid: the session's SESSION_BASE scopes; with it: ONLY that prompt's PROMPT scopes (never a union). Empty is normal; an unknown uuid is NOT_FOUND.")
+
+        @OptionGroup var output: OutputOptions
+        @Option(name: .long) var sessionUuid: String
+        @Option(name: .long, help: "Restrict to this prompt's PROMPT scopes instead of the session's SESSION_BASE scopes.")
+        var promptUuid: String?
+
+        func run() throws {
+            let response = try withClient {
+                try $0.dopeList(DopeListRequest(
+                    sessionUuid: sessionUuid, promptUuid: promptUuid))
+            }
+            if output.json { printJSON(response) } else {
+                print("[gm] \(response.scopes.count) dope scope(s)")
+                for s in response.scopes {
+                    print("  \(s.code) \(s.uuid)  \(s.scopeType)  v\(s.version) revision \(s.revision)  \(s.name)")
+                }
             }
         }
     }

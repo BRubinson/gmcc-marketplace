@@ -76,6 +76,7 @@ struct Cheatsheet: ParsableCommand {
       gm review get --prompt-uuid U [--full | --max-rating N | --rating-range A:B]   (mutually exclusive)
     DOPE (domain modeling; dope_scope.revision = the whole-tree counter = the .doped.json version field; json refs are dot-path codes, granular verbs take uuids)
       gm dope init --session-uuid U --code C --name N [--prompt-uuid U] [--description D] [--clone-from-session-base]   (idempotent; PROMPT-typed iff --prompt-uuid)
+      gm dope list --session-uuid U [--prompt-uuid U]   (scope rows for a picker; SESSION_BASE scopes, or ONLY that prompt's PROMPT scopes with --prompt-uuid — never a union; empty list is normal, unknown uuid is NOT_FOUND)
       gm dope get --session-uuid U [--prompt-uuid U] [--code C]   (PROMPT scope preferred, SESSION_BASE fallback; --code disambiguates)
       gm dope scope-update --uuid U --expected-version V [--code C] [--name N] [--description D]
       gm dope domain-add · gm dope entity-add · gm dope enum-add · gm dope option-add --parent-uuid U --code C --name N [--description D] [--sort-order N] (entity also: [--entity-type MODEL|JUNCTION]; entity/enum also: [--repo-representative-file P])
@@ -107,7 +108,7 @@ struct Cheatsheet: ParsableCommand {
       - Thread --expected-version on every mutation; on VERSION_CONFLICT re-run the matching get, take .version, retry.
       - gm prompt set-status is the ONLY door that moves a prompt; clarify/arch/explore/review verbs touch their summary only.
       - Always pass --prompt-uuid on gm file-change add — the implementation-state comparison sees only attributed changes.
-      - SUMMARY_ABSENT means the prompt exists but that summary was never opened — open it (gm clarify/arch/explore/review open); never a file fallback.
+      - SUMMARY_ABSENT means the prompt exists but that summary was never opened — open it (gm clarify/arch/explore/review open); for dope it means the session/prompt exists but no scope was ever initialized (gm dope init). Never a file fallback.
       - Dope refs in .doped.json are dot-path codes, never uuids (domain.entity.property / domain.enums.enum_code); granular dope verbs bump revision by 1 each and leave row versions to --expected-version.
       - Values starting with a dash need --flag=value form (e.g. --content="- item").
       - After gm prompt create, mkdir -p $GMCC_CKFS_ROOT/<ckfs_relative_storage_path>/memory verbatim from the response — never re-derive {seq}_{name}.

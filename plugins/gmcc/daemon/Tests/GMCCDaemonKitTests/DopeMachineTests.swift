@@ -129,6 +129,77 @@ final class DopeMachineTests: XCTestCase {
         XCTAssertEqual(direct.resolvedVia, "prompt")
     }
 
+    // MARK: - List (v12)
+
+    func testListReturnsSessionBaseScopesOnly() throws {
+        _ = try initScope(code: "gmcc")
+        _ = try initScope(code: "alpha")
+        _ = try initScope(prompt: "prompt-a", code: "gmcc")
+
+        let scopes = try store.dopeList(DopeListRequest(sessionUuid: "sess-1")).scopes
+        XCTAssertEqual(scopes.map(\.code), ["alpha", "gmcc"], "ORDER BY code")
+        XCTAssertTrue(scopes.allSatisfy { $0.scopeType == "SESSION_BASE" })
+    }
+
+    func testListWithPromptReturnsPromptScopesOnlyNoUnion() throws {
+        _ = try initScope(code: "gmcc")
+        let promptScope = try initScope(prompt: "prompt-a", code: "gmcc").scope
+
+        let scopes = try store.dopeList(
+            DopeListRequest(sessionUuid: "sess-1", promptUuid: "prompt-a")).scopes
+        XCTAssertEqual(scopes.map(\.uuid), [promptScope.uuid])
+        XCTAssertEqual(scopes.first?.scopeType, "PROMPT")
+    }
+
+    func testListOfAnUninitializedTargetIsAnEmptyListNotAnError() throws {
+        XCTAssertEqual(try store.dopeList(DopeListRequest(sessionUuid: "sess-1")).scopes, [])
+        XCTAssertEqual(try store.dopeList(
+            DopeListRequest(sessionUuid: "sess-1", promptUuid: "prompt-a")).scopes, [])
+    }
+
+    func testListRejectsUnknownUuids() throws {
+        assertNotFound("session") { try self.store.dopeList(DopeListRequest(sessionUuid: "nope")) }
+        assertNotFound("prompt") {
+            try self.store.dopeList(DopeListRequest(sessionUuid: "sess-1", promptUuid: "nope"))
+        }
+    }
+
+    // MARK: - Get absence discrimination (v12)
+
+    func testGetOnRealButUninitializedTargetIsSummaryAbsent() throws {
+        for req in [DopeGetRequest(sessionUuid: "sess-1"),
+                    DopeGetRequest(sessionUuid: "sess-1", promptUuid: "prompt-a")] {
+            XCTAssertThrowsError(try store.dopeGet(req)) { error in
+                guard case StoreError.dopeScopeAbsent = error else {
+                    return XCTFail("wrong error: \(error)")
+                }
+                let payload = (error as! StoreError).errorPayload
+                XCTAssertEqual(payload.code, .summaryAbsent)
+                XCTAssertTrue(payload.message.contains("gm dope init"), payload.message)
+            }
+        }
+    }
+
+    func testGetRejectsUnknownUuidsBeforeAbsence() throws {
+        _ = try initScope()   // a scope EXISTS, so only the guards can fire
+        assertNotFound("session") { try self.store.dopeGet(DopeGetRequest(sessionUuid: "nope")) }
+        assertNotFound("prompt") {
+            try self.store.dopeGet(DopeGetRequest(sessionUuid: "sess-1", promptUuid: "nope"))
+        }
+    }
+
+    private func assertNotFound(
+        _ entity: String, file: StaticString = #filePath, line: UInt = #line,
+        _ body: () throws -> Any
+    ) {
+        XCTAssertThrowsError(try body(), file: file, line: line) { error in
+            guard case StoreError.notFound(let got, _) = error else {
+                return XCTFail("wrong error: \(error)", file: file, line: line)
+            }
+            XCTAssertEqual(got, entity, file: file, line: line)
+        }
+    }
+
     // MARK: - Revision vs version split
 
     func testNodeMutationsBumpRevisionNotScopeVersion() throws {

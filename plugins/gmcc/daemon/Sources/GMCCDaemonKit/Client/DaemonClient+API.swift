@@ -323,6 +323,10 @@ extension DaemonClient {
         try request(type: .dopeInit, payload: req, responseType: DopeScopeResponse.self)
     }
 
+    public func dopeList(_ req: DopeListRequest) throws -> DopeListResponse {
+        try request(type: .dopeList, payload: req, responseType: DopeListResponse.self)
+    }
+
     public func dopeGet(_ req: DopeGetRequest) throws -> DopeGetResponse {
         try request(type: .dopeGet, payload: req, responseType: DopeGetResponse.self)
     }

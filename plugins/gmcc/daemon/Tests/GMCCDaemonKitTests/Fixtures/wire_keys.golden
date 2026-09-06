@@ -140,6 +140,9 @@ DopeInitRequest.code -> code
 DopeInitRequest.name -> name
 DopeInitRequest.description -> description
 DopeInitRequest.cloneFromSessionBase -> clone_from_session_base
+DopeListRequest.sessionUuid -> session_uuid
+DopeListRequest.promptUuid -> prompt_uuid
+DopeListResponse.scopes -> scopes
 DopeNodeAddRequest.level -> level
 DopeNodeAddRequest.parentUuid -> parent_uuid
 DopeNodeAddRequest.fields -> fields

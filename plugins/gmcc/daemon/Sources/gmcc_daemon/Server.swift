@@ -418,6 +418,8 @@ final class Server: @unchecked Sendable {
 
             case .dopeInit:
                 return try DopeInitHandler.handle(line: line, head: head, store: store)
+            case .dopeList:
+                return try DopeListHandler.handle(line: line, head: head, store: store)
             case .dopeGet:
                 return try DopeGetHandler.handle(line: line, head: head, store: store)
             case .dopeNodeAdd:

@@ -7,7 +7,7 @@ import Foundation
 /// rejected — the daemon stays up (an old pinned-Kit GMVibes must never be
 /// able to kill-loop a fresh daemon).
 public enum GMCCWireProtocol {
-    public static let version = 11
+    public static let version = 12
 }
 
 /// Discriminator for every NDJSON message on the socket. One case per spec
@@ -90,8 +90,9 @@ public enum MessageType: String, Codable, Hashable, CaseIterable, Sendable {
     case reviewComplete = "REVIEW_COMPLETE"
     case reviewReopen = "REVIEW_REOPEN"
     case reviewGet = "REVIEW_GET"
-    // DOPED domain modeling (v11)
+    // DOPED domain modeling (v11; dopeList v12)
     case dopeInit = "DOPE_INIT"
+    case dopeList = "DOPE_LIST"
     case dopeGet = "DOPE_GET"
     case dopeNodeAdd = "DOPE_NODE_ADD"
     case dopeNodeUpdate = "DOPE_NODE_UPDATE"

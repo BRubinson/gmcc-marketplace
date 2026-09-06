@@ -201,25 +201,76 @@ extension Store {
         }
     }
 
+    // MARK: - Read-verb guards + shared candidate query
+
+    /// dopeInit's existence validation (minus the ownership check, a
+    /// write-verb concern), hoisted so the read verbs can discriminate an
+    /// unknown uuid (NOT_FOUND) from a real-but-uninitialized target
+    /// (SUMMARY_ABSENT) — the clarify/arch/explore/review get pattern.
+    private func requireDopeTarget(
+        _ db: Database, sessionUuid: String, promptUuid: String?
+    ) throws {
+        guard try Row.fetchOne(
+            db, sql: "SELECT uuid FROM session WHERE uuid = ?", arguments: [sessionUuid]
+        ) != nil else {
+            throw StoreError.notFound(entity: "session", key: sessionUuid)
+        }
+        if let promptUuid {
+            guard try Row.fetchOne(
+                db, sql: "SELECT uuid FROM prompt WHERE uuid = ?", arguments: [promptUuid]
+            ) != nil else {
+                throw StoreError.notFound(entity: "prompt", key: promptUuid)
+            }
+        }
+    }
+
+    /// The scope-candidate query shared by dopeGet's resolution ladder and
+    /// dopeList's enumeration — one copy keeps the picker's row order and
+    /// the BAD_REQUEST candidate order identical (ORDER BY code).
+    private func dopeScopeCandidates(
+        _ db: Database, sessionUuid: String, scopeType: DopeScopeType,
+        promptUuid: String? = nil, code: String? = nil
+    ) throws -> [DopeScopeRow] {
+        var sql = "SELECT * FROM dope_scope WHERE session_uuid = ? AND scope_type = ?"
+        var args: [(any DatabaseValueConvertible)?] = [sessionUuid, scopeType.rawValue]
+        if scopeType == .prompt {
+            sql += " AND prompt_uuid = ?"
+            args.append(promptUuid)
+        }
+        if let code {
+            sql += " AND code = ?"
+            args.append(code)
+        }
+        sql += " ORDER BY code"
+        return try Row.fetchAll(db, sql: sql, arguments: StatementArguments(args))
+            .map(Self.dopeScopeRow)
+    }
+
+    // MARK: - List (v12; picker enumeration — never a PROMPT/SESSION_BASE union)
+
+    public func dopeList(_ req: DopeListRequest) throws -> DopeListResponse {
+        try dbQueue.read { db in
+            try self.requireDopeTarget(
+                db, sessionUuid: req.sessionUuid, promptUuid: req.promptUuid)
+            let scopes: [DopeScopeRow]
+            if let promptUuid = req.promptUuid {
+                scopes = try self.dopeScopeCandidates(
+                    db, sessionUuid: req.sessionUuid, scopeType: .prompt,
+                    promptUuid: promptUuid)
+            } else {
+                scopes = try self.dopeScopeCandidates(
+                    db, sessionUuid: req.sessionUuid, scopeType: .sessionBase)
+            }
+            return DopeListResponse(scopes: scopes)
+        }
+    }
+
     // MARK: - Get (PROMPT → SESSION_BASE fallback)
 
     public func dopeGet(_ req: DopeGetRequest) throws -> DopeGetResponse {
         try dbQueue.read { db in
-            func candidates(_ scopeType: DopeScopeType) throws -> [DopeScopeRow] {
-                var sql = "SELECT * FROM dope_scope WHERE session_uuid = ? AND scope_type = ?"
-                var args: [(any DatabaseValueConvertible)?] = [req.sessionUuid, scopeType.rawValue]
-                if scopeType == .prompt {
-                    sql += " AND prompt_uuid = ?"
-                    args.append(req.promptUuid)
-                }
-                if let code = req.code {
-                    sql += " AND code = ?"
-                    args.append(code)
-                }
-                sql += " ORDER BY code"
-                return try Row.fetchAll(db, sql: sql, arguments: StatementArguments(args))
-                    .map(Self.dopeScopeRow)
-            }
+            try self.requireDopeTarget(
+                db, sessionUuid: req.sessionUuid, promptUuid: req.promptUuid)
 
             func pick(_ rows: [DopeScopeRow]) throws -> DopeScopeRow? {
                 if rows.count > 1 {
@@ -232,18 +283,22 @@ extension Store {
 
             var resolvedVia = "session_base"
             var scope: DopeScopeRow?
-            if req.promptUuid != nil {
-                scope = try pick(try candidates(.prompt))
+            if let promptUuid = req.promptUuid {
+                scope = try pick(try self.dopeScopeCandidates(
+                    db, sessionUuid: req.sessionUuid, scopeType: .prompt,
+                    promptUuid: promptUuid, code: req.code))
                 if scope != nil { resolvedVia = "prompt" }
             }
             if scope == nil {
-                scope = try pick(try candidates(.sessionBase))
+                scope = try pick(try self.dopeScopeCandidates(
+                    db, sessionUuid: req.sessionUuid, scopeType: .sessionBase,
+                    code: req.code))
             }
             guard let scope else {
-                throw StoreError.notFound(
-                    entity: "dope_scope",
-                    key: "session \(req.sessionUuid)"
-                        + (req.code.map { " code \($0)" } ?? ""))
+                // The target exists (guard above) — this absence means
+                // "initialize a scope", not "the uuid is unknown".
+                throw StoreError.dopeScopeAbsent(
+                    sessionUuid: req.sessionUuid, promptUuid: req.promptUuid, code: req.code)
             }
             let tree = try self.fetchDopeTree(db, scope: scope)
             return DopeGetResponse(tree: tree, resolvedVia: resolvedVia)

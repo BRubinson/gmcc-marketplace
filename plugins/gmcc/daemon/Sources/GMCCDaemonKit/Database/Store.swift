@@ -28,6 +28,12 @@ public enum StoreError: Error, Sendable {
     /// versionConflict (the invalidEntityTransition precedent) so a pinned-Kit
     /// GMVibes always decodes it.
     case revisionConflict(scopeUuid: String, expected: Int64, actual: Int64)
+    /// The dope target EXISTS (session, and prompt when one was named) but no
+    /// dope scope was ever initialized for it. summaryAbsent is prompt-shaped
+    /// and cannot name a SESSION_BASE target, so dope gets its own case —
+    /// mapped onto the SAME wire code (the revisionConflict precedent), so
+    /// the four prompt-shaped call sites stay untouched.
+    case dopeScopeAbsent(sessionUuid: String, promptUuid: String?, code: String?)
 
     public var errorPayload: ErrorPayload {
         switch self {
@@ -78,6 +84,16 @@ public enum StoreError: Error, Sendable {
             return ErrorPayload(
                 code: .versionConflict,
                 message: "dope_scope \(scopeUuid): expected revision \(expected), actual \(actual)")
+        case .dopeScopeAbsent(let sessionUuid, let promptUuid, let code):
+            var target = "session \(sessionUuid)"
+            if let promptUuid { target += " / prompt \(promptUuid)" }
+            if let code { target += " code '\(code)'" }
+            let initHint = "gm dope init --session-uuid \(sessionUuid)"
+                + (promptUuid.map { " --prompt-uuid \($0)" } ?? "")
+                + " --code \(code ?? "<code>") --name <name>"
+            return ErrorPayload(
+                code: .summaryAbsent,
+                message: "\(target) has no dope scope yet — initialize one (\(initHint))")
         }
     }
 }

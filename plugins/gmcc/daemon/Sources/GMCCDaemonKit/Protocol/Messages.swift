@@ -2192,6 +2192,32 @@ public struct DopeScopeResponse: Codable, Hashable, Sendable {
     }
 }
 
+/// Scope enumeration for pickers (v12). Without promptUuid: the session's
+/// SESSION_BASE scopes. With it: ONLY that prompt's PROMPT scopes — never a
+/// union, so a GUI never string-parses dopeGet's "several dope scopes match"
+/// BAD_REQUEST. Unknown session/prompt uuid is NOT_FOUND; a real target with
+/// no scopes is a normal empty list, never SUMMARY_ABSENT. No code filter:
+/// enumerating IS the point and every row carries its own code.
+public struct DopeListRequest: Codable, Hashable, Sendable {
+    public let sessionUuid: String
+    public let promptUuid: String?
+
+    public init(sessionUuid: String, promptUuid: String? = nil) {
+        self.sessionUuid = sessionUuid
+        self.promptUuid = promptUuid
+    }
+}
+
+public struct DopeListResponse: Codable, Hashable, Sendable {
+    /// ORDER BY code — the SAME order dopeGet's candidate list prints, so a
+    /// picker's rows and the disambiguator message can never disagree.
+    public let scopes: [DopeScopeRow]
+
+    public init(scopes: [DopeScopeRow]) {
+        self.scopes = scopes
+    }
+}
+
 /// Tree read. With promptUuid set, the PROMPT scope is preferred and the
 /// SESSION_BASE tree is the fallback (resolvedVia reports which). With
 /// several scopes matching and no code, the store answers BAD_REQUEST
