@@ -1,0 +1,16 @@
+{
+  "domains" : {
+    "agentics" : "domains/agentics.doped.json",
+    "base" : "domains/base.doped.json",
+    "diagrams" : "domains/diagrams.doped.json",
+    "doped" : "domains/doped.doped.json",
+    "project" : "domains/project.doped.json"
+  },
+  "scope" : {
+    "code" : "gmcc",
+    "description" : "The internal data model driving gmcc",
+    "name" : "Green Mountain Compiler Collection (GMCC)"
+  },
+  "scope_type" : "SESSION_BASE",
+  "version" : 481
+}

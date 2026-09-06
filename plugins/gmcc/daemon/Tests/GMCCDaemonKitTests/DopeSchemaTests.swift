@@ -243,4 +243,93 @@ final class DopeSchemaTests: XCTestCase {
             XCTAssertTrue(try Row.fetchAll(db, sql: "PRAGMA foreign_key_check").isEmpty)
         }
     }
+
+    // MARK: - m0008 (BASE_COMPOSABLE + base_composable_uuid)
+
+    func testM0008EntityTypeCouplingAndSelfFk() throws {
+        let (store, dbPath) = try makeMigratedStore()
+        defer { try? FileManager.default.removeItem(atPath: dbPath) }
+        try store.dbQueue.write { db in
+            try insertScope(db, uuid: "sc-1", code: "gmcc")
+            try insertTree(db)
+            let now = Store.isoNow()
+
+            // The widened CHECK accepts BASE_COMPOSABLE…
+            try db.execute(sql: """
+                INSERT INTO dope_domain_entity (uuid, version, created_at, updated_at,
+                    dope_domain_uuid, code, name, entity_type)
+                VALUES ('ent-base', 0, '\(now)', '\(now)', 'dom-1', 'base_entity',
+                        'Base Entity', 'BASE_COMPOSABLE')
+                """)
+            // …and still rejects anything else.
+            XCTAssertThrowsError(try db.execute(sql: """
+                INSERT INTO dope_domain_entity (uuid, version, created_at, updated_at,
+                    dope_domain_uuid, code, name, entity_type)
+                VALUES ('ent-bad', 0, '\(now)', '\(now)', 'dom-1', 'bad', 'Bad', 'MODULE')
+                """))
+            // The self-FK survived the rebuild + rename: a dangling target
+            // is refused…
+            XCTAssertThrowsError(try db.execute(sql: """
+                INSERT INTO dope_domain_entity (uuid, version, created_at, updated_at,
+                    dope_domain_uuid, code, name, base_composable_uuid)
+                VALUES ('ent-dangling', 0, '\(now)', '\(now)', 'dom-1', 'dang', 'Dang',
+                        'no-such-entity')
+                """))
+            // …and the self-ref CHECK catches the degenerate 1-cycle.
+            XCTAssertThrowsError(try db.execute(sql: """
+                UPDATE dope_domain_entity SET base_composable_uuid = 'ent-1'
+                 WHERE uuid = 'ent-1'
+                """))
+            // A legal composition.
+            try db.execute(sql: """
+                UPDATE dope_domain_entity SET base_composable_uuid = 'ent-base'
+                 WHERE uuid = 'ent-1'
+                """)
+        }
+    }
+
+    func testM0008PreservesEveryEntityRowAndIndex() throws {
+        let (store, dbPath) = try makeMigratedStore()
+        defer { try? FileManager.default.removeItem(atPath: dbPath) }
+        try store.dbQueue.write { db in
+            try insertScope(db, uuid: "sc-1", code: "gmcc")
+            try insertTree(db)
+        }
+        try store.dbQueue.read { db in
+            // Both indexes exist post-rebuild (a DROP takes them silently).
+            for index in ["idx_dope_domain_entity_domain_fk",
+                          "idx_dope_entity_base_composable_fk"] {
+                XCTAssertEqual(
+                    try Int.fetchOne(db, sql:
+                        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = ?",
+                        arguments: [index]), 1, "missing index \(index)")
+            }
+            // ids stay contiguous rowids and the whole db passes an FK sweep.
+            XCTAssertEqual(
+                try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM dope_domain_entity"), 1)
+            XCTAssertEqual(
+                try Int.fetchOne(db, sql: "SELECT MIN(id) FROM dope_domain_entity"), 1)
+            XCTAssertTrue(try Row.fetchAll(db, sql: "PRAGMA foreign_key_check").isEmpty)
+        }
+    }
+
+    func testBaseRestrictRefusesDeletingComposedEntity() throws {
+        let (store, dbPath) = try makeMigratedStore()
+        defer { try? FileManager.default.removeItem(atPath: dbPath) }
+        try store.dbQueue.write { db in
+            try insertScope(db, uuid: "sc-1", code: "gmcc")
+            try insertTree(db)
+            let now = Store.isoNow()
+            try db.execute(sql: """
+                INSERT INTO dope_domain_entity (uuid, version, created_at, updated_at,
+                    dope_domain_uuid, code, name, entity_type)
+                VALUES ('ent-base', 0, '\(now)', '\(now)', 'dom-1', 'base_entity',
+                        'Base Entity', 'BASE_COMPOSABLE');
+                UPDATE dope_domain_entity SET base_composable_uuid = 'ent-base'
+                 WHERE uuid = 'ent-1';
+                """)
+            XCTAssertThrowsError(
+                try db.execute(sql: "DELETE FROM dope_domain_entity WHERE uuid = 'ent-base'"))
+        }
+    }
 }

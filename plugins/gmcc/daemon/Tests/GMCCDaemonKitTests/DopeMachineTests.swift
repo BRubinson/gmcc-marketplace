@@ -375,4 +375,175 @@ final class DopeMachineTests: XCTestCase {
         }
         XCTAssertEqual(kinds, ["DOPE_CHANGE", "DOPE_CHANGE"], "init + node_add")
     }
+
+    // MARK: - Base composables
+
+    /// Adds a BASE_COMPOSABLE entity under `domain`.
+    @discardableResult
+    private func addBase(_ code: String, domain: String) throws -> DopeNodeResponse {
+        try addNode(.entity, parent: domain,
+                    DopeNodeFields(code: code, name: code, entityType: .baseComposable))
+    }
+
+    func testBaseComposableSameScopeEnforced() throws {
+        let base = try initScope().scope
+        let baseDomain = try addNode(.domain, parent: base.uuid,
+                                     DopeNodeFields(code: "core", name: "Core"))
+        let baseEntity = try addBase("base_entity", domain: baseDomain.uuid)
+
+        let promptScope = try initScope(prompt: "prompt-a").scope
+        let domain = try addNode(.domain, parent: promptScope.uuid,
+                                 DopeNodeFields(code: "core", name: "Core"))
+        XCTAssertThrowsError(try addNode(
+            .entity, parent: domain.uuid,
+            DopeNodeFields(code: "user", name: "User",
+                           baseComposableUuid: baseEntity.uuid))) { error in
+            guard case StoreError.badRequest(let detail) = error else {
+                return XCTFail("wrong error: \(error)")
+            }
+            XCTAssertTrue(detail.contains("different dope scope"), detail)
+        }
+    }
+
+    func testBaseComposableTargetMustBeBaseComposable() throws {
+        let scope = try initScope().scope
+        let ids = try buildSmallTree(scopeUuid: scope.uuid)   // 'user' is a MODEL
+        XCTAssertThrowsError(try addNode(
+            .entity, parent: ids.domain,
+            DopeNodeFields(code: "post", name: "Post",
+                           baseComposableUuid: ids.entity))) { error in
+            guard case StoreError.badRequest(let detail) = error else {
+                return XCTFail("wrong error: \(error)")
+            }
+            XCTAssertTrue(detail.contains("only a BASE_COMPOSABLE"), detail)
+        }
+    }
+
+    func testBaseComposableChainingAllowedButCycleRefused() throws {
+        let scope = try initScope().scope
+        let domain = try addNode(.domain, parent: scope.uuid,
+                                 DopeNodeFields(code: "core", name: "Core"))
+        let a = try addBase("b_one", domain: domain.uuid)
+        let b = try addBase("b_two", domain: domain.uuid)
+        let c = try addBase("b_three", domain: domain.uuid)
+
+        // Chaining is legal: a → b → c.
+        _ = try store.dopeNodeUpdate(DopeNodeUpdateRequest(
+            level: .entity, nodeUuid: a.uuid, expectedVersion: 0,
+            fields: DopeNodeFields(baseComposableUuid: b.uuid)))
+        _ = try store.dopeNodeUpdate(DopeNodeUpdateRequest(
+            level: .entity, nodeUuid: b.uuid, expectedVersion: 0,
+            fields: DopeNodeFields(baseComposableUuid: c.uuid)))
+
+        // Closing the loop (c → a) is the 3-cycle; refused at the last call.
+        XCTAssertThrowsError(try store.dopeNodeUpdate(DopeNodeUpdateRequest(
+            level: .entity, nodeUuid: c.uuid, expectedVersion: 0,
+            fields: DopeNodeFields(baseComposableUuid: a.uuid)))) { error in
+            guard case StoreError.badRequest(let detail) = error else {
+                return XCTFail("wrong error: \(error)")
+            }
+            XCTAssertTrue(detail.contains("cycle"), detail)
+        }
+
+        // The 2-cycle: d → e, then e → d refused.
+        let d = try addBase("b_four", domain: domain.uuid)
+        let e = try addBase("b_five", domain: domain.uuid)
+        _ = try store.dopeNodeUpdate(DopeNodeUpdateRequest(
+            level: .entity, nodeUuid: d.uuid, expectedVersion: 0,
+            fields: DopeNodeFields(baseComposableUuid: e.uuid)))
+        XCTAssertThrowsError(try store.dopeNodeUpdate(DopeNodeUpdateRequest(
+            level: .entity, nodeUuid: e.uuid, expectedVersion: 0,
+            fields: DopeNodeFields(baseComposableUuid: d.uuid))))
+
+        // The 1-cycle: an entity may not compose itself.
+        XCTAssertThrowsError(try store.dopeNodeUpdate(DopeNodeUpdateRequest(
+            level: .entity, nodeUuid: c.uuid, expectedVersion: 0,
+            fields: DopeNodeFields(baseComposableUuid: c.uuid)))) { error in
+            guard case StoreError.badRequest(let detail) = error else {
+                return XCTFail("wrong error: \(error)")
+            }
+            XCTAssertTrue(detail.contains("compose itself"), detail)
+        }
+    }
+
+    func testDemotingAComposedBaseIsRefused() throws {
+        let scope = try initScope().scope
+        let domain = try addNode(.domain, parent: scope.uuid,
+                                 DopeNodeFields(code: "core", name: "Core"))
+        let base = try addBase("base_entity", domain: domain.uuid)
+        _ = try addNode(.entity, parent: domain.uuid,
+                        DopeNodeFields(code: "user", name: "User",
+                                       baseComposableUuid: base.uuid))
+        XCTAssertThrowsError(try store.dopeNodeUpdate(DopeNodeUpdateRequest(
+            level: .entity, nodeUuid: base.uuid, expectedVersion: 0,
+            fields: DopeNodeFields(entityType: .model)))) { error in
+            guard case StoreError.badRequest(let detail) = error else {
+                return XCTFail("wrong error: \(error)")
+            }
+            XCTAssertTrue(detail.contains("core.user"), detail)
+        }
+    }
+
+    func testDeleteBaseRefusedWhileComposedThenAllowed() throws {
+        let scope = try initScope().scope
+        let coreDomain = try addNode(.domain, parent: scope.uuid,
+                                     DopeNodeFields(code: "core", name: "Core"))
+        let baseDomain = try addNode(.domain, parent: scope.uuid,
+                                     DopeNodeFields(code: "base", name: "Base"))
+        let base = try addBase("base_entity", domain: baseDomain.uuid)
+        let user = try addNode(.entity, parent: coreDomain.uuid,
+                               DopeNodeFields(code: "user", name: "User",
+                                              baseComposableUuid: base.uuid))
+
+        // Deleting the composed base — or the domain holding it — is refused
+        // naming the cross-domain composer.
+        for (level, uuid) in [(DopeLevel.entity, base.uuid), (.domain, baseDomain.uuid)] {
+            XCTAssertThrowsError(try store.dopeNodeDelete(DopeNodeDeleteRequest(
+                level: level, nodeUuid: uuid, expectedVersion: 0))) { error in
+                guard case StoreError.badRequest(let detail) = error else {
+                    return XCTFail("wrong error: \(error)")
+                }
+                XCTAssertTrue(detail.contains("core.user"), detail)
+            }
+        }
+
+        _ = try store.dopeNodeUpdate(DopeNodeUpdateRequest(
+            level: .entity, nodeUuid: user.uuid, expectedVersion: 0,
+            fields: DopeNodeFields(clearBaseComposable: true)))
+        _ = try store.dopeNodeDelete(DopeNodeDeleteRequest(
+            level: .entity, nodeUuid: base.uuid, expectedVersion: 0))
+    }
+
+    /// A same-domain base pair must not trip the RESTRICT self-FK during the
+    /// domain delete's CASCADE (the NULL-out pre-step).
+    func testDomainDeleteWithInternalBasePair() throws {
+        let scope = try initScope().scope
+        let domain = try addNode(.domain, parent: scope.uuid,
+                                 DopeNodeFields(code: "core", name: "Core"))
+        let base = try addBase("base_entity", domain: domain.uuid)
+        _ = try addNode(.entity, parent: domain.uuid,
+                        DopeNodeFields(code: "user", name: "User",
+                                       baseComposableUuid: base.uuid))
+        let deleted = try store.dopeNodeDelete(DopeNodeDeleteRequest(
+            level: .domain, nodeUuid: domain.uuid, expectedVersion: 0))
+        XCTAssertEqual(deleted.cascaded.entities, 2)
+        try store.dbQueue.read { db in
+            XCTAssertEqual(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM dope_domain_entity"), 0)
+        }
+    }
+
+    func testEntityBaseFieldOwnership() throws {
+        let scope = try initScope().scope
+        let ids = try buildSmallTree(scopeUuid: scope.uuid)
+        // baseComposableUuid is entity-owned; a property update carrying it
+        // is a precise refusal.
+        XCTAssertThrowsError(try store.dopeNodeUpdate(DopeNodeUpdateRequest(
+            level: .property, nodeUuid: ids.property, expectedVersion: 0,
+            fields: DopeNodeFields(baseComposableUuid: ids.entity)))) { error in
+            guard case StoreError.badRequest(let detail) = error else {
+                return XCTFail("wrong error: \(error)")
+            }
+            XCTAssertTrue(detail.contains("has no field"), detail)
+        }
+    }
 }

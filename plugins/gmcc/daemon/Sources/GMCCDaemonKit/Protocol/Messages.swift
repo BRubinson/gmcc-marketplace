@@ -2256,6 +2256,7 @@ public struct DopeNodeFields: Codable, Hashable, Sendable {
     public let sortOrder: Int?
     public let entityType: DopeEntityType?
     public let repoRepresentativeFile: String?
+    public let baseComposableUuid: String?
     public let dataType: DopePropertyDataType?
     public let nullable: Bool?
     public let isUnique: Bool?
@@ -2264,6 +2265,7 @@ public struct DopeNodeFields: Codable, Hashable, Sendable {
     public let enumUuid: String?
     public let relatedPropertyUuid: String?
     public let clearRepoRepresentativeFile: Bool?
+    public let clearBaseComposable: Bool?
     public let clearAutoIncrement: Bool?
     public let clearTextCharLimit: Bool?
     public let clearEnum: Bool?
@@ -2276,6 +2278,7 @@ public struct DopeNodeFields: Codable, Hashable, Sendable {
         sortOrder: Int? = nil,
         entityType: DopeEntityType? = nil,
         repoRepresentativeFile: String? = nil,
+        baseComposableUuid: String? = nil,
         dataType: DopePropertyDataType? = nil,
         nullable: Bool? = nil,
         isUnique: Bool? = nil,
@@ -2284,6 +2287,7 @@ public struct DopeNodeFields: Codable, Hashable, Sendable {
         enumUuid: String? = nil,
         relatedPropertyUuid: String? = nil,
         clearRepoRepresentativeFile: Bool? = nil,
+        clearBaseComposable: Bool? = nil,
         clearAutoIncrement: Bool? = nil,
         clearTextCharLimit: Bool? = nil,
         clearEnum: Bool? = nil,
@@ -2295,6 +2299,7 @@ public struct DopeNodeFields: Codable, Hashable, Sendable {
         self.sortOrder = sortOrder
         self.entityType = entityType
         self.repoRepresentativeFile = repoRepresentativeFile
+        self.baseComposableUuid = baseComposableUuid
         self.dataType = dataType
         self.nullable = nullable
         self.isUnique = isUnique
@@ -2303,6 +2308,7 @@ public struct DopeNodeFields: Codable, Hashable, Sendable {
         self.enumUuid = enumUuid
         self.relatedPropertyUuid = relatedPropertyUuid
         self.clearRepoRepresentativeFile = clearRepoRepresentativeFile
+        self.clearBaseComposable = clearBaseComposable
         self.clearAutoIncrement = clearAutoIncrement
         self.clearTextCharLimit = clearTextCharLimit
         self.clearEnum = clearEnum

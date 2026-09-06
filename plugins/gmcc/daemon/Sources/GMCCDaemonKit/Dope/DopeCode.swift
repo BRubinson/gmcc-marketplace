@@ -44,6 +44,9 @@ public enum DopeCode {
         case property(domain: String, entity: String, property: String)
         /// `domain_code.enums.enum_code`
         case enumType(domain: String, enumCode: String)
+        /// `domain_code.entity_code` — a base_composable target. Two
+        /// segments, so it can never collide with the three-segment forms.
+        case entity(domain: String, entity: String)
     }
 
     public static func parseRef(_ raw: String, field: String) throws -> Ref {
@@ -62,11 +65,33 @@ public enum DopeCode {
         return .property(domain: parts[0], entity: parts[1], property: parts[2])
     }
 
+    /// Strictly 2-segment. Deliberately NOT folded into parseRef: a truncated
+    /// property ref must stay an error there, not silently become an entity.
+    public static func parseEntityRef(_ raw: String, field: String) throws -> Ref {
+        let parts = raw.split(separator: ".", omittingEmptySubsequences: false)
+            .map(String.init)
+        guard parts.count == 2, !parts.contains(where: \.isEmpty) else {
+            throw ValidationError("\(field) '\(raw)' must be domain.entity")
+        }
+        for (i, part) in parts.enumerated() {
+            try validateCode(part, field: "\(field) segment \(i + 1)")
+        }
+        guard parts[1] != reservedEnumSegment else {
+            throw ValidationError(
+                "\(field) '\(raw)' names entity 'enums' — reserved (no entity may carry that code)")
+        }
+        return .entity(domain: parts[0], entity: parts[1])
+    }
+
     public static func formatPropertyRef(domain: String, entity: String, property: String) -> String {
         "\(domain).\(entity).\(property)"
     }
 
     public static func formatEnumRef(domain: String, enumCode: String) -> String {
         "\(domain).\(reservedEnumSegment).\(enumCode)"
+    }
+
+    public static func formatEntityRef(domain: String, entity: String) -> String {
+        "\(domain).\(entity)"
     }
 }

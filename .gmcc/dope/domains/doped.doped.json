@@ -1,0 +1,578 @@
+{
+  "code" : "doped",
+  "description" : "Domain Oriented Persistence Entity Diagram modeling tables: scope, domain, entity, property, enum, option",
+  "entities" : [
+    {
+      "base_composable_ref" : "base.base_entity",
+      "code" : "dope_scope",
+      "description" : "Root of one DOPED model tree; SESSION_BASE per session or PROMPT-local",
+      "entity_type" : "MODEL",
+      "name" : "Dope Scope",
+      "properties" : [
+        {
+          "code" : "session_uuid",
+          "data_type" : "relationship",
+          "description" : "Owning session; cascade on delete",
+          "is_unique" : false,
+          "name" : "Session",
+          "nullable" : false,
+          "related_property_ref" : "project.session.uuid",
+          "sort_order" : 6
+        },
+        {
+          "code" : "prompt_uuid",
+          "data_type" : "relationship",
+          "description" : "Set iff scope_type is PROMPT",
+          "is_unique" : false,
+          "name" : "Prompt",
+          "nullable" : true,
+          "related_property_ref" : "project.prompt.uuid",
+          "sort_order" : 7
+        },
+        {
+          "code" : "scope_type",
+          "data_type" : "enum",
+          "description" : "SESSION_BASE or PROMPT",
+          "enum_ref" : "doped.enums.scope_type",
+          "is_unique" : false,
+          "name" : "Scope Type",
+          "nullable" : false,
+          "sort_order" : 8
+        },
+        {
+          "code" : "code",
+          "data_type" : "text",
+          "description" : "snake_case; unique per session (base) or per prompt",
+          "is_unique" : false,
+          "name" : "Code",
+          "nullable" : false,
+          "sort_order" : 9
+        },
+        {
+          "code" : "name",
+          "data_type" : "text",
+          "description" : "Canonical model name",
+          "is_unique" : false,
+          "name" : "Name",
+          "nullable" : false,
+          "sort_order" : 10
+        },
+        {
+          "code" : "description",
+          "data_type" : "text",
+          "description" : "What the modeled system is",
+          "is_unique" : false,
+          "name" : "Description",
+          "nullable" : false,
+          "sort_order" : 11,
+          "text_char_limit" : 512
+        },
+        {
+          "code" : "revision",
+          "data_type" : "int",
+          "description" : "Whole-tree counter; the .doped.json version field",
+          "is_unique" : false,
+          "name" : "Revision",
+          "nullable" : false,
+          "sort_order" : 12
+        }
+      ],
+      "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
+      "sort_order" : 1
+    },
+    {
+      "base_composable_ref" : "base.base_entity",
+      "code" : "dope_domain",
+      "description" : "Named grouping of entities and enums within a scope, like a db schema",
+      "entity_type" : "MODEL",
+      "name" : "Dope Domain",
+      "properties" : [
+        {
+          "code" : "dope_scope_uuid",
+          "data_type" : "relationship",
+          "description" : "Owning scope; cascade on delete",
+          "is_unique" : false,
+          "name" : "Scope",
+          "nullable" : false,
+          "related_property_ref" : "doped.dope_scope.uuid",
+          "sort_order" : 6
+        },
+        {
+          "code" : "code",
+          "data_type" : "text",
+          "description" : "snake_case schema prefix; unique per scope",
+          "is_unique" : false,
+          "name" : "Code",
+          "nullable" : false,
+          "sort_order" : 7
+        },
+        {
+          "code" : "name",
+          "data_type" : "text",
+          "description" : "Display name",
+          "is_unique" : false,
+          "name" : "Name",
+          "nullable" : false,
+          "sort_order" : 8
+        },
+        {
+          "code" : "description",
+          "data_type" : "text",
+          "description" : "What the domain covers",
+          "is_unique" : false,
+          "name" : "Description",
+          "nullable" : false,
+          "sort_order" : 9,
+          "text_char_limit" : 512
+        },
+        {
+          "code" : "sort_order",
+          "data_type" : "int",
+          "description" : "Stable diagram ordering",
+          "is_unique" : false,
+          "name" : "Sort Order",
+          "nullable" : false,
+          "sort_order" : 10
+        }
+      ],
+      "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
+      "sort_order" : 2
+    },
+    {
+      "base_composable_ref" : "base.base_entity",
+      "code" : "dope_domain_entity",
+      "description" : "A modeled table/entity within a domain",
+      "entity_type" : "MODEL",
+      "name" : "Dope Domain Entity",
+      "properties" : [
+        {
+          "code" : "dope_domain_uuid",
+          "data_type" : "relationship",
+          "description" : "Owning domain; cascade on delete",
+          "is_unique" : false,
+          "name" : "Domain",
+          "nullable" : false,
+          "related_property_ref" : "doped.dope_domain.uuid",
+          "sort_order" : 6
+        },
+        {
+          "code" : "code",
+          "data_type" : "text",
+          "description" : "snake_case reference code; unique per domain",
+          "is_unique" : false,
+          "name" : "Code",
+          "nullable" : false,
+          "sort_order" : 7
+        },
+        {
+          "code" : "name",
+          "data_type" : "text",
+          "description" : "Display name",
+          "is_unique" : false,
+          "name" : "Name",
+          "nullable" : false,
+          "sort_order" : 8
+        },
+        {
+          "code" : "entity_type",
+          "data_type" : "enum",
+          "description" : "MODEL default; JUNCTION for join tables",
+          "enum_ref" : "doped.enums.entity_type",
+          "is_unique" : false,
+          "name" : "Entity Type",
+          "nullable" : false,
+          "sort_order" : 9
+        },
+        {
+          "code" : "description",
+          "data_type" : "text",
+          "description" : "What the entity represents",
+          "is_unique" : false,
+          "name" : "Description",
+          "nullable" : false,
+          "sort_order" : 10,
+          "text_char_limit" : 512
+        },
+        {
+          "code" : "sort_order",
+          "data_type" : "int",
+          "description" : "Stable diagram ordering",
+          "is_unique" : false,
+          "name" : "Sort Order",
+          "nullable" : false,
+          "sort_order" : 11
+        },
+        {
+          "code" : "repo_representative_file",
+          "data_type" : "text",
+          "description" : "Path of the file best representing this entity, usually an ORM object",
+          "is_unique" : false,
+          "name" : "Representative File",
+          "nullable" : true,
+          "sort_order" : 12
+        }
+      ],
+      "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
+      "sort_order" : 3
+    },
+    {
+      "base_composable_ref" : "base.base_entity",
+      "code" : "dope_domain_entity_property",
+      "description" : "A modeled column/property of an entity",
+      "entity_type" : "MODEL",
+      "name" : "Dope Domain Entity Property",
+      "properties" : [
+        {
+          "code" : "dope_domain_entity_uuid",
+          "data_type" : "relationship",
+          "description" : "Owning entity; cascade on delete",
+          "is_unique" : false,
+          "name" : "Entity",
+          "nullable" : false,
+          "related_property_ref" : "doped.dope_domain_entity.uuid",
+          "sort_order" : 6
+        },
+        {
+          "code" : "code",
+          "data_type" : "text",
+          "description" : "snake_case reference code; unique per entity",
+          "is_unique" : false,
+          "name" : "Code",
+          "nullable" : false,
+          "sort_order" : 7
+        },
+        {
+          "code" : "name",
+          "data_type" : "text",
+          "description" : "Display name",
+          "is_unique" : false,
+          "name" : "Name",
+          "nullable" : false,
+          "sort_order" : 8
+        },
+        {
+          "code" : "description",
+          "data_type" : "text",
+          "description" : "What the property holds",
+          "is_unique" : false,
+          "name" : "Description",
+          "nullable" : false,
+          "sort_order" : 9,
+          "text_char_limit" : 128
+        },
+        {
+          "code" : "sort_order",
+          "data_type" : "int",
+          "description" : "Stable diagram ordering",
+          "is_unique" : false,
+          "name" : "Sort Order",
+          "nullable" : false,
+          "sort_order" : 10
+        },
+        {
+          "code" : "data_type",
+          "data_type" : "enum",
+          "description" : "Value type of the property",
+          "enum_ref" : "doped.enums.property_data_type",
+          "is_unique" : false,
+          "name" : "Data Type",
+          "nullable" : false,
+          "sort_order" : 11
+        },
+        {
+          "code" : "nullable",
+          "data_type" : "boolean",
+          "description" : "Whether NULL is allowed in the table",
+          "is_unique" : false,
+          "name" : "Nullable",
+          "nullable" : false,
+          "sort_order" : 12
+        },
+        {
+          "code" : "is_unique",
+          "data_type" : "boolean",
+          "description" : "Simple single-column unique constraint",
+          "is_unique" : false,
+          "name" : "Is Unique",
+          "nullable" : false,
+          "sort_order" : 13
+        },
+        {
+          "code" : "auto_increment",
+          "data_type" : "boolean",
+          "description" : "Only for long properties",
+          "is_unique" : false,
+          "name" : "Auto Increment",
+          "nullable" : true,
+          "sort_order" : 14
+        },
+        {
+          "code" : "text_char_limit",
+          "data_type" : "int",
+          "description" : "Only for text properties",
+          "is_unique" : false,
+          "name" : "Text Char Limit",
+          "nullable" : true,
+          "sort_order" : 15
+        },
+        {
+          "code" : "dope_domain_enum_uuid",
+          "data_type" : "relationship",
+          "description" : "Set iff data_type is enum",
+          "is_unique" : false,
+          "name" : "Enum",
+          "nullable" : true,
+          "related_property_ref" : "doped.dope_domain_enum.uuid",
+          "sort_order" : 16
+        },
+        {
+          "code" : "related_property_uuid",
+          "data_type" : "relationship",
+          "description" : "Set iff data_type is relationship; one-sided, target's type is the value",
+          "is_unique" : false,
+          "name" : "Related Property",
+          "nullable" : true,
+          "related_property_ref" : "doped.dope_domain_entity_property.uuid",
+          "sort_order" : 17
+        }
+      ],
+      "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
+      "sort_order" : 4
+    },
+    {
+      "base_composable_ref" : "base.base_entity",
+      "code" : "dope_domain_enum",
+      "description" : "A modeled enum type within a domain",
+      "entity_type" : "MODEL",
+      "name" : "Dope Domain Enum",
+      "properties" : [
+        {
+          "code" : "dope_domain_uuid",
+          "data_type" : "relationship",
+          "description" : "Owning domain; cascade on delete",
+          "is_unique" : false,
+          "name" : "Domain",
+          "nullable" : false,
+          "related_property_ref" : "doped.dope_domain.uuid",
+          "sort_order" : 6
+        },
+        {
+          "code" : "code",
+          "data_type" : "text",
+          "description" : "snake_case; referenced as domain.enums.enum_code",
+          "is_unique" : false,
+          "name" : "Code",
+          "nullable" : false,
+          "sort_order" : 7
+        },
+        {
+          "code" : "name",
+          "data_type" : "text",
+          "description" : "Display name",
+          "is_unique" : false,
+          "name" : "Name",
+          "nullable" : false,
+          "sort_order" : 8
+        },
+        {
+          "code" : "description",
+          "data_type" : "text",
+          "description" : "What the enum classifies",
+          "is_unique" : false,
+          "name" : "Description",
+          "nullable" : false,
+          "sort_order" : 9,
+          "text_char_limit" : 256
+        },
+        {
+          "code" : "sort_order",
+          "data_type" : "int",
+          "description" : "Stable diagram ordering",
+          "is_unique" : false,
+          "name" : "Sort Order",
+          "nullable" : false,
+          "sort_order" : 10
+        },
+        {
+          "code" : "repo_representative_file",
+          "data_type" : "text",
+          "description" : "Path of the file best representing this enum",
+          "is_unique" : false,
+          "name" : "Representative File",
+          "nullable" : true,
+          "sort_order" : 11
+        }
+      ],
+      "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
+      "sort_order" : 5
+    },
+    {
+      "base_composable_ref" : "base.base_entity",
+      "code" : "dope_domain_enum_option",
+      "description" : "One allowed value of a domain enum",
+      "entity_type" : "MODEL",
+      "name" : "Dope Domain Enum Option",
+      "properties" : [
+        {
+          "code" : "dope_domain_enum_uuid",
+          "data_type" : "relationship",
+          "description" : "Owning enum; cascade on delete",
+          "is_unique" : false,
+          "name" : "Enum",
+          "nullable" : false,
+          "related_property_ref" : "doped.dope_domain_enum.uuid",
+          "sort_order" : 6
+        },
+        {
+          "code" : "code",
+          "data_type" : "text",
+          "description" : "snake_case; referenced as domain.enums.enum_code.option_code",
+          "is_unique" : false,
+          "name" : "Code",
+          "nullable" : false,
+          "sort_order" : 7
+        },
+        {
+          "code" : "name",
+          "data_type" : "text",
+          "description" : "Display name",
+          "is_unique" : false,
+          "name" : "Name",
+          "nullable" : false,
+          "sort_order" : 8
+        },
+        {
+          "code" : "description",
+          "data_type" : "text",
+          "description" : "What the value means",
+          "is_unique" : false,
+          "name" : "Description",
+          "nullable" : false,
+          "sort_order" : 9,
+          "text_char_limit" : 128
+        },
+        {
+          "code" : "sort_order",
+          "data_type" : "int",
+          "description" : "Stable diagram ordering",
+          "is_unique" : false,
+          "name" : "Sort Order",
+          "nullable" : false,
+          "sort_order" : 10
+        }
+      ],
+      "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
+      "sort_order" : 6
+    }
+  ],
+  "enums" : [
+    {
+      "code" : "scope_type",
+      "description" : "Whether a scope is the session's base model or a prompt-local one",
+      "name" : "Scope Type",
+      "options" : [
+        {
+          "code" : "session_base",
+          "description" : "The session's base model",
+          "name" : "SESSION_BASE",
+          "sort_order" : 1
+        },
+        {
+          "code" : "prompt",
+          "description" : "Prompt-local scope; requires a prompt",
+          "name" : "PROMPT",
+          "sort_order" : 2
+        }
+      ],
+      "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
+      "sort_order" : 1
+    },
+    {
+      "code" : "entity_type",
+      "description" : "How central an entity is to the model",
+      "name" : "Entity Type",
+      "options" : [
+        {
+          "code" : "model",
+          "description" : "Key entity that must be understood",
+          "name" : "MODEL",
+          "sort_order" : 1
+        },
+        {
+          "code" : "junction",
+          "description" : "Join table for complex relations",
+          "name" : "JUNCTION",
+          "sort_order" : 2
+        }
+      ],
+      "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
+      "sort_order" : 2
+    },
+    {
+      "code" : "property_data_type",
+      "description" : "Value type of a modeled property",
+      "name" : "Property Data Type",
+      "options" : [
+        {
+          "code" : "enum",
+          "description" : "References a domain enum",
+          "name" : "Enum",
+          "sort_order" : 1
+        },
+        {
+          "code" : "relationship",
+          "description" : "One-sided reference to another property",
+          "name" : "Relationship",
+          "sort_order" : 2
+        },
+        {
+          "code" : "boolean",
+          "description" : "True/false flag",
+          "name" : "Boolean",
+          "sort_order" : 3
+        },
+        {
+          "code" : "uuid",
+          "description" : "Stable external identifier",
+          "name" : "UUID",
+          "sort_order" : 4
+        },
+        {
+          "code" : "int",
+          "description" : "32-bit integer",
+          "name" : "Int",
+          "sort_order" : 5
+        },
+        {
+          "code" : "long",
+          "description" : "64-bit integer",
+          "name" : "Long",
+          "sort_order" : 6
+        },
+        {
+          "code" : "decimal",
+          "description" : "Decimal number",
+          "name" : "Decimal",
+          "sort_order" : 7
+        },
+        {
+          "code" : "text",
+          "description" : "String, optionally length-limited",
+          "name" : "Text",
+          "sort_order" : 8
+        },
+        {
+          "code" : "datetime",
+          "description" : "ISO-8601 timestamp",
+          "name" : "Datetime",
+          "sort_order" : 9
+        }
+      ],
+      "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
+      "sort_order" : 3
+    }
+  ],
+  "name" : "DOPED",
+  "sort_order" : 2,
+  "version" : 481
+}

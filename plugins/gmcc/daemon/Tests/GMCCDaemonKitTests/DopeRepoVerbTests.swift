@@ -247,6 +247,53 @@ final class DopeRepoVerbTests: XCTestCase {
                        "zzz_shared.tag.id")
     }
 
+    /// Base refs are cross-domain-capable like enum refs: a composer in an
+    /// EARLY domain referencing a base in a LATE-sorting domain must survive
+    /// the whole-tree insert (pass-3 deferred resolution), and the ref must
+    /// round-trip as the same dot-path.
+    func testIngestWithCrossDomainBaseRef() throws {
+        let scope = try store.dopeInit(DopeInitRequest(
+            sessionUuid: "sess-1", code: "gmcc", name: "GMCC")).scope
+        let zzz = try store.dopeNodeAdd(DopeNodeAddRequest(
+            level: .domain, parentUuid: scope.uuid,
+            fields: DopeNodeFields(code: "zzz_base", name: "Base")))
+        let base = try store.dopeNodeAdd(DopeNodeAddRequest(
+            level: .entity, parentUuid: zzz.uuid,
+            fields: DopeNodeFields(code: "base_entity", name: "Base Entity",
+                                   entityType: .baseComposable)))
+        let aaa = try store.dopeNodeAdd(DopeNodeAddRequest(
+            level: .domain, parentUuid: scope.uuid,
+            fields: DopeNodeFields(code: "aaa_core", name: "Core")))
+        _ = try store.dopeNodeAdd(DopeNodeAddRequest(
+            level: .entity, parentUuid: aaa.uuid,
+            fields: DopeNodeFields(code: "user", name: "User",
+                                   baseComposableUuid: base.uuid)))
+
+        _ = try store.dopeWriteRepo(DopeWriteRepoRequest(scopeUuid: scope.uuid))
+        let sandbox = try DopeRepoSandbox.resolve(instanceRoot: repoRoot.path)
+        let read = try sandbox.readBundle().bundle
+        let next = read.main.version + 1
+        _ = try sandbox.writeAtomically(DopeDocumentBundle(
+            main: DopeMainDocument(version: next, scopeType: read.main.scopeType,
+                                   scope: read.main.scope, domains: read.main.domains),
+            domainFiles: read.domainFiles.map {
+                DopeDomainFileDocument(version: next, body: $0.body,
+                                       entities: $0.entities, enums: $0.enums)
+            }))
+        let ingested = try store.dopeIngest(DopeIngestRequest(scopeUuid: scope.uuid))
+        XCTAssertEqual(ingested.counts.entities, 2)
+
+        let tree = try store.dopeGet(DopeGetRequest(sessionUuid: "sess-1")).tree
+        let core = tree.domains.first { $0.body.code == "aaa_core" }!
+        XCTAssertEqual(core.entities[0].body.baseComposableRef, "zzz_base.base_entity")
+        // write-repo after ingest re-encodes the same dot-path.
+        let written = try store.dopeWriteRepo(DopeWriteRepoRequest(scopeUuid: scope.uuid))
+        XCTAssertEqual(written.revision, ingested.scope.revision)
+        let reread = try sandbox.readBundle().bundle
+        let coreFile = reread.domainFiles.first { $0.body.code == "aaa_core" }!
+        XCTAssertEqual(coreFile.entities[0].body.baseComposableRef, "zzz_base.base_entity")
+    }
+
     /// Review fixes [65] + [85]: ingest applies hand-edited scope
     /// name/description from main.doped.json, and bumps the scope row's
     /// optimistic-lock version ONLY when those fields actually changed.

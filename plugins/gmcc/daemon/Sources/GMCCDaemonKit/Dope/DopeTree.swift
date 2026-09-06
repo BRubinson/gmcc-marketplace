@@ -53,10 +53,15 @@ public struct DopeEntityBody: Codable, Hashable, Sendable {
     public let description: String
     public let sortOrder: Int
     public let repoRepresentativeFile: String?
+    /// `domain_code.entity_code` — the BASE_COMPOSABLE entity whose
+    /// properties this entity composes. A pure lookup like enumRef: the
+    /// base's properties are NEVER replicated onto this entity in the db or
+    /// the JSON; consumers union them at render time.
+    public let baseComposableRef: String?
 
     public init(
         code: String, name: String, entityType: String, description: String,
-        sortOrder: Int, repoRepresentativeFile: String?
+        sortOrder: Int, repoRepresentativeFile: String?, baseComposableRef: String?
     ) {
         self.code = code
         self.name = name
@@ -64,6 +69,7 @@ public struct DopeEntityBody: Codable, Hashable, Sendable {
         self.description = description
         self.sortOrder = sortOrder
         self.repoRepresentativeFile = repoRepresentativeFile
+        self.baseComposableRef = baseComposableRef
     }
 }
 

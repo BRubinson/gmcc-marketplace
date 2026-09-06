@@ -60,6 +60,7 @@ struct Dope: ParsableCommand {
             code: common.code, name: common.name, description: common.description,
             sortOrder: common.sortOrder, entityType: partial.entityType,
             repoRepresentativeFile: partial.repoRepresentativeFile,
+            baseComposableUuid: partial.baseComposableUuid,
             dataType: partial.dataType, nullable: partial.nullable,
             isUnique: partial.isUnique, autoIncrement: partial.autoIncrement,
             textCharLimit: partial.textCharLimit, enumUuid: partial.enumUuid,
@@ -81,11 +82,13 @@ struct Dope: ParsableCommand {
             code: common.code, name: common.name, description: common.description,
             sortOrder: common.sortOrder, entityType: partial.entityType,
             repoRepresentativeFile: partial.repoRepresentativeFile,
+            baseComposableUuid: partial.baseComposableUuid,
             dataType: partial.dataType, nullable: partial.nullable,
             isUnique: partial.isUnique, autoIncrement: partial.autoIncrement,
             textCharLimit: partial.textCharLimit, enumUuid: partial.enumUuid,
             relatedPropertyUuid: partial.relatedPropertyUuid,
             clearRepoRepresentativeFile: partial.clearRepoRepresentativeFile,
+            clearBaseComposable: partial.clearBaseComposable,
             clearAutoIncrement: partial.clearAutoIncrement,
             clearTextCharLimit: partial.clearTextCharLimit,
             clearEnum: partial.clearEnum,
@@ -125,6 +128,7 @@ struct Dope: ParsableCommand {
     struct PartialFields {
         var entityType: DopeEntityType?
         var repoRepresentativeFile: String?
+        var baseComposableUuid: String?
         var dataType: DopePropertyDataType?
         var nullable: Bool?
         var isUnique: Bool?
@@ -133,6 +137,7 @@ struct Dope: ParsableCommand {
         var enumUuid: String?
         var relatedPropertyUuid: String?
         var clearRepoRepresentativeFile: Bool?
+        var clearBaseComposable: Bool?
         var clearAutoIncrement: Bool?
         var clearTextCharLimit: Bool?
         var clearEnum: Bool?
@@ -214,7 +219,8 @@ struct Dope: ParsableCommand {
                 for domain in t.domains {
                     print("  \(domain.body.code): \(domain.entities.count) entities, \(domain.enums.count) enums")
                     for entity in domain.entities {
-                        print("    \(domain.body.code).\(entity.body.code) [\(entity.body.entityType)] — \(entity.properties.count) properties")
+                        let base = entity.body.baseComposableRef.map { " → base \($0)" } ?? ""
+                        print("    \(domain.body.code).\(entity.body.code) [\(entity.body.entityType)]\(base) — \(entity.properties.count) properties")
                     }
                     for en in domain.enums {
                         print("    \(domain.body.code).enums.\(en.body.code) — \(en.options.count) options")
@@ -283,14 +289,17 @@ struct Dope: ParsableCommand {
             commandName: "entity-add", abstract: "Add an entity under a domain ('enums' is a reserved code).")
         @OptionGroup var output: OutputOptions
         @OptionGroup var common: AddCommonOptions
-        @Option(name: .long, help: "MODEL (key entity) or JUNCTION (complex join table). Default MODEL.")
+        @Option(name: .long, help: "MODEL (key entity), JUNCTION (complex join table), or BASE_COMPOSABLE (a shared column block other entities compose). Default MODEL.")
         var entityType: DopeEntityType?
         @Option(name: .long, help: "Repo-relative path of the ORM object representing this entity.")
         var repoRepresentativeFile: String?
+        @Option(name: .long, help: "Uuid of a BASE_COMPOSABLE entity in the same scope whose properties this entity composes (chaining allowed, cycles refused).")
+        var baseComposableUuid: String?
         func run() throws {
             try Dope.runAdd(.entity, common, output) {
                 $0.entityType = entityType
                 $0.repoRepresentativeFile = repoRepresentativeFile
+                $0.baseComposableUuid = baseComposableUuid
             }
         }
     }
@@ -305,11 +314,17 @@ struct Dope: ParsableCommand {
         @Option(name: .long) var repoRepresentativeFile: String?
         @Flag(name: .long, help: "Set repo_representative_file to NULL.")
         var clearRepoRepresentativeFile = false
+        @Option(name: .long, help: "Uuid of a BASE_COMPOSABLE entity in the same scope whose properties this entity composes (chaining allowed, cycles refused).")
+        var baseComposableUuid: String?
+        @Flag(name: .long, help: "Set base_composable_uuid to NULL.")
+        var clearBaseComposable = false
         func run() throws {
             try Dope.runUpdate(.entity, target, common, output) {
                 $0.entityType = entityType
                 $0.repoRepresentativeFile = repoRepresentativeFile
                 if clearRepoRepresentativeFile { $0.clearRepoRepresentativeFile = true }
+                $0.baseComposableUuid = baseComposableUuid
+                if clearBaseComposable { $0.clearBaseComposable = true }
             }
         }
     }

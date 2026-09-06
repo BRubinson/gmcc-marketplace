@@ -18,7 +18,7 @@ shipping three products:
   via `DaemonEventSubscription`).
 
 Transport: NDJSON over a unix socket at `~/gmcc/daemon.sock` (wire protocol
-v8, schema m0003, one spec-named message per handler). Clients autostart the daemon when
+v13, schema m0008, one spec-named message per handler). Clients autostart the daemon when
 the socket is dead. The protocol handshake is DIRECTIONAL: a newer client
 makes a stale daemon self-exit after rebuilds; an older client is rejected
 while the daemon stays up — you never need to manage daemon lifecycle
@@ -194,7 +194,9 @@ clarification_fts, architecture_summary_fts, architecture_general_change_fts,
 architecture_persistence_change_fts (six FTS5 mirrors backing SEARCH,
 trigger-synced, backfilled once by m0003), session_file, file_change,
 file_change_range, daemon_event (append-only — its `id` is the SUBSCRIBE
-replay cursor), schema_migrations (unwrapped ledger).
+replay cursor), dope_scope, dope_domain, dope_domain_entity,
+dope_domain_enum, dope_domain_enum_option, dope_domain_entity_property,
+schema_migrations (unwrapped ledger).
 
 ## KBite data model (v16 prompt 4)
 
@@ -212,3 +214,48 @@ replay cursor), schema_migrations (unwrapped ledger).
 - Discovery is SEARCH-first: `gm kbite search` → ranked file stubs →
   `gm kbite file-get` for full content — not by browsing the digested
   filesystem tree.
+
+## DOPE — DOPED domain modeling (wire v13)
+
+`gm dope` models a codebase's persistence layer as a tree:
+scope → domain → { entity → property, enum → option }. `dope_scope.revision`
+is the whole-tree content counter and IS the `version` field of
+`main.doped.json`; every granular verb bumps it by exactly 1 and leaves row
+`version` to `--expected-version`.
+
+| Subcommand | Purpose |
+|------------|---------|
+| `gm dope init` | Create-or-return a scope. PROMPT-typed iff `--prompt-uuid`; `--clone-from-session-base` forks the session's tree. |
+| `gm dope list` / `get` | Picker enumeration (SESSION_BASE scopes, or ONLY a prompt's PROMPT scopes — never a union) / the full tree (PROMPT preferred, SESSION_BASE fallback). No scope ⇒ `SUMMARY_ABSENT` ⇒ `gm dope init`. |
+| `gm dope {domain,entity,property,enum,option}-{add,update,delete}` | Granular db-native edits. Uuids + `--expected-version`; deletes cascade the subtree and refuse still-referenced targets by naming the referrer. |
+| `gm dope read-repo` / `write-repo` / `ingest` | Whole-tree JSON I/O against `{instance_root}/.gmcc/dope/`. `ingest` requires the on-disk version to be EXACTLY db revision + 1 and mints fresh child uuids (no smart diff). |
+
+**References are dot-path CODES in the JSON, uuids in the verbs.** Three ref
+shapes: `domain.entity.property` (relationship targets), `domain.enums.code`
+(enum types), `domain.entity` (base composables). A uuid never appears in a
+`.doped.json` file — the document types have nowhere to put one.
+
+### Base entities
+
+An entity's `entity_type` is `MODEL`, `JUNCTION`, or `BASE_COMPOSABLE`. A
+BASE_COMPOSABLE is not persisted on its own — it is a shared column block /
+mixin (think the id/uuid/version/created_at/updated_at wrap every ORM table
+carries) that other entities point at via `--base-composable-uuid`
+(`base_composable_ref` in the JSON):
+
+- **Lookup, not inheritance.** The base's properties are NOT copied onto the
+  composing entity in the db or in the JSON — exactly like an enum ref. Every
+  consumer of the gmcc protocol knows to union the base's properties in at
+  render time.
+- **Same scope, enforced type.** The target must live in the same scope and
+  must itself be a BASE_COMPOSABLE. Demoting a still-composed entity to
+  MODEL/JUNCTION is refused naming its composers.
+- **Chaining allowed, cycles refused.** A BASE_COMPOSABLE may compose
+  another; the chain must stay acyclic, checked by the granular verbs and by
+  the whole-tree validator. Consumers resolve the chain transitively.
+- **Deletion is guarded.** Deleting a composed base — or the domain holding
+  it — is refused, naming the composer. Cross-domain refs are legal.
+- **The `base` domain is a CONVENTION, not a daemon concept.** Nothing in the
+  daemon creates, seeds, or special-cases a domain coded `base`; it is simply
+  where a scope keeps its shared blocks by convention. Create it like any
+  other domain.

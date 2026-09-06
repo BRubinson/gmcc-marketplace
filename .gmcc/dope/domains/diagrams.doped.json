@@ -1,0 +1,13 @@
+{
+  "code" : "diagrams",
+  "description" : "Diagram entities for visualizing DOPED models",
+  "entities" : [
+
+  ],
+  "enums" : [
+
+  ],
+  "name" : "Diagrams",
+  "sort_order" : 1,
+  "version" : 481
+}

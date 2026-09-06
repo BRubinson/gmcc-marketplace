@@ -340,8 +340,12 @@ extension Store {
         var domainCode = [String: String]()
         for row in domainRows { domainCode[row["uuid"]] = row["code"] }
         var entityInfo = [String: (domain: String, code: String)]()
+        var entityRef = [String: String]()
         for row in entityRows {
-            entityInfo[row["uuid"]] = (domainCode[row["dope_domain_uuid"]] ?? "?", row["code"])
+            let domain = domainCode[row["dope_domain_uuid"]] ?? "?"
+            entityInfo[row["uuid"]] = (domain, row["code"])
+            entityRef[row["uuid"]] = DopeCode.formatEntityRef(
+                domain: domain, entity: row["code"])
         }
         var enumRef = [String: String]()
         for row in enumRows {
@@ -393,7 +397,9 @@ extension Store {
                                     entityType: row["entity_type"],
                                     description: row["description"],
                                     sortOrder: row["sort_order"],
-                                    repoRepresentativeFile: row["repo_representative_file"]),
+                                    repoRepresentativeFile: row["repo_representative_file"],
+                                    baseComposableRef: (row["base_composable_uuid"] as String?)
+                                        .flatMap { entityRef[$0] }),
                                properties: propertiesByEntity[row["uuid"]] ?? []))
         }
         var enumsByDomain = [String: [DopeEnumNode]]()
@@ -436,7 +442,9 @@ extension Store {
         var domainUuidByCode = [String: String]()
         var enumUuidByRef = [String: String]()
         var propertyUuidByRef = [String: String]()
+        var entityUuidByRef = [String: String]()
         var pendingRelationship: [(entityUuid: String, body: DopePropertyBody)] = []
+        var pendingBase: [(entityUuid: String, ref: String)] = []
 
         // Pass 1 — ALL domains, then ALL enums + options, across every file
         // BEFORE any property is inserted: enum refs are cross-domain-capable
@@ -490,6 +498,11 @@ extension Store {
                     "repo_representative_file": entity.body.repoRepresentativeFile,
                 ])
                 counts.entities += 1
+                entityUuidByRef[DopeCode.formatEntityRef(
+                    domain: file.body.code, entity: entity.body.code)] = entityUuid
+                if let ref = entity.body.baseComposableRef {
+                    pendingBase.append((entityUuid, ref))
+                }
                 for property in entity.properties {
                     let body = property.body
                     if body.dataType == DopePropertyDataType.relationship.rawValue {
@@ -523,6 +536,20 @@ extension Store {
                 }
             }
         }
+        // Pass 3 — base_composable back-fill, after ALL entities exist across
+        // ALL files: base refs are cross-domain-capable like enum refs, so an
+        // inline resolve would miss a forward ref into a later file. A plain
+        // UPDATE, not updateBase — these are fresh rows and the whole-tree
+        // counter is dope_scope.revision, so row version stays 0.
+        for pending in pendingBase {
+            guard let target = entityUuidByRef[pending.ref] else {
+                throw StoreError.badRequest(
+                    detail: "entity base_composable_ref '\(pending.ref)' did not resolve during insert")
+            }
+            try db.execute(
+                sql: "UPDATE dope_domain_entity SET base_composable_uuid = ? WHERE uuid = ?",
+                arguments: [target, pending.entityUuid])
+        }
         // Relationship properties last: the validator bans chain refs, so
         // every target is a non-relationship property inserted above.
         for pending in pendingRelationship {
@@ -555,6 +582,17 @@ extension Store {
     /// remaining properties, then domains (CASCADE clears entities, enums,
     /// options). Never rely on CASCADE to unwind a RESTRICT.
     func wipeDopeTree(_ db: Database, scopeUuid: String) throws {
+        // Entities compose each other under an ON DELETE RESTRICT self-FK, so
+        // un-link every base BEFORE the domain CASCADE reaches the rows — a
+        // base pair inside one domain would otherwise trip the RESTRICT
+        // mid-statement. Rows about to be deleted; version deliberately
+        // untouched.
+        try db.execute(sql: """
+            UPDATE dope_domain_entity SET base_composable_uuid = NULL
+             WHERE base_composable_uuid IS NOT NULL
+               AND dope_domain_uuid IN (
+                SELECT uuid FROM dope_domain WHERE dope_scope_uuid = ?)
+            """, arguments: [scopeUuid])
         try db.execute(sql: """
             DELETE FROM dope_domain_entity_property
              WHERE data_type = 'relationship'
@@ -587,6 +625,9 @@ extension Store {
         if fields.entityType != nil { carried.append(.entityType) }
         if fields.repoRepresentativeFile != nil || fields.clearRepoRepresentativeFile == true {
             carried.append(.repoRepresentativeFile)
+        }
+        if fields.baseComposableUuid != nil || fields.clearBaseComposable == true {
+            carried.append(.baseComposableUuid)
         }
         if fields.dataType != nil { carried.append(.dataType) }
         if fields.nullable != nil { carried.append(.nullable) }
@@ -664,6 +705,84 @@ extension Store {
         }
     }
 
+    /// Same-scope + shape checks for an entity's final (post-mutation) state.
+    /// `entityUuid` is nil on add (a row nothing can reference yet).
+    private func validateEntityShape(
+        _ db: Database, scope: DopeScopeRow, entityUuid: String?,
+        entityType: DopeEntityType, baseComposableUuid: String?
+    ) throws {
+        if let target = baseComposableUuid {
+            if target == entityUuid {
+                throw StoreError.badRequest(detail: "an entity cannot compose itself")
+            }
+            let owner = try self.dopeOwningScope(db, level: .entity, nodeUuid: target)
+            guard owner.uuid == scope.uuid else {
+                throw StoreError.badRequest(
+                    detail: "base entity \(target) belongs to a different dope scope")
+            }
+            // dopeOwningScope proves existence + scope; the TYPE needs its
+            // own read.
+            let targetType = try String.fetchOne(
+                db, sql: "SELECT entity_type FROM dope_domain_entity WHERE uuid = ?",
+                arguments: [target])
+            guard targetType == DopeEntityType.baseComposable.rawValue else {
+                throw StoreError.badRequest(detail:
+                    "base entity \(target) is \(targetType ?? "unknown") — only a BASE_COMPOSABLE may be composed")
+            }
+            if let entityUuid {
+                try self.requireAcyclicBase(db, entityUuid: entityUuid, targetUuid: target)
+            }
+        }
+        // Demotion guard: an entity that others compose may not stop being a
+        // BASE_COMPOSABLE. A cross-row rule the schema cannot express, so it
+        // lives here and in the whole-tree validator.
+        if entityType != .baseComposable, let entityUuid {
+            let referrers = try self.baseComposableReferrers(db, entityUuid: entityUuid)
+            guard referrers.isEmpty else {
+                throw StoreError.badRequest(detail:
+                    "cannot set entity_type \(entityType.rawValue): still composed by "
+                    + referrers.joined(separator: ", "))
+            }
+        }
+    }
+
+    /// Chaining is ALLOWED but must stay acyclic. Out-degree is 1 (a single
+    /// nullable column), so "does the chain from target reach entity?" is a
+    /// bounded pointer-chase, not a graph search. The visited set is
+    /// defensive only — a pre-existing cycle cannot be reached through these
+    /// guards.
+    private func requireAcyclicBase(
+        _ db: Database, entityUuid: String, targetUuid: String
+    ) throws {
+        var seen: Set<String> = [entityUuid]
+        var node: String? = targetUuid
+        while let current = node {
+            guard seen.insert(current).inserted else {
+                if current == entityUuid {
+                    throw StoreError.badRequest(detail:
+                        "base_composable cycle: \(entityUuid) already sits on \(targetUuid)'s base chain")
+                }
+                return  // corruption below us; not this mutation's cycle
+            }
+            node = try String.fetchOne(
+                db, sql: "SELECT base_composable_uuid FROM dope_domain_entity WHERE uuid = ?",
+                arguments: [current]) ?? nil
+        }
+    }
+
+    /// Dot-paths of the entities composing `entityUuid` (bounded at 5, the
+    /// requireNoExternalReferrers convention).
+    private func baseComposableReferrers(
+        _ db: Database, entityUuid: String
+    ) throws -> [String] {
+        try String.fetchAll(db, sql: """
+            SELECT d.code || '.' || e.code
+            FROM dope_domain_entity e
+            JOIN dope_domain d ON d.uuid = e.dope_domain_uuid
+            WHERE e.base_composable_uuid = ? LIMIT 5
+            """, arguments: [entityUuid])
+    }
+
     public func dopeNodeAdd(_ req: DopeNodeAddRequest) throws -> DopeNodeResponse {
         guard req.level != .scope else {
             throw StoreError.badRequest(detail: "scopes are created with gm dope init, not node-add")
@@ -705,8 +824,13 @@ extension Store {
 
             switch req.level {
             case .entity:
-                extra["entity_type"] = (req.fields.entityType ?? .model).rawValue
+                let entityType = req.fields.entityType ?? .model
+                try self.validateEntityShape(
+                    db, scope: scope, entityUuid: nil, entityType: entityType,
+                    baseComposableUuid: req.fields.baseComposableUuid)
+                extra["entity_type"] = entityType.rawValue
                 extra["repo_representative_file"] = req.fields.repoRepresentativeFile
+                extra["base_composable_uuid"] = req.fields.baseComposableUuid
             case .enumeration:
                 extra["repo_representative_file"] = req.fields.repoRepresentativeFile
             case .property:
@@ -767,6 +891,34 @@ extension Store {
                     set["repo_representative_file"] = file
                 } else if req.fields.clearRepoRepresentativeFile == true {
                     set["repo_representative_file"] = nil
+                }
+            }
+
+            if req.level == .entity {
+                guard let current = try Row.fetchOne(
+                    db, sql: "SELECT * FROM dope_domain_entity WHERE uuid = ?",
+                    arguments: [req.nodeUuid]
+                ) else {
+                    throw StoreError.notFound(entity: spec.table, key: req.nodeUuid)
+                }
+                // Validate the FINAL (entity_type, base_composable) pair —
+                // either half can change in one call, and the second call of
+                // A.base=B / B.base=A must be the one that gets refused.
+                let finalType = req.fields.entityType
+                    ?? DopeEntityType(rawValue: current["entity_type"]) ?? .model
+                var finalBase: String? = current["base_composable_uuid"]
+                if let base = req.fields.baseComposableUuid { finalBase = base }
+                if req.fields.clearBaseComposable == true { finalBase = nil }
+
+                try self.validateEntityShape(
+                    db, scope: scope, entityUuid: req.nodeUuid,
+                    entityType: finalType, baseComposableUuid: finalBase)
+
+                if req.fields.baseComposableUuid != nil || req.fields.clearBaseComposable == true {
+                    // updateValue, not subscript: assigning a typed nil to a
+                    // dictionary with Optional values REMOVES the key, and the
+                    // clear would silently vanish from the UPDATE.
+                    set.updateValue(finalBase, forKey: "base_composable_uuid")
                 }
             }
 
@@ -849,6 +1001,13 @@ extension Store {
             // the remaining properties under it, then the guarded row.
             switch req.level {
             case .domain:
+                // Entities inside this domain may compose one another under
+                // an ON DELETE RESTRICT self-FK; the CASCADE below would trip
+                // it. External composers were already refused by the guard.
+                try db.execute(sql: """
+                    UPDATE dope_domain_entity SET base_composable_uuid = NULL
+                     WHERE dope_domain_uuid = ? AND base_composable_uuid IS NOT NULL
+                    """, arguments: [req.nodeUuid])
                 try db.execute(sql: """
                     DELETE FROM dope_domain_entity_property
                      WHERE data_type = 'relationship'
@@ -892,26 +1051,30 @@ extension Store {
     private func requireNoExternalReferrers(
         _ db: Database, level: DopeLevel, nodeUuid: String
     ) throws {
-        let sql: String
+        // A list, not one statement: the base-composable referrer queries
+        // select FROM dope_domain_entity while the property-ref queries
+        // select FROM dope_domain_entity_property, so they cannot share an
+        // OR clause.
+        var queries: [(sql: String, args: StatementArguments)] = []
         switch level {
         case .enumeration:
-            sql = """
+            queries.append(("""
                 SELECT d.code || '.' || e.code || '.' || p.code
                 FROM dope_domain_entity_property p
                 JOIN dope_domain_entity e ON e.uuid = p.dope_domain_entity_uuid
                 JOIN dope_domain d ON d.uuid = e.dope_domain_uuid
                 WHERE p.dope_domain_enum_uuid = ? LIMIT 5
-                """
+                """, [nodeUuid]))
         case .property:
-            sql = """
+            queries.append(("""
                 SELECT d.code || '.' || e.code || '.' || p.code
                 FROM dope_domain_entity_property p
                 JOIN dope_domain_entity e ON e.uuid = p.dope_domain_entity_uuid
                 JOIN dope_domain d ON d.uuid = e.dope_domain_uuid
                 WHERE p.related_property_uuid = ? LIMIT 5
-                """
+                """, [nodeUuid]))
         case .entity:
-            sql = """
+            queries.append(("""
                 SELECT d.code || '.' || e.code || '.' || p.code
                 FROM dope_domain_entity_property p
                 JOIN dope_domain_entity e ON e.uuid = p.dope_domain_entity_uuid
@@ -919,9 +1082,15 @@ extension Store {
                 JOIN dope_domain_entity_property tp ON tp.uuid = p.related_property_uuid
                 WHERE tp.dope_domain_entity_uuid = ?
                   AND p.dope_domain_entity_uuid != ? LIMIT 5
-                """
+                """, [nodeUuid, nodeUuid]))
+            queries.append(("""
+                SELECT d.code || '.' || e.code
+                FROM dope_domain_entity e
+                JOIN dope_domain d ON d.uuid = e.dope_domain_uuid
+                WHERE e.base_composable_uuid = ? LIMIT 5
+                """, [nodeUuid]))
         case .domain:
-            sql = """
+            queries.append(("""
                 SELECT d.code || '.' || e.code || '.' || p.code
                 FROM dope_domain_entity_property p
                 JOIN dope_domain_entity e ON e.uuid = p.dope_domain_entity_uuid
@@ -934,17 +1103,22 @@ extension Store {
                           JOIN dope_domain_entity ee ON ee.uuid = pp.dope_domain_entity_uuid
                          WHERE ee.dope_domain_uuid = ?))
                 LIMIT 5
-                """
+                """, [nodeUuid, nodeUuid, nodeUuid]))
+            queries.append(("""
+                SELECT d.code || '.' || e.code
+                FROM dope_domain_entity e
+                JOIN dope_domain d ON d.uuid = e.dope_domain_uuid
+                WHERE d.uuid != ?
+                  AND e.base_composable_uuid IN
+                      (SELECT uuid FROM dope_domain_entity WHERE dope_domain_uuid = ?)
+                LIMIT 5
+                """, [nodeUuid, nodeUuid]))
         case .scope, .option:
             return
         }
-        let args: StatementArguments
-        switch level {
-        case .entity: args = [nodeUuid, nodeUuid]
-        case .domain: args = [nodeUuid, nodeUuid, nodeUuid]
-        default: args = [nodeUuid]
+        let referrers = try queries.flatMap {
+            try String.fetchAll(db, sql: $0.sql, arguments: $0.args)
         }
-        let referrers = try String.fetchAll(db, sql: sql, arguments: args)
         guard referrers.isEmpty else {
             throw StoreError.badRequest(detail:
                 "cannot delete: still referenced by " + referrers.joined(separator: ", "))

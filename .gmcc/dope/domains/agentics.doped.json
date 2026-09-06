@@ -1,0 +1,1265 @@
+{
+  "code" : "agentics",
+  "description" : "Bot workflow state: clarification, architecture, exploration and review reports, plus file-change tracking and prompt artifacts",
+  "entities" : [
+    {
+      "base_composable_ref" : "base.base_entity",
+      "code" : "clarification_summary",
+      "description" : "Per-prompt clarification report; holds the refined goal/detail once finalized",
+      "entity_type" : "MODEL",
+      "name" : "Clarification Summary",
+      "properties" : [
+        {
+          "code" : "prompt_uuid",
+          "data_type" : "relationship",
+          "description" : "Owning prompt; one summary per prompt",
+          "is_unique" : true,
+          "name" : "Prompt",
+          "nullable" : false,
+          "related_property_ref" : "project.prompt.uuid",
+          "sort_order" : 6
+        },
+        {
+          "code" : "status",
+          "data_type" : "enum",
+          "description" : "building, answering, complete",
+          "enum_ref" : "agentics.enums.clarify_summary_status",
+          "is_unique" : false,
+          "name" : "Status",
+          "nullable" : false,
+          "sort_order" : 7
+        },
+        {
+          "code" : "backstory_note",
+          "data_type" : "text",
+          "description" : "Optional note appended at finalize; empty default",
+          "is_unique" : false,
+          "name" : "Backstory Note",
+          "nullable" : false,
+          "sort_order" : 8
+        },
+        {
+          "code" : "refined_goal",
+          "data_type" : "text",
+          "description" : "Goal after clarification; empty until finalized",
+          "is_unique" : false,
+          "name" : "Refined Goal",
+          "nullable" : false,
+          "sort_order" : 9
+        },
+        {
+          "code" : "refined_detail",
+          "data_type" : "text",
+          "description" : "Detail after clarification; empty until finalized",
+          "is_unique" : false,
+          "name" : "Refined Detail",
+          "nullable" : false,
+          "sort_order" : 10
+        }
+      ],
+      "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
+      "sort_order" : 1
+    },
+    {
+      "base_composable_ref" : "base.base_entity",
+      "code" : "clarification",
+      "description" : "One clarifying question and its answer within a summary",
+      "entity_type" : "MODEL",
+      "name" : "Clarification",
+      "properties" : [
+        {
+          "code" : "clarification_summary_uuid",
+          "data_type" : "relationship",
+          "description" : "Owning summary; cascade on delete",
+          "is_unique" : false,
+          "name" : "Summary",
+          "nullable" : false,
+          "related_property_ref" : "agentics.clarification_summary.uuid",
+          "sort_order" : 6
+        },
+        {
+          "code" : "seq",
+          "data_type" : "int",
+          "description" : "Order within the summary; unique per summary",
+          "is_unique" : false,
+          "name" : "Sequence",
+          "nullable" : false,
+          "sort_order" : 7
+        },
+        {
+          "code" : "category",
+          "data_type" : "enum",
+          "description" : "goal or detail",
+          "enum_ref" : "agentics.enums.clarify_category",
+          "is_unique" : false,
+          "name" : "Category",
+          "nullable" : false,
+          "sort_order" : 8
+        },
+        {
+          "code" : "question",
+          "data_type" : "text",
+          "description" : "The clarifying question",
+          "is_unique" : false,
+          "name" : "Question",
+          "nullable" : false,
+          "sort_order" : 9
+        },
+        {
+          "code" : "answer",
+          "data_type" : "text",
+          "description" : "Required once status is answered",
+          "is_unique" : false,
+          "name" : "Answer",
+          "nullable" : true,
+          "sort_order" : 10
+        },
+        {
+          "code" : "answer_source",
+          "data_type" : "enum",
+          "description" : "user or bot_inferred",
+          "enum_ref" : "agentics.enums.clarify_answer_source",
+          "is_unique" : false,
+          "name" : "Answer Source",
+          "nullable" : true,
+          "sort_order" : 11
+        },
+        {
+          "code" : "status",
+          "data_type" : "enum",
+          "description" : "open, answered, skipped",
+          "enum_ref" : "agentics.enums.clarify_status",
+          "is_unique" : false,
+          "name" : "Status",
+          "nullable" : false,
+          "sort_order" : 12
+        }
+      ],
+      "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
+      "sort_order" : 2
+    },
+    {
+      "base_composable_ref" : "base.base_entity",
+      "code" : "architecture_summary",
+      "description" : "Per-prompt architecture report with a prose body",
+      "entity_type" : "MODEL",
+      "name" : "Architecture Summary",
+      "properties" : [
+        {
+          "code" : "prompt_uuid",
+          "data_type" : "relationship",
+          "description" : "Owning prompt; one summary per prompt",
+          "is_unique" : true,
+          "name" : "Prompt",
+          "nullable" : false,
+          "related_property_ref" : "project.prompt.uuid",
+          "sort_order" : 6
+        },
+        {
+          "code" : "body",
+          "data_type" : "text",
+          "description" : "Prose architecture summary; empty default",
+          "is_unique" : false,
+          "name" : "Body",
+          "nullable" : false,
+          "sort_order" : 7
+        },
+        {
+          "code" : "status",
+          "data_type" : "enum",
+          "description" : "drafting, proposed, approved",
+          "enum_ref" : "agentics.enums.arch_status",
+          "is_unique" : false,
+          "name" : "Status",
+          "nullable" : false,
+          "sort_order" : 8
+        }
+      ],
+      "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
+      "sort_order" : 3
+    },
+    {
+      "base_composable_ref" : "base.base_entity",
+      "code" : "architecture_persistence_change",
+      "description" : "One planned persistence-layer change (a table/class) in an architecture",
+      "entity_type" : "MODEL",
+      "name" : "Architecture Persistence Change",
+      "properties" : [
+        {
+          "code" : "architecture_summary_uuid",
+          "data_type" : "relationship",
+          "description" : "Owning summary; cascade on delete",
+          "is_unique" : false,
+          "name" : "Summary",
+          "nullable" : false,
+          "related_property_ref" : "agentics.architecture_summary.uuid",
+          "sort_order" : 6
+        },
+        {
+          "code" : "seq",
+          "data_type" : "int",
+          "description" : "Order within the summary; unique per summary",
+          "is_unique" : false,
+          "name" : "Sequence",
+          "nullable" : false,
+          "sort_order" : 7
+        },
+        {
+          "code" : "class_name",
+          "data_type" : "text",
+          "description" : "Persistence class/table being changed",
+          "is_unique" : false,
+          "name" : "Class Name",
+          "nullable" : false,
+          "sort_order" : 8
+        },
+        {
+          "code" : "file_path",
+          "data_type" : "text",
+          "description" : "File holding the persistence definition",
+          "is_unique" : false,
+          "name" : "File Path",
+          "nullable" : false,
+          "sort_order" : 9
+        },
+        {
+          "code" : "reason_brief",
+          "data_type" : "text",
+          "description" : "Why this change is needed",
+          "is_unique" : false,
+          "name" : "Reason Brief",
+          "nullable" : false,
+          "sort_order" : 10
+        }
+      ],
+      "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
+      "sort_order" : 4
+    },
+    {
+      "base_composable_ref" : "base.base_entity",
+      "code" : "architecture_persistence_field_change",
+      "description" : "One planned field within a persistence change",
+      "entity_type" : "MODEL",
+      "name" : "Architecture Persistence Field Change",
+      "properties" : [
+        {
+          "code" : "persistence_change_uuid",
+          "data_type" : "relationship",
+          "description" : "Owning persistence change; cascade on delete",
+          "is_unique" : false,
+          "name" : "Persistence Change",
+          "nullable" : false,
+          "related_property_ref" : "agentics.architecture_persistence_change.uuid",
+          "sort_order" : 6
+        },
+        {
+          "code" : "seq",
+          "data_type" : "int",
+          "description" : "Order within the change; unique per change",
+          "is_unique" : false,
+          "name" : "Sequence",
+          "nullable" : false,
+          "sort_order" : 7
+        },
+        {
+          "code" : "field_name",
+          "data_type" : "text",
+          "description" : "Field/column being added or changed",
+          "is_unique" : false,
+          "name" : "Field Name",
+          "nullable" : false,
+          "sort_order" : 8
+        },
+        {
+          "code" : "change_reason",
+          "data_type" : "text",
+          "description" : "Why the field changes",
+          "is_unique" : false,
+          "name" : "Change Reason",
+          "nullable" : false,
+          "sort_order" : 9
+        },
+        {
+          "code" : "change_purpose",
+          "data_type" : "text",
+          "description" : "What the field is for",
+          "is_unique" : false,
+          "name" : "Change Purpose",
+          "nullable" : false,
+          "sort_order" : 10
+        },
+        {
+          "code" : "data_type",
+          "data_type" : "text",
+          "description" : "Free-text declared type of the field",
+          "is_unique" : false,
+          "name" : "Data Type",
+          "nullable" : false,
+          "sort_order" : 11
+        },
+        {
+          "code" : "nullable",
+          "data_type" : "boolean",
+          "description" : "Whether the field allows NULL",
+          "is_unique" : false,
+          "name" : "Nullable",
+          "nullable" : false,
+          "sort_order" : 12
+        },
+        {
+          "code" : "is_foreign_key",
+          "data_type" : "boolean",
+          "description" : "Whether the field is an FK; requires fk_target when true",
+          "is_unique" : false,
+          "name" : "Is Foreign Key",
+          "nullable" : false,
+          "sort_order" : 13
+        },
+        {
+          "code" : "fk_target",
+          "data_type" : "text",
+          "description" : "table.column the FK points at",
+          "is_unique" : false,
+          "name" : "FK Target",
+          "nullable" : true,
+          "sort_order" : 14
+        },
+        {
+          "code" : "is_indexed",
+          "data_type" : "boolean",
+          "description" : "Whether the field gets an index",
+          "is_unique" : false,
+          "name" : "Is Indexed",
+          "nullable" : false,
+          "sort_order" : 15
+        }
+      ],
+      "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
+      "sort_order" : 5
+    },
+    {
+      "base_composable_ref" : "base.base_entity",
+      "code" : "architecture_general_change",
+      "description" : "One planned non-persistence code change with sketch code",
+      "entity_type" : "MODEL",
+      "name" : "Architecture General Change",
+      "properties" : [
+        {
+          "code" : "architecture_summary_uuid",
+          "data_type" : "relationship",
+          "description" : "Owning summary; cascade on delete",
+          "is_unique" : false,
+          "name" : "Summary",
+          "nullable" : false,
+          "related_property_ref" : "agentics.architecture_summary.uuid",
+          "sort_order" : 6
+        },
+        {
+          "code" : "seq",
+          "data_type" : "int",
+          "description" : "Order within the summary; unique per summary",
+          "is_unique" : false,
+          "name" : "Sequence",
+          "nullable" : false,
+          "sort_order" : 7
+        },
+        {
+          "code" : "file_path",
+          "data_type" : "text",
+          "description" : "File being changed",
+          "is_unique" : false,
+          "name" : "File Path",
+          "nullable" : false,
+          "sort_order" : 8
+        },
+        {
+          "code" : "class_name",
+          "data_type" : "text",
+          "description" : "Class involved, when applicable",
+          "is_unique" : false,
+          "name" : "Class Name",
+          "nullable" : true,
+          "sort_order" : 9
+        },
+        {
+          "code" : "reason_brief",
+          "data_type" : "text",
+          "description" : "Why this change is needed",
+          "is_unique" : false,
+          "name" : "Reason Brief",
+          "nullable" : false,
+          "sort_order" : 10
+        },
+        {
+          "code" : "change_depth",
+          "data_type" : "enum",
+          "description" : "pseudo, draft, actual",
+          "enum_ref" : "agentics.enums.arch_change_depth",
+          "is_unique" : false,
+          "name" : "Change Depth",
+          "nullable" : false,
+          "sort_order" : 11
+        },
+        {
+          "code" : "change_code",
+          "data_type" : "text",
+          "description" : "The sketched code for the change",
+          "is_unique" : false,
+          "name" : "Change Code",
+          "nullable" : false,
+          "sort_order" : 12
+        }
+      ],
+      "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
+      "sort_order" : 6
+    },
+    {
+      "base_composable_ref" : "base.base_entity",
+      "code" : "exploration_summary",
+      "description" : "Per-prompt exploration report; overview plus ranked findings",
+      "entity_type" : "MODEL",
+      "name" : "Exploration Summary",
+      "properties" : [
+        {
+          "code" : "prompt_uuid",
+          "data_type" : "relationship",
+          "description" : "Owning prompt; one summary per prompt",
+          "is_unique" : true,
+          "name" : "Prompt",
+          "nullable" : false,
+          "related_property_ref" : "project.prompt.uuid",
+          "sort_order" : 6
+        },
+        {
+          "code" : "status",
+          "data_type" : "enum",
+          "description" : "exploring or complete",
+          "enum_ref" : "agentics.enums.explore_status",
+          "is_unique" : false,
+          "name" : "Status",
+          "nullable" : false,
+          "sort_order" : 7
+        },
+        {
+          "code" : "overview",
+          "data_type" : "text",
+          "description" : "Overview text; writable only via complete",
+          "is_unique" : false,
+          "name" : "Overview",
+          "nullable" : false,
+          "sort_order" : 8
+        }
+      ],
+      "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
+      "sort_order" : 7
+    },
+    {
+      "base_composable_ref" : "base.base_entity",
+      "code" : "exploration_key_file",
+      "description" : "A file flagged as key reading for the prompt",
+      "entity_type" : "MODEL",
+      "name" : "Exploration Key File",
+      "properties" : [
+        {
+          "code" : "exploration_summary_uuid",
+          "data_type" : "relationship",
+          "description" : "Owning summary; cascade on delete",
+          "is_unique" : false,
+          "name" : "Summary",
+          "nullable" : false,
+          "related_property_ref" : "agentics.exploration_summary.uuid",
+          "sort_order" : 6
+        },
+        {
+          "code" : "file_path",
+          "data_type" : "text",
+          "description" : "Repo path; unique per summary",
+          "is_unique" : false,
+          "name" : "File Path",
+          "nullable" : false,
+          "sort_order" : 7
+        }
+      ],
+      "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
+      "sort_order" : 8
+    },
+    {
+      "base_composable_ref" : "base.base_entity",
+      "code" : "exploration_finding",
+      "description" : "One exploration finding; rating 0=critical to 999=tombstone, read threshold 100",
+      "entity_type" : "MODEL",
+      "name" : "Exploration Finding",
+      "properties" : [
+        {
+          "code" : "exploration_summary_uuid",
+          "data_type" : "relationship",
+          "description" : "Owning summary; cascade on delete",
+          "is_unique" : false,
+          "name" : "Summary",
+          "nullable" : false,
+          "related_property_ref" : "agentics.exploration_summary.uuid",
+          "sort_order" : 6
+        },
+        {
+          "code" : "kind",
+          "data_type" : "enum",
+          "description" : "Finding classification",
+          "enum_ref" : "agentics.enums.explore_finding_kind",
+          "is_unique" : false,
+          "name" : "Kind",
+          "nullable" : false,
+          "sort_order" : 7
+        },
+        {
+          "code" : "title",
+          "data_type" : "text",
+          "description" : "Short finding title",
+          "is_unique" : false,
+          "name" : "Title",
+          "nullable" : false,
+          "sort_order" : 8
+        },
+        {
+          "code" : "body",
+          "data_type" : "text",
+          "description" : "Full finding body",
+          "is_unique" : false,
+          "name" : "Body",
+          "nullable" : false,
+          "sort_order" : 9
+        },
+        {
+          "code" : "agent_name",
+          "data_type" : "text",
+          "description" : "Agent that produced the finding",
+          "is_unique" : false,
+          "name" : "Agent Name",
+          "nullable" : false,
+          "sort_order" : 10
+        },
+        {
+          "code" : "finding_rating",
+          "data_type" : "int",
+          "description" : "0-999; 0=critical, 999=tombstone; null until ranked",
+          "is_unique" : false,
+          "name" : "Finding Rating",
+          "nullable" : true,
+          "sort_order" : 11
+        }
+      ],
+      "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
+      "sort_order" : 9
+    },
+    {
+      "base_composable_ref" : "base.base_entity",
+      "code" : "review_summary",
+      "description" : "Per-prompt review report with overview and verdict",
+      "entity_type" : "MODEL",
+      "name" : "Review Summary",
+      "properties" : [
+        {
+          "code" : "prompt_uuid",
+          "data_type" : "relationship",
+          "description" : "Owning prompt; one summary per prompt",
+          "is_unique" : true,
+          "name" : "Prompt",
+          "nullable" : false,
+          "related_property_ref" : "project.prompt.uuid",
+          "sort_order" : 6
+        },
+        {
+          "code" : "status",
+          "data_type" : "enum",
+          "description" : "reviewing or complete",
+          "enum_ref" : "agentics.enums.review_status",
+          "is_unique" : false,
+          "name" : "Status",
+          "nullable" : false,
+          "sort_order" : 7
+        },
+        {
+          "code" : "verdict",
+          "data_type" : "enum",
+          "description" : "Required once complete",
+          "enum_ref" : "agentics.enums.review_verdict",
+          "is_unique" : false,
+          "name" : "Verdict",
+          "nullable" : true,
+          "sort_order" : 8
+        },
+        {
+          "code" : "overview",
+          "data_type" : "text",
+          "description" : "Overview text; writable only via complete",
+          "is_unique" : false,
+          "name" : "Overview",
+          "nullable" : false,
+          "sort_order" : 9
+        }
+      ],
+      "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
+      "sort_order" : 10
+    },
+    {
+      "base_composable_ref" : "base.base_entity",
+      "code" : "review_finding",
+      "description" : "One review finding; resolved post-complete via the fix loop",
+      "entity_type" : "MODEL",
+      "name" : "Review Finding",
+      "properties" : [
+        {
+          "code" : "review_summary_uuid",
+          "data_type" : "relationship",
+          "description" : "Owning summary; cascade on delete",
+          "is_unique" : false,
+          "name" : "Summary",
+          "nullable" : false,
+          "related_property_ref" : "agentics.review_summary.uuid",
+          "sort_order" : 6
+        },
+        {
+          "code" : "kind",
+          "data_type" : "enum",
+          "description" : "Finding classification",
+          "enum_ref" : "agentics.enums.review_finding_kind",
+          "is_unique" : false,
+          "name" : "Kind",
+          "nullable" : false,
+          "sort_order" : 7
+        },
+        {
+          "code" : "title",
+          "data_type" : "text",
+          "description" : "Short finding title",
+          "is_unique" : false,
+          "name" : "Title",
+          "nullable" : false,
+          "sort_order" : 8
+        },
+        {
+          "code" : "body",
+          "data_type" : "text",
+          "description" : "Full finding body",
+          "is_unique" : false,
+          "name" : "Body",
+          "nullable" : false,
+          "sort_order" : 9
+        },
+        {
+          "code" : "file_path",
+          "data_type" : "text",
+          "description" : "File the finding is anchored to",
+          "is_unique" : false,
+          "name" : "File Path",
+          "nullable" : true,
+          "sort_order" : 10
+        },
+        {
+          "code" : "line_start",
+          "data_type" : "int",
+          "description" : "Anchor start line; required if line_end set",
+          "is_unique" : false,
+          "name" : "Line Start",
+          "nullable" : true,
+          "sort_order" : 11
+        },
+        {
+          "code" : "line_end",
+          "data_type" : "int",
+          "description" : "Anchor end line",
+          "is_unique" : false,
+          "name" : "Line End",
+          "nullable" : true,
+          "sort_order" : 12
+        },
+        {
+          "code" : "agent_name",
+          "data_type" : "text",
+          "description" : "Agent that produced the finding",
+          "is_unique" : false,
+          "name" : "Agent Name",
+          "nullable" : false,
+          "sort_order" : 13
+        },
+        {
+          "code" : "finding_rating",
+          "data_type" : "int",
+          "description" : "0-999; 0=critical, 999=tombstone; null until ranked",
+          "is_unique" : false,
+          "name" : "Finding Rating",
+          "nullable" : true,
+          "sort_order" : 14
+        },
+        {
+          "code" : "status",
+          "data_type" : "enum",
+          "description" : "Resolution set post-complete",
+          "enum_ref" : "agentics.enums.review_finding_status",
+          "is_unique" : false,
+          "name" : "Status",
+          "nullable" : false,
+          "sort_order" : 15
+        }
+      ],
+      "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
+      "sort_order" : 11
+    },
+    {
+      "base_composable_ref" : "base.base_entity",
+      "code" : "session_file",
+      "description" : "A repo file touched during a session; anchor for its changes",
+      "entity_type" : "MODEL",
+      "name" : "Session File",
+      "properties" : [
+        {
+          "code" : "session_uuid",
+          "data_type" : "relationship",
+          "description" : "Owning session",
+          "is_unique" : false,
+          "name" : "Session",
+          "nullable" : false,
+          "related_property_ref" : "project.session.uuid",
+          "sort_order" : 6
+        },
+        {
+          "code" : "relative_path",
+          "data_type" : "text",
+          "description" : "Repo-relative path; unique per session",
+          "is_unique" : false,
+          "name" : "Relative Path",
+          "nullable" : false,
+          "sort_order" : 7
+        },
+        {
+          "code" : "active",
+          "data_type" : "boolean",
+          "description" : "Whether the file is still tracked; default true",
+          "is_unique" : false,
+          "name" : "Active",
+          "nullable" : false,
+          "sort_order" : 8
+        }
+      ],
+      "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
+      "sort_order" : 12
+    },
+    {
+      "base_composable_ref" : "base.base_entity",
+      "code" : "file_change",
+      "description" : "One recorded modification of a session file, optionally prompt-attributed",
+      "entity_type" : "MODEL",
+      "name" : "File Change",
+      "properties" : [
+        {
+          "code" : "session_file_uuid",
+          "data_type" : "relationship",
+          "description" : "The file this change belongs to",
+          "is_unique" : false,
+          "name" : "Session File",
+          "nullable" : false,
+          "related_property_ref" : "agentics.session_file.uuid",
+          "sort_order" : 6
+        },
+        {
+          "code" : "session_uuid",
+          "data_type" : "relationship",
+          "description" : "Owning session, denormalized",
+          "is_unique" : false,
+          "name" : "Session",
+          "nullable" : false,
+          "related_property_ref" : "project.session.uuid",
+          "sort_order" : 7
+        },
+        {
+          "code" : "prompt_uuid",
+          "data_type" : "relationship",
+          "description" : "Prompt attribution; drives implementation-state comparison",
+          "is_unique" : false,
+          "name" : "Prompt",
+          "nullable" : true,
+          "related_property_ref" : "project.prompt.uuid",
+          "sort_order" : 8
+        },
+        {
+          "code" : "change_kind",
+          "data_type" : "enum",
+          "description" : "edit, create, delete, rename",
+          "enum_ref" : "agentics.enums.file_change_kind",
+          "is_unique" : false,
+          "name" : "Change Kind",
+          "nullable" : false,
+          "sort_order" : 9
+        }
+      ],
+      "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
+      "sort_order" : 13
+    },
+    {
+      "base_composable_ref" : "base.base_entity",
+      "code" : "file_change_range",
+      "description" : "A line range within a file change, optionally with content note",
+      "entity_type" : "MODEL",
+      "name" : "File Change Range",
+      "properties" : [
+        {
+          "code" : "file_change_uuid",
+          "data_type" : "relationship",
+          "description" : "Owning change; cascade on delete",
+          "is_unique" : false,
+          "name" : "File Change",
+          "nullable" : false,
+          "related_property_ref" : "agentics.file_change.uuid",
+          "sort_order" : 6
+        },
+        {
+          "code" : "line_start",
+          "data_type" : "int",
+          "description" : "Range start line",
+          "is_unique" : false,
+          "name" : "Line Start",
+          "nullable" : false,
+          "sort_order" : 7
+        },
+        {
+          "code" : "line_end",
+          "data_type" : "int",
+          "description" : "Range end line",
+          "is_unique" : false,
+          "name" : "Line End",
+          "nullable" : false,
+          "sort_order" : 8
+        },
+        {
+          "code" : "changed_content",
+          "data_type" : "text",
+          "description" : "Optional note or content for the range",
+          "is_unique" : false,
+          "name" : "Changed Content",
+          "nullable" : true,
+          "sort_order" : 9
+        }
+      ],
+      "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
+      "sort_order" : 14
+    },
+    {
+      "base_composable_ref" : "base.base_entity",
+      "code" : "prompt_artifact",
+      "description" : "A file registered against a prompt's CKFS memory, with an optional note",
+      "entity_type" : "MODEL",
+      "name" : "Prompt Artifact",
+      "properties" : [
+        {
+          "code" : "prompt_uuid",
+          "data_type" : "relationship",
+          "description" : "Owning prompt; cascade on delete",
+          "is_unique" : false,
+          "name" : "Prompt",
+          "nullable" : false,
+          "related_property_ref" : "project.prompt.uuid",
+          "sort_order" : 6
+        },
+        {
+          "code" : "file_path",
+          "data_type" : "text",
+          "description" : "Artifact path; unique per prompt",
+          "is_unique" : false,
+          "name" : "File Path",
+          "nullable" : false,
+          "sort_order" : 7
+        },
+        {
+          "code" : "note",
+          "data_type" : "text",
+          "description" : "Optional note about the artifact",
+          "is_unique" : false,
+          "name" : "Note",
+          "nullable" : true,
+          "sort_order" : 8
+        }
+      ],
+      "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
+      "sort_order" : 15
+    }
+  ],
+  "enums" : [
+    {
+      "code" : "clarify_summary_status",
+      "description" : "Clarification summary lifecycle; reopen returns complete to answering",
+      "name" : "Clarify Summary Status",
+      "options" : [
+        {
+          "code" : "building",
+          "description" : "Questions being asked",
+          "name" : "Building",
+          "sort_order" : 1
+        },
+        {
+          "code" : "answering",
+          "description" : "Sealed; answers being collected",
+          "name" : "Answering",
+          "sort_order" : 2
+        },
+        {
+          "code" : "complete",
+          "description" : "Finalized with refined goal/detail",
+          "name" : "Complete",
+          "sort_order" : 3
+        }
+      ],
+      "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
+      "sort_order" : 1
+    },
+    {
+      "code" : "clarify_category",
+      "description" : "Which prompt field a question refines",
+      "name" : "Clarify Category",
+      "options" : [
+        {
+          "code" : "goal",
+          "description" : "Refines the prompt goal",
+          "name" : "Goal",
+          "sort_order" : 1
+        },
+        {
+          "code" : "detail",
+          "description" : "Refines the prompt detail",
+          "name" : "Detail",
+          "sort_order" : 2
+        }
+      ],
+      "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
+      "sort_order" : 2
+    },
+    {
+      "code" : "clarify_answer_source",
+      "description" : "Who supplied a clarification answer",
+      "name" : "Clarify Answer Source",
+      "options" : [
+        {
+          "code" : "user",
+          "description" : "Answered by the human",
+          "name" : "User",
+          "sort_order" : 1
+        },
+        {
+          "code" : "bot_inferred",
+          "description" : "Answer inferred by the bot",
+          "name" : "Bot Inferred",
+          "sort_order" : 2
+        }
+      ],
+      "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
+      "sort_order" : 3
+    },
+    {
+      "code" : "clarify_status",
+      "description" : "Per-question state",
+      "name" : "Clarification Status",
+      "options" : [
+        {
+          "code" : "open",
+          "description" : "Awaiting an answer",
+          "name" : "Open",
+          "sort_order" : 1
+        },
+        {
+          "code" : "answered",
+          "description" : "Answer recorded",
+          "name" : "Answered",
+          "sort_order" : 2
+        },
+        {
+          "code" : "skipped",
+          "description" : "Explicitly skipped",
+          "name" : "Skipped",
+          "sort_order" : 3
+        }
+      ],
+      "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
+      "sort_order" : 4
+    },
+    {
+      "code" : "arch_status",
+      "description" : "Architecture summary lifecycle; revise returns proposed to drafting",
+      "name" : "Architecture Status",
+      "options" : [
+        {
+          "code" : "drafting",
+          "description" : "Being drafted",
+          "name" : "Drafting",
+          "sort_order" : 1
+        },
+        {
+          "code" : "proposed",
+          "description" : "Proposed for approval",
+          "name" : "Proposed",
+          "sort_order" : 2
+        },
+        {
+          "code" : "approved",
+          "description" : "Approved for implementation",
+          "name" : "Approved",
+          "sort_order" : 3
+        }
+      ],
+      "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
+      "sort_order" : 5
+    },
+    {
+      "code" : "arch_change_depth",
+      "description" : "Fidelity of change_code in a general change",
+      "name" : "Architecture Change Depth",
+      "options" : [
+        {
+          "code" : "pseudo",
+          "description" : "Pseudocode sketch",
+          "name" : "Pseudo",
+          "sort_order" : 1
+        },
+        {
+          "code" : "draft",
+          "description" : "Draft-quality code",
+          "name" : "Draft",
+          "sort_order" : 2
+        },
+        {
+          "code" : "actual",
+          "description" : "Final intended code",
+          "name" : "Actual",
+          "sort_order" : 3
+        }
+      ],
+      "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
+      "sort_order" : 6
+    },
+    {
+      "code" : "explore_status",
+      "description" : "Exploration summary lifecycle; reopen returns complete to exploring",
+      "name" : "Exploration Status",
+      "options" : [
+        {
+          "code" : "exploring",
+          "description" : "Findings being collected",
+          "name" : "Exploring",
+          "sort_order" : 1
+        },
+        {
+          "code" : "complete",
+          "description" : "Ranked and overviewed",
+          "name" : "Complete",
+          "sort_order" : 2
+        }
+      ],
+      "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
+      "sort_order" : 7
+    },
+    {
+      "code" : "explore_finding_kind",
+      "description" : "Classification of an exploration finding",
+      "name" : "Exploration Finding Kind",
+      "options" : [
+        {
+          "code" : "persistence_model",
+          "description" : "Existing persistence structure",
+          "name" : "Persistence Model",
+          "sort_order" : 1
+        },
+        {
+          "code" : "implementation_pattern",
+          "description" : "Pattern to follow",
+          "name" : "Implementation Pattern",
+          "sort_order" : 2
+        },
+        {
+          "code" : "existing_functionality",
+          "description" : "Behavior already present",
+          "name" : "Existing Functionality",
+          "sort_order" : 3
+        },
+        {
+          "code" : "scope_creep_risk",
+          "description" : "Risk of expanding scope",
+          "name" : "Scope Creep Risk",
+          "sort_order" : 4
+        },
+        {
+          "code" : "general_relevant_change",
+          "description" : "Other relevant change",
+          "name" : "General Relevant Change",
+          "sort_order" : 5
+        },
+        {
+          "code" : "other",
+          "description" : "Anything else",
+          "name" : "Other",
+          "sort_order" : 6
+        }
+      ],
+      "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
+      "sort_order" : 8
+    },
+    {
+      "code" : "review_status",
+      "description" : "Review summary lifecycle; the fix loop runs after complete",
+      "name" : "Review Status",
+      "options" : [
+        {
+          "code" : "reviewing",
+          "description" : "Findings being collected",
+          "name" : "Reviewing",
+          "sort_order" : 1
+        },
+        {
+          "code" : "complete",
+          "description" : "Overview and verdict recorded",
+          "name" : "Complete",
+          "sort_order" : 2
+        }
+      ],
+      "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
+      "sort_order" : 9
+    },
+    {
+      "code" : "review_verdict",
+      "description" : "Outcome of a completed review",
+      "name" : "Review Verdict",
+      "options" : [
+        {
+          "code" : "approved",
+          "description" : "Clean approval",
+          "name" : "Approved",
+          "sort_order" : 1
+        },
+        {
+          "code" : "approved_with_nits",
+          "description" : "Approved; minor issues noted",
+          "name" : "Approved With Nits",
+          "sort_order" : 2
+        },
+        {
+          "code" : "changes_requested",
+          "description" : "Must be fixed",
+          "name" : "Changes Requested",
+          "sort_order" : 3
+        }
+      ],
+      "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
+      "sort_order" : 10
+    },
+    {
+      "code" : "review_finding_kind",
+      "description" : "Classification of a review finding",
+      "name" : "Review Finding Kind",
+      "options" : [
+        {
+          "code" : "correctness_bug",
+          "description" : "Wrong behavior",
+          "name" : "Correctness Bug",
+          "sort_order" : 1
+        },
+        {
+          "code" : "spec_deviation",
+          "description" : "Deviates from the spec",
+          "name" : "Spec Deviation",
+          "sort_order" : 2
+        },
+        {
+          "code" : "regression_risk",
+          "description" : "Risks breaking existing behavior",
+          "name" : "Regression Risk",
+          "sort_order" : 3
+        },
+        {
+          "code" : "security",
+          "description" : "Security concern",
+          "name" : "Security",
+          "sort_order" : 4
+        },
+        {
+          "code" : "simplification",
+          "description" : "Cleaner alternative exists",
+          "name" : "Simplification",
+          "sort_order" : 5
+        },
+        {
+          "code" : "other",
+          "description" : "Anything else",
+          "name" : "Other",
+          "sort_order" : 6
+        }
+      ],
+      "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
+      "sort_order" : 11
+    },
+    {
+      "code" : "review_finding_status",
+      "description" : "Resolution state; never returns to open",
+      "name" : "Review Finding Status",
+      "options" : [
+        {
+          "code" : "open",
+          "description" : "Unresolved",
+          "name" : "Open",
+          "sort_order" : 1
+        },
+        {
+          "code" : "fixed",
+          "description" : "Addressed with a change",
+          "name" : "Fixed",
+          "sort_order" : 2
+        },
+        {
+          "code" : "accepted",
+          "description" : "Accepted as-is",
+          "name" : "Accepted",
+          "sort_order" : 3
+        },
+        {
+          "code" : "wont_fix",
+          "description" : "Deliberately not fixing",
+          "name" : "Won't Fix",
+          "sort_order" : 4
+        }
+      ],
+      "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
+      "sort_order" : 12
+    },
+    {
+      "code" : "file_change_kind",
+      "description" : "Kind of file modification",
+      "name" : "File Change Kind",
+      "options" : [
+        {
+          "code" : "edit",
+          "description" : "In-place edit",
+          "name" : "Edit",
+          "sort_order" : 1
+        },
+        {
+          "code" : "create",
+          "description" : "New file",
+          "name" : "Create",
+          "sort_order" : 2
+        },
+        {
+          "code" : "delete",
+          "description" : "File removed",
+          "name" : "Delete",
+          "sort_order" : 3
+        },
+        {
+          "code" : "rename",
+          "description" : "File moved/renamed",
+          "name" : "Rename",
+          "sort_order" : 4
+        }
+      ],
+      "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
+      "sort_order" : 13
+    }
+  ],
+  "name" : "Agentics",
+  "sort_order" : 4,
+  "version" : 481
+}

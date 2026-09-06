@@ -27,7 +27,7 @@ final class DopeCodecTests: XCTestCase {
             identity: identity(20),
             body: DopeEntityBody(code: "user", name: "User", entityType: "MODEL",
                                  description: "", sortOrder: 0,
-                                 repoRepresentativeFile: nil),
+                                 repoRepresentativeFile: nil, baseComposableRef: nil),
             properties: [
                 DopePropertyNode(identity: identity(21),
                                  body: DopePropertyBody(
@@ -46,7 +46,8 @@ final class DopeCodecTests: XCTestCase {
             identity: identity(30),
             body: DopeEntityBody(code: "post", name: "Post", entityType: "MODEL",
                                  description: "", sortOrder: 1,
-                                 repoRepresentativeFile: nil),
+                                 repoRepresentativeFile: nil,
+                                 baseComposableRef: "core.base_entity"),
             properties: [
                 DopePropertyNode(identity: identity(31),
                                  body: DopePropertyBody(
@@ -61,10 +62,25 @@ final class DopeCodecTests: XCTestCase {
                                     autoIncrement: nil, textCharLimit: 200,
                                     enumRef: nil, relatedPropertyRef: nil)),
             ])
+        let baseEntity = DopeEntityNode(
+            identity: identity(40),
+            body: DopeEntityBody(code: "base_entity", name: "Base Entity",
+                                 entityType: "BASE_COMPOSABLE",
+                                 description: "", sortOrder: 2,
+                                 repoRepresentativeFile: nil, baseComposableRef: nil),
+            properties: [
+                DopePropertyNode(identity: identity(41),
+                                 body: DopePropertyBody(
+                                    code: "created_at", name: "Created At", description: "",
+                                    sortOrder: 0,
+                                    dataType: "datetime", nullable: false, isUnique: false,
+                                    autoIncrement: nil, textCharLimit: nil,
+                                    enumRef: nil, relatedPropertyRef: nil)),
+            ])
         let core = DopeDomainNode(
             identity: identity(2),
             body: DopeDomainBody(code: "core", name: "Core", description: "", sortOrder: 0),
-            entities: [user, post], enums: [statusEnum])
+            entities: [user, post, baseEntity], enums: [statusEnum])
         return DopeScopeTree(
             identity: identity(1),
             body: DopeScopeBody(code: "gmcc", name: "GMCC", description: "The model"),
@@ -141,7 +157,7 @@ final class DopeCodecTests: XCTestCase {
         let entity = DopeEntityDocument(
             body: DopeEntityBody(code: "extra", name: "Extra", entityType: "MODEL",
                                  description: "", sortOrder: 9,
-                                 repoRepresentativeFile: nil),
+                                 repoRepresentativeFile: nil, baseComposableRef: nil),
             properties: [badProperty])
         let broken = DopeDomainFileDocument(
             version: bundle.main.version + 1,   // mismatch
@@ -170,7 +186,8 @@ final class DopeCodecTests: XCTestCase {
         var bundle = DopeProjection.documents(from: tree)
         let enumsEntity = DopeEntityDocument(
             body: DopeEntityBody(code: "enums", name: "Enums", entityType: "MODEL",
-                                 description: "", sortOrder: 5, repoRepresentativeFile: nil),
+                                 description: "", sortOrder: 5, repoRepresentativeFile: nil,
+                                 baseComposableRef: nil),
             properties: [])
         let chain = DopePropertyDocument(body: DopePropertyBody(
             code: "chain", name: "Chain", description: "", sortOrder: 7,
@@ -215,5 +232,80 @@ final class DopeCodecTests: XCTestCase {
         for bad in ["core.user", "core.user.id.extra", "core..id", "Core.user.id"] {
             XCTAssertThrowsError(try DopeCode.parseRef(bad, field: "ref"))
         }
+    }
+
+    func testEntityRefParsing() throws {
+        XCTAssertEqual(try DopeCode.parseEntityRef("core.user", field: "ref"),
+                       .entity(domain: "core", entity: "user"))
+        for bad in ["core", "core.user.id", "core.", "Core.user", "core.enums"] {
+            XCTAssertThrowsError(try DopeCode.parseEntityRef(bad, field: "ref"),
+                                 "'\(bad)' should be rejected")
+        }
+        // The sibling-function decision preserves the strict 3-segment guard:
+        // a truncated property ref must stay an error in parseRef.
+        XCTAssertThrowsError(try DopeCode.parseRef("core.user", field: "ref"))
+    }
+
+    // MARK: - Base composable validation
+
+    private func entityDoc(
+        _ code: String, type: String = "MODEL", sortOrder: Int = 0,
+        base: String? = nil
+    ) -> DopeEntityDocument {
+        DopeEntityDocument(
+            body: DopeEntityBody(code: code, name: code, entityType: type,
+                                 description: "", sortOrder: sortOrder,
+                                 repoRepresentativeFile: nil, baseComposableRef: base),
+            properties: [])
+    }
+
+    func testValidatorRejectsBadBaseRefs() throws {
+        var bundle = DopeProjection.documents(from: makeTree())
+        let broken = [
+            entityDoc("dangling", sortOrder: 10, base: "core.missing"),        // unresolvable
+            entityDoc("wrong_target", sortOrder: 11, base: "core.user"),       // targets a MODEL
+            entityDoc("selfie", sortOrder: 12, base: "core.selfie"),           // self-ref
+            entityDoc("threeseg", sortOrder: 13, base: "core.user.id"),        // 3-segment
+            entityDoc("cyc_a", type: "BASE_COMPOSABLE", sortOrder: 14, base: "core.cyc_b"),
+            entityDoc("cyc_b", type: "BASE_COMPOSABLE", sortOrder: 15, base: "core.cyc_a"),
+        ]
+        let file = DopeDomainFileDocument(
+            version: bundle.main.version,
+            body: bundle.domainFiles[0].body,
+            entities: bundle.domainFiles[0].entities + broken,
+            enums: bundle.domainFiles[0].enums)
+        bundle = DopeDocumentBundle(main: bundle.main, domainFiles: [file])
+
+        do {
+            try DopeValidator.validate(bundle)
+            XCTFail("expected BundleError")
+        } catch let error as DopeValidator.BundleError {
+            XCTAssertTrue(error.errors.contains { $0.contains("does not resolve") },
+                          "missing unresolvable-ref error: \(error.errors)")
+            XCTAssertTrue(error.errors.contains { $0.contains("only a BASE_COMPOSABLE") },
+                          "missing target-type error: \(error.errors)")
+            XCTAssertTrue(error.errors.contains { $0.contains("composes itself") },
+                          "missing self-ref error: \(error.errors)")
+            XCTAssertTrue(error.errors.contains { $0.contains("must be domain.entity") },
+                          "missing 2-segment parse error: \(error.errors)")
+            XCTAssertTrue(error.errors.contains { $0.contains("base_composable cycle") },
+                          "missing cycle error: \(error.errors)")
+        }
+    }
+
+    func testValidatorAcceptsBaseChain() throws {
+        var bundle = DopeProjection.documents(from: makeTree())
+        let chain = [
+            entityDoc("b_one", type: "BASE_COMPOSABLE", sortOrder: 10, base: "core.b_two"),
+            entityDoc("b_two", type: "BASE_COMPOSABLE", sortOrder: 11, base: "core.b_three"),
+            entityDoc("b_three", type: "BASE_COMPOSABLE", sortOrder: 12),
+        ]
+        let file = DopeDomainFileDocument(
+            version: bundle.main.version,
+            body: bundle.domainFiles[0].body,
+            entities: bundle.domainFiles[0].entities + chain,
+            enums: bundle.domainFiles[0].enums)
+        bundle = DopeDocumentBundle(main: bundle.main, domainFiles: [file])
+        try DopeValidator.validate(bundle)
     }
 }

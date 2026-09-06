@@ -58,6 +58,7 @@ public enum DopeValidator {
         // Per-domain walks + the cross-domain ref indexes.
         var enumIndex = Set<String>()            // "domain.enums.enum"
         var propertyIndex = [String: String]()   // "domain.entity.property" → data_type
+        var entityIndex = [String: String]()     // "domain.entity" → entity_type
 
         for file in bundle.domainFiles {
             let dcode = file.body.code
@@ -83,8 +84,9 @@ public enum DopeValidator {
                 }
                 if DopeEntityType(rawValue: entity.body.entityType) == nil {
                     errors.append(
-                        "entity '\(dcode).\(ecode)' entity_type '\(entity.body.entityType)' is not MODEL or JUNCTION")
+                        "entity '\(dcode).\(ecode)' entity_type '\(entity.body.entityType)' is not MODEL, JUNCTION or BASE_COMPOSABLE")
                 }
+                entityIndex["\(dcode).\(ecode)"] = entity.body.entityType
                 if entity.body.description.count > 512 {
                     errors.append("entity '\(dcode).\(ecode)' description exceeds 512 characters")
                 }
@@ -125,6 +127,60 @@ public enum DopeValidator {
                     }
                 }
             }
+        }
+
+        // Base-composable refs, now that entityIndex is complete (refs may
+        // point forward and across domains). Surviving edges feed the cycle
+        // check below.
+        var baseEdge = [String: String]()        // "domain.entity" → target path
+        for file in bundle.domainFiles {
+            for entity in file.entities {
+                let path = "\(file.body.code).\(entity.body.code)"
+                guard let raw = entity.body.baseComposableRef else { continue }
+                do {
+                    _ = try DopeCode.parseEntityRef(
+                        raw, field: "entity '\(path)' base_composable_ref")
+                } catch {
+                    errors.append(String(describing: error))
+                    continue
+                }
+                if raw == path {
+                    errors.append("entity '\(path)' composes itself")
+                    continue
+                }
+                guard let targetType = entityIndex[raw] else {
+                    errors.append("entity '\(path)' base_composable_ref '\(raw)' does not resolve")
+                    continue
+                }
+                guard targetType == DopeEntityType.baseComposable.rawValue else {
+                    errors.append(
+                        "entity '\(path)' base_composable_ref '\(raw)' targets a \(targetType) — only a BASE_COMPOSABLE may be composed")
+                    continue
+                }
+                baseEdge[path] = raw
+            }
+        }
+
+        // Cycle check. Chaining is ALLOWED (a BASE_COMPOSABLE may itself
+        // compose one), so the ban is on cycles, not on depth. Each entity
+        // has at most ONE outgoing edge — the graph is functional — so this
+        // is a linear pointer-chase with a three-colour map, never a
+        // branching DFS.
+        var colour = [String: Int]()             // 1 = on the current chase, 2 = settled
+        for start in baseEdge.keys.sorted() where colour[start] == nil {
+            var chain: [String] = []
+            var node = start
+            while colour[node] == nil, let next = baseEdge[node] {
+                colour[node] = 1
+                chain.append(node)
+                node = next
+            }
+            if colour[node] == 1, let i = chain.firstIndex(of: node) {
+                errors.append("base_composable cycle: "
+                    + (chain[i...] + [node]).joined(separator: " → "))
+            }
+            for n in chain { colour[n] = 2 }
+            colour[node] = 2
         }
 
         // Property shape coupling + ref resolution, now that the indexes are
