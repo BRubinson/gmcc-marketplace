@@ -42,7 +42,7 @@ message family):
 
 | Subcommand | Purpose |
 |------------|---------|
-| `gm cheatsheet` | Full-surface signature sheet: one exact-signature line per verb + invariant lines, compiled into the binary (pure client-side, works with the daemon down). Printed into context at SessionStart by `detect_repo.sh`; subagent tiers paste it into worker prompts. Drift-guarded by `CheatsheetTests` (every subcommand path must appear in the sheet). |
+| `gm cheatsheet` | Full-surface signature sheet: one exact-signature line per verb + invariant lines, compiled into the binary (pure client-side, works with the daemon down). Printed into context at SessionStart by `gmcc_session_startup.sh`; subagent tiers paste it into worker prompts. Drift-guarded by `CheatsheetTests` (every subcommand path must appear in the sheet). |
 | `gm ping` | Liveness + build identity (sha/date stamped by build_daemon.sh), uptime. |
 | `gm status` | Daemon + db health: pid, protocol, socket, schema version, per-table row counts, and `last_event_id` — the REAL event-log horizon (highest daemon_event.id). `table_counts` is a row census and MUST NOT be used as an event cursor. |
 | `gm setup [--launchd]` | Client-side init of `~/gmcc/` dirs + daemon autostart. `--launchd` installs a login agent. |

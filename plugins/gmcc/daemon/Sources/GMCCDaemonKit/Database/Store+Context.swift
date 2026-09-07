@@ -2,7 +2,7 @@ import Foundation
 import GRDB
 
 // CONTEXT_ENSURE / CONTEXT_GET — the promoted ensure chain (mirrors
-// detect_repo.sh lazy creation) plus create-time-only kbite seeding
+// gmcc_session_startup.sh lazy creation) plus create-time-only kbite seeding
 // (mirrors inherit_kbite). The full kbite message family is prompt 4;
 // this is only the seeding path CONTEXT_ENSURE requires.
 
@@ -149,7 +149,7 @@ extension Store {
     /// Fill a newly created row's active-kbite junction: explicit codes from
     /// the context payload, plus a copy of the parent level's junction rows
     /// (create-time-only inheritance — existing rows are never re-seeded,
-    /// exactly like detect_repo.sh's inherit_kbite).
+    /// exactly like gmcc_session_startup.sh's inherit_kbite).
     private func seedKbites(
         _ db: Database,
         level: String,

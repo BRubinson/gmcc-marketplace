@@ -189,7 +189,7 @@ struct Sandbox: ParsableCommand {
             }
             let marker = layout.repo.appendingPathComponent(".gmcc_sandbox")
             try """
-            # Written by gm sandbox refresh — sourced by detect_repo.sh so any
+            # Written by gm sandbox refresh — sourced by gmcc_session_startup.sh so any
             # Claude session inside this snapshot auto-sandboxes.
             export GMCC_ROOT="\(layout.runtime.path)"
             export GMCC_CKFS_ROOT="\(layout.ckfs.path)"

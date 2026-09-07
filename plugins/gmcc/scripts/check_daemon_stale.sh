@@ -4,7 +4,7 @@
 #
 # SessionStart hook: warn (never block) when the installed daemon binaries are
 # missing or older than the daemon package sources. Plugin root derived from
-# this script's location (dirname trick), same as detect_repo.sh.
+# this script's location (dirname trick), same as gmcc_session_startup.sh.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 GMCC_PLUGIN_DIR="$(dirname "$SCRIPT_DIR")"

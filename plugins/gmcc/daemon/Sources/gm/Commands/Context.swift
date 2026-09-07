@@ -32,7 +32,7 @@ struct Context: ParsableCommand {
             // The ckfs artifact home (prompts/{seq}_{name}/memory/ scratch
             // space) is a client-side concern — the daemon writes no files.
             // This is the ONLY creator in the system (moved from
-            // detect_repo.sh). try? deliberately: a read-only ckfs must not
+            // gmcc_session_startup.sh). try? deliberately: a read-only ckfs must not
             // fail ensure.
             let ckfsRoot = (try? withClient { try $0.pathsGet() }.ckfsRoot)
                 .map { URL(fileURLWithPath: $0, isDirectory: true) }

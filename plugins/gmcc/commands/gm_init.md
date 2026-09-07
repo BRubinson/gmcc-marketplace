@@ -14,7 +14,7 @@ You are initializing the GM-CDE system at the user level.
 tree, builds/installs the daemon + `gm` CLI into `~/gmcc/bin/`, and runs
 `gm setup` (which creates the `~/gmcc/` runtime dirs + SQLite db).
 Per-project / per-instance / per-session db rows are ensured lazily by
-`scripts/detect_repo.sh` (`gm context ensure`) on every SessionStart.
+`scripts/gmcc_session_startup.sh` (`gm context ensure`) on every SessionStart.
 
 ---
 
@@ -54,7 +54,7 @@ mkdir -p "$HOME/gmcc_ckfs/projects" "$HOME/gmcc_ckfs/_archive/cold_storage"
 
 The `kbites/` subtree is created lazily by `/gm_crunch_open_maw` on first
 kbite work. Per-project directories under `projects/{project_name}/` are
-created lazily by `detect_repo.sh` on first SessionStart in a git repo.
+created lazily by `gmcc_session_startup.sh` on first SessionStart in a git repo.
 There is no yaml registry — project/instance/session data lives in the
 daemon db.
 

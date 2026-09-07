@@ -6,7 +6,7 @@ import GMCCDaemonKit
 /// Client-side identity derivation, shared by every subcommand that needs the
 /// project → instance → session triple. The CLI gathers the git context (repo
 /// root, basename, branch) from the working directory and mirrors
-/// detect_repo.sh's identity conventions (instance code =
+/// gmcc_session_startup.sh's identity conventions (instance code =
 /// {repo}_{4-char md5 of abs path}, branch slugified / → __) so db rows line
 /// up with the ckfs tree. Where a ckfs data file already carries a uuid or a
 /// kbite registry, both are passed along so the db reuses/seeds them.
@@ -15,14 +15,14 @@ struct GitContext {
     let repoName: String
     let branch: String
 
-    /// {repo}_{first 4 hex of md5(abs path)} — matches detect_repo.sh's hash4.
+    /// {repo}_{first 4 hex of md5(abs path)} — matches gmcc_session_startup.sh's hash4.
     /// Single Swift home of the convention: InstanceIdentity in the kit
     /// (shared with SandboxRetarget).
     var instanceCode: String {
         InstanceIdentity.code(repoName: repoName, absolutePath: repoRoot)
     }
 
-    /// Branch with / slugified to __ — matches detect_repo.sh.
+    /// Branch with / slugified to __ — matches gmcc_session_startup.sh.
     var sessionCode: String {
         branch.replacingOccurrences(of: "/", with: "__")
     }

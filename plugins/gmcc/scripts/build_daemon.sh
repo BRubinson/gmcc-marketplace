@@ -11,7 +11,7 @@
 #   build_daemon.sh --force    # always rebuild
 #
 # ${CLAUDE_PLUGIN_ROOT} is only resolved inside hook/command strings, so —
-# like detect_repo.sh — the plugin root is derived from this script's own
+# like gmcc_session_startup.sh — the plugin root is derived from this script's own
 # location with the dirname trick.
 
 set -e

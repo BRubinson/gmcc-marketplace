@@ -9,7 +9,7 @@ allowed-tools: Read, Write, Bash, Glob
 # GMCC Session Creation Skill
 
 Bootstraps (or repairs) the **current** session on demand. The
-`SessionStart` hook (`scripts/detect_repo.sh`) already does this
+`SessionStart` hook (`scripts/gmcc_session_startup.sh`) already does this
 automatically the first time Claude Code starts in a repo, but this skill
 exists as a **standalone, manually-invocable** path for when:
 
@@ -18,7 +18,7 @@ exists as a **standalone, manually-invocable** path for when:
 - the session's `prompts/` artifact home was deleted,
 - `/gmcc_session_cleanup` finds missing session state and delegates here.
 
-**It does NOT modify `detect_repo.sh` or the SessionStart flow.**
+**It does NOT modify `gmcc_session_startup.sh` or the SessionStart flow.**
 
 ---
 

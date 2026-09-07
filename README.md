@@ -54,7 +54,7 @@ effect on the next Claude Code restart.
 
 ### 2. Open Claude Code inside a git repository
 
-The `SessionStart` hook (`scripts/detect_repo.sh`) detects the repo and branch and
+The `SessionStart` hook (`scripts/gmcc_session_startup.sh`) detects the repo and branch and
 **auto-provisions** the project / instance / session directories for you — no manual
 per-repo or per-branch command is needed:
 
@@ -171,7 +171,7 @@ kbites/
   (`gmcc_agent`, `gmcc_kbite`, `gmcc_maw`, `gmcc_cleanup`) carry
   `disable-model-invocation` so they load only during the relevant workflow, keeping
   per-message context lean. `gmcc_boot` runs on `SessionStart`.
-- **Hook** — `SessionStart` → `scripts/detect_repo.sh` provisions the ckfs and exports
+- **Hook** — `SessionStart` → `scripts/gmcc_session_startup.sh` provisions the ckfs and exports
   the `GMCC_*` environment variables.
 - **Output styles** — four GMCC personas (aggressive / alternative / conservative /
   pragmatic) you can switch between.

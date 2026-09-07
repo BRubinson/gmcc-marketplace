@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/detect_repo.sh"
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/gmcc_session_startup.sh"
           },
           {
             "type": "command",

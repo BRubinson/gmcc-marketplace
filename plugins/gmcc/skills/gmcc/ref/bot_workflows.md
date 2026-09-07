@@ -224,7 +224,7 @@ more careful, view-scoped dump for UI-based tasks.
 
 ## GM Cheatsheet (state load)
 
-The exact gm verb surface is in context from SessionStart: `detect_repo.sh`
+The exact gm verb surface is in context from SessionStart: `gmcc_session_startup.sh`
 prints `gm cheatsheet` (one signature line per verb + invariants, compiled
 into the binary so it cannot drift from installed capabilities). Consult it
 instead of `gm ... --help` roundtrips. Subagent tiers must paste the verbatim

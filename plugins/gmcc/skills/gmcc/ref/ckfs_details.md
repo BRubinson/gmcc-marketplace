@@ -23,7 +23,7 @@ content store.
 │   └── gmcc_cleanup/              # Environment auditing
 ├── commands/gm_*.md               # All GM commands
 ├── prompts/gmcc_agent_*.md        # Agent prompt files
-├── scripts/detect_repo.sh         # SessionStart hook script
+├── scripts/gmcc_session_startup.sh         # SessionStart hook script
 ├── scripts/build_daemon.sh        # Daemon/gm build + install
 ├── scripts/check_daemon_stale.sh  # SessionStart staleness warning
 ├── daemon/                        # Swift package: gmcc_daemon + gm + GMCCDaemonKit
@@ -91,7 +91,7 @@ A project corresponds to exactly one git repo (by basename). An instance is a un
 
 ## Lazy Creation on SessionStart
 
-On every SessionStart, `detect_repo.sh`:
+On every SessionStart, `gmcc_session_startup.sh`:
 
 1. Confirms the git repo, locates the plugin root, and locates the right
    `gm` binary (prod runtime, or the sandbox runtime named by a

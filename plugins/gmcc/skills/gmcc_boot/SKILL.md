@@ -7,14 +7,14 @@ allowed-tools: Bash, Read
 
 # GMCC Boot System
 
-The GMCC boot system runs automatically on SessionStart via the `detect_repo.sh` hook.
+The GMCC boot system runs automatically on SessionStart via the `gmcc_session_startup.sh` hook.
 
 ## Boot Sequence
 
 When Claude Code starts a session:
 
-1. **SessionStart hooks fire** (defined in `hooks.json`): `detect_repo.sh` then `check_daemon_stale.sh` (which warns when the daemon binaries are missing/stale).
-2. **detect_repo.sh executes** — three jobs only: confirm we're in a git repository, find the plugin root, and find the right `gm` binary (prod runtime, or the sandbox runtime named by a `.gmcc_sandbox` marker at the repo root). Everything else is owned by the `gm` binary.
+1. **SessionStart hooks fire** (defined in `hooks.json`): `gmcc_session_startup.sh` then `check_daemon_stale.sh` (which warns when the daemon binaries are missing/stale).
+2. **gmcc_session_startup.sh executes** — three jobs only: confirm we're in a git repository, find the plugin root, and find the right `gm` binary (prod runtime, or the sandbox runtime named by a `.gmcc_sandbox` marker at the repo root). Everything else is owned by the `gm` binary.
    - If not in git repo: exits silently (no GMCC vars set)
    - If in git repo: best-effort calls `gm context ensure` (upserts project / instance / session db rows for the current repo + branch, creates the session's artifact home, and runs the dope boot sync; warns and continues if the daemon is unavailable), then prints `gm cheatsheet` into context
 3. **`gm context env` writes the environment to `$CLAUDE_ENV_FILE`** — the daemon binary, not the script, owns the env contract. The surviving set is: `GMCC_BOOTED=1` (the boot signal), `GMCC_PLUGIN_ROOT`, `GMCC_CKFS_ROOT`, `PATH` (prepended so bare `gm` resolves to the correct prod/sandbox binary), plus `GMCC_ROOT` when sandboxed. Session/project/kbite paths are NOT env vars anymore — get roots from `gm paths --json` and per-row locations from the `ckfs_relative_storage_path` fields of `gm context get --json` / `gm session get --json`. The diagnostics in this skill echo whatever is actually set at runtime.
@@ -141,7 +141,7 @@ Daemon reachable, db rows present. You can run any gm_ command.
 If the SessionStart hook fails to run, you can manually trigger boot by sourcing the detection script:
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/scripts/detect_repo.sh"
+source "${CLAUDE_PLUGIN_ROOT}/scripts/gmcc_session_startup.sh"
 ```
 
 **Note**: This is a fallback for debugging. Normal boot should happen automatically.
@@ -159,7 +159,7 @@ source "${CLAUDE_PLUGIN_ROOT}/scripts/detect_repo.sh"
 ### Environment variables partially set
 
 This usually means the SessionStart hook ran but there was a problem:
-- Check `detect_repo.sh` script for errors
+- Check `gmcc_session_startup.sh` script for errors
 - Verify git repository is accessible
 - Run `/gmcc_boot` for full diagnostics
 
