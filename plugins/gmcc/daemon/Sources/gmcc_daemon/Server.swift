@@ -426,6 +426,22 @@ final class Server: @unchecked Sendable {
                 return try DopeGetHandler.handle(line: line, head: head, store: store)
             case .dopePromote:
                 return try DopePromoteHandler.handle(line: line, head: head, store: store)
+            case .dopeCogAdd:
+                return try DopeCogAddHandler.handle(line: line, head: head, store: store)
+            case .dopeCogUpdate:
+                return try DopeCogUpdateHandler.handle(line: line, head: head, store: store)
+            case .dopeCogDelete:
+                return try DopeCogDeleteHandler.handle(line: line, head: head, store: store)
+            case .dopeCogGet:
+                return try DopeCogGetHandler.handle(line: line, head: head, store: store)
+            case .dopeCogElementAdd:
+                return try DopeCogElementAddHandler.handle(line: line, head: head, store: store)
+            case .dopeCogElementUpdate:
+                return try DopeCogElementUpdateHandler.handle(line: line, head: head, store: store)
+            case .dopeCogElementDelete:
+                return try DopeCogElementDeleteHandler.handle(line: line, head: head, store: store)
+            case .dopeSearch:
+                return try DopeSearchHandler.handle(line: line, head: head, store: store)
             case .dopeNodeAdd:
                 return try DopeNodeAddHandler.handle(line: line, head: head, store: store)
             case .dopeNodeUpdate:

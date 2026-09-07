@@ -14,7 +14,7 @@ struct Dope: ParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "DOPED domain modeling: init, get, granular node edits, and whole-tree repo JSON I/O.",
         subcommands: [
-            Init.self, List.self, Get.self, Promote.self, ScopeUpdate.self,
+            Init.self, List.self, Get.self, Promote.self, Search.self, ScopeUpdate.self,
             PersistenceAdd.self, PersistenceUpdate.self, PersistenceDelete.self,
             EntityAdd.self, EntityUpdate.self, EntityDelete.self,
             PropertyAdd.self, PropertyUpdate.self, PropertyDelete.self,
@@ -261,6 +261,46 @@ struct Dope: ParsableCommand {
                     print("[gm] dope promoted '\(p.code)' -> BASE_PROJECT \(p.baseScopeUuid) "
                         + "(high-water \(p.fromRevision) -> \(p.toRevision), "
                         + "\(p.counts.domains)d/\(p.counts.entities)e/\(p.counts.properties)p)")
+                }
+            }
+        }
+    }
+
+    /// gm dope search — full text over the dope tree at one of three scopes.
+    struct Search: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "search",
+            abstract: "Search the dope tree at prompt / session / project scope.")
+
+        @OptionGroup var output: OutputOptions
+        @Argument(help: "prompt | session | project") var scope: String
+        @Argument(help: "Query text.") var query: String
+        @Option(name: .long) var sessionUuid: String?
+        @Option(name: .long) var promptUuid: String?
+        @Option(name: .long) var projectUuid: String?
+        @Flag(name: .customLong("only-masks"),
+              help: "Only hits whose dot-path came from a masking overlay.")
+        var onlyMasks: Bool = false
+        @Option(name: .long) var limit: Int?
+
+        func run() throws {
+            guard let searchScope = DopeSearchScope(rawValue: scope) else {
+                throw ValidationError(
+                    "scope must be one of: "
+                    + DopeSearchScope.allCases.map(\.rawValue).joined(separator: ", "))
+            }
+            let r = try withClient {
+                try $0.dopeSearch(DopeSearchRequest(
+                    query: query, scope: searchScope, sessionUuid: sessionUuid,
+                    promptUuid: promptUuid, projectUuid: projectUuid,
+                    onlyMasks: onlyMasks ? true : nil, limit: limit))
+            }
+            if output.json { printJSON(r) } else {
+                print("[gm] \(r.hits.count) dope hit(s)")
+                for hit in r.hits {
+                    let origin = hit.origin.map { " [\($0)]" } ?? ""
+                    print("  \(hit.kind) \(hit.scopeCode):\(hit.path)\(origin)")
+                    if !hit.excerpt.isEmpty { print("    \(hit.excerpt)") }
                 }
             }
         }

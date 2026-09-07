@@ -339,6 +339,44 @@ extension DaemonClient {
         try request(type: .dopePromote, payload: req, responseType: DopePromoteResponse.self)
     }
 
+    public func dopeCogAdd(_ r: DopeCogAddRequest) throws -> DopeCogResponse {
+        try request(type: .dopeCogAdd, payload: r, responseType: DopeCogResponse.self)
+    }
+
+    public func dopeCogUpdate(_ r: DopeCogUpdateRequest) throws -> DopeCogResponse {
+        try request(type: .dopeCogUpdate, payload: r, responseType: DopeCogResponse.self)
+    }
+
+    public func dopeCogDelete(_ r: DopeCogDeleteRequest) throws -> DopeCogDeleteResponse {
+        try request(type: .dopeCogDelete, payload: r, responseType: DopeCogDeleteResponse.self)
+    }
+
+    public func dopeCogGet(_ r: DopeCogGetRequest) throws -> DopeCogGetResponse {
+        try request(type: .dopeCogGet, payload: r, responseType: DopeCogGetResponse.self)
+    }
+
+    public func dopeCogElementAdd(_ r: DopeCogElementAddRequest) throws -> DopeCogElementResponse {
+        try request(type: .dopeCogElementAdd, payload: r, responseType: DopeCogElementResponse.self)
+    }
+
+    public func dopeCogElementUpdate(
+        _ r: DopeCogElementUpdateRequest
+    ) throws -> DopeCogElementResponse {
+        try request(type: .dopeCogElementUpdate, payload: r,
+                    responseType: DopeCogElementResponse.self)
+    }
+
+    public func dopeCogElementDelete(
+        _ r: DopeCogElementDeleteRequest
+    ) throws -> DopeCogDeleteResponse {
+        try request(type: .dopeCogElementDelete, payload: r,
+                    responseType: DopeCogDeleteResponse.self)
+    }
+
+    public func dopeSearch(_ req: DopeSearchRequest) throws -> DopeSearchResponse {
+        try request(type: .dopeSearch, payload: req, responseType: DopeSearchResponse.self)
+    }
+
     public func dopeNodeAdd(_ req: DopeNodeAddRequest) throws -> DopeNodeResponse {
         try request(type: .dopeNodeAdd, payload: req, responseType: DopeNodeResponse.self)
     }

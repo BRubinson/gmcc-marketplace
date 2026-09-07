@@ -17,6 +17,37 @@ import GRDB
 /// knows diagrams exist.
 extension Store {
 
+    /// The ITEM-tier restriction on a diagram's whole-canvas dope binding.
+    ///
+    /// This is a Swift guard rather than a SQL CHECK because it cannot be
+    /// one: a SQLite CHECK cannot reference another table, and ALTER TABLE
+    /// ADD COLUMN cannot add a CHECK at all. That matches the per-element
+    /// binding, which is also a code and never an FK.
+    ///
+    /// The rule is deliberately asymmetric between write and read. On WRITE a
+    /// binding that resolves to a base tier is refused, so a canvas can never
+    /// be pointed at shared truth by accident. On READ a code that resolves to
+    /// nothing is a legal ghost — a base is free to evolve out from under a
+    /// diagram, exactly as with the per-element bindings.
+    func validateDiagramScopeBinding(
+        _ db: Database, owner: DiagramOwner, code: String
+    ) throws {
+        let rows = try Row.fetchAll(db, sql: """
+            SELECT scope_type FROM dope_scope
+             WHERE project_uuid = ? AND code = ? AND deleted_on IS NULL
+            """, arguments: [owner.projectUuid, code])
+        // Unknown code: legal, a ghost. Nothing to restrict yet.
+        guard !rows.isEmpty else { return }
+        let tiers = rows.compactMap { DopeScopeType(fromWire: $0["scope_type"] as String) }
+        guard tiers.contains(where: \.isOverlay) else {
+            throw StoreError.badRequest(
+                detail: "diagram dope binding '\(code)' resolves only to base tier(s) "
+                      + tiers.map(\.rawValue).joined(separator: ", ")
+                      + " — a diagram must bind to a masking scope "
+                      + "(PROJECT_ITEM / SESSION_INSTANCE_ITEM) so edits land on an overlay")
+        }
+    }
+
     // MARK: - Row + revision helpers
 
     static func diagramRow(_ row: Row) -> DiagramRow {
@@ -25,7 +56,8 @@ extension Store {
             projectUuid: row["project_uuid"], instanceUuid: row["instance_uuid"],
             sessionUuid: row["session_uuid"], promptUuid: row["prompt_uuid"],
             code: row["code"], name: row["name"], description: row["description"],
-            gmccDiagramPath: row["gmcc_diagram_path"], revision: row["revision"],
+            gmccDiagramPath: row["gmcc_diagram_path"],
+            dopeScopeCode: row["dope_scope_code"], revision: row["revision"],
             createdAt: row["created_at"], updatedAt: row["updated_at"])
     }
 
@@ -175,6 +207,9 @@ extension Store {
             let owner = try self.resolveDiagramOwner(
                 db, projectUuid: req.projectUuid, instanceUuid: req.instanceUuid,
                 sessionUuid: req.sessionUuid, promptUuid: req.promptUuid)
+            if let binding = req.dopeScopeCode {
+                try self.validateDiagramScopeBinding(db, owner: owner, code: binding)
+            }
             if req.gmccDiagramPath != nil, owner.tier == .project {
                 throw StoreError.badRequest(
                     detail: "gmcc_diagram_path is unresolvable at PROJECT tier (no instance root)")
@@ -194,6 +229,7 @@ extension Store {
                 "name": req.name,
                 "description": description,
                 "gmcc_diagram_path": req.gmccDiagramPath,
+                "dope_scope_code": req.dopeScopeCode,
                 "revision": 0,
             ])
             guard let diagram = try self.fetchDiagram(db, uuid: uuid) else {

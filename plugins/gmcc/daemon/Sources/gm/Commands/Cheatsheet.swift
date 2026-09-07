@@ -81,6 +81,7 @@ struct Cheatsheet: ParsableCommand {
       gm dope init --session-uuid U --code C --name N [--prompt-uuid U] [--description D] [--clone-from-session-base]   (idempotent; PROMPT-typed iff --prompt-uuid)
       gm dope list --session-uuid U [--prompt-uuid U]   (scope rows for a picker; SESSION_BASE scopes, or ONLY that prompt's PROMPT scopes with --prompt-uuid — never a union; empty list is normal, unknown uuid is NOT_FOUND)
       gm dope get --session-uuid U [--prompt-uuid U] [--code C] [--resolved]   (SESSION_INSTANCE_ITEM preferred, SESSION_INSTANCE fallback; --code disambiguates; --resolved merges a masking overlay over its same-coded base one tier up and reports provenance + masked-away paths)
+      gm dope search prompt|session|project "<query>" [--session-uuid U] [--prompt-uuid U] [--project-uuid U] [--only-masks] [--limit N]   (FTS5 over scope/persistence/entity/property/enum/option/cog/cog-element; hits carry the dot-path; --only-masks post-filters on resolver provenance, resolving each overlay ONCE rather than per hit)
       gm dope promote --session-uuid U [--code C] [--dry-run]   (SESSION_INSTANCE -> BASE_PROJECT; primary-branch sessions only, gated on a promoted_from_* high-water so it never ping-pongs between instances or re-fires on an unchanged tree; also runs automatically at boot behind the dope sync)
       gm dope scope-update --uuid U --expected-version V [--code C] [--name N] [--description D]
       gm dope persistence-add · gm dope entity-add · gm dope enum-add · gm dope option-add --parent-uuid U --code C --name N [--description D] [--sort-order N] (entity also: [--entity-type MODEL|JUNCTION|BASE_COMPOSABLE] [--base-composable-uuid U]; entity/enum also: [--repo-representative-file P])
@@ -93,7 +94,7 @@ struct Cheatsheet: ParsableCommand {
       gm dope ingest --scope-uuid U [--dir-path P] [--adopt]   (files -> db whole-tree overwrite, no smart diff, child uuids change; on-disk version must be EXACTLY db revision + 1. --adopt is boot-sync-only: accepts any strictly FORWARD version, discards db-only gap revisions, never moves backward)
       gm dope sync [--session-uuid U]   (files -> db reconcile of the session's SESSION_BASE scope from {instance_root}/.gmcc/dope: seeds a virgin scope, re-adopts when files are ahead, WARNS ONLY when the db is ahead; runs automatically at boot via gm context ensure — run manually after a mid-session branch change)
     DIAGRAM (db-persisted canvases over dope; diagram.revision = whole-tree counter; exactly ONE owner flag picks the tier PROJECT|INSTANCE|SESSION|PROMPT; batch-apply is THE interactive write — the element verbs are one-mutation batches over the same body)
-      gm diagram init (--project-uuid U | --instance-uuid U | --session-uuid U | --prompt-uuid U) --code C --name N [--description D] [--gmcc-diagram-path P]   (idempotent per owner+code; path refused at PROJECT tier)
+      gm diagram init (--project-uuid U | --instance-uuid U | --session-uuid U | --prompt-uuid U) --code C --name N [--description D] [--gmcc-diagram-path P] [--dope-scope-code C]   (idempotent per owner+code; path refused at PROJECT tier; dope-scope-code binds the WHOLE canvas to one scope and is restricted on write to the masking tiers PROJECT_ITEM/SESSION_INSTANCE_ITEM — a Swift guard, since a SQLite CHECK cannot reference another table; it coexists with the per-element bindings)
       gm diagram list (--project-uuid U | --instance-uuid U | --session-uuid U | --prompt-uuid U)   (that tier's rows only, never a union; empty is normal, unknown owner NOT_FOUND)
       gm diagram get (--diagram-uuid U | one owner flag: --project-uuid|--instance-uuid|--session-uuid|--prompt-uuid [--code C])   (tree + dope binding resolutions; no cross-tier fallback; pair with gm dope get for bound trees; real owner with none -> SUMMARY_ABSENT)
       gm diagram update --diagram-uuid U --expected-version V [--code C] [--name N] [--description D] [--gmcc-diagram-path P | --clear-gmcc-diagram-path] [--promote-tier T --promote-owner-uuid O]   (promotion re-derives the owner chain; same project always)
@@ -103,6 +104,14 @@ struct Cheatsheet: ParsableCommand {
       gm diagram batch-apply --diagram-uuid U (--mutations JSON | --mutations-file P) [--expected-revision N]   (one txn/revision/event; strict order; clientRef parenting; all-or-nothing; expected-revision = whole-diagram CAS)
       gm diagram screenshot (--diagram-uuid U | one owner flag: --project-uuid|--instance-uuid|--session-uuid|--prompt-uuid [--code C]) [--scheme light|dark] [--scale N] [--out-name N] [--artifact --artifact-prompt-uuid U]   (client-side headless render -> {instance_root}/.gmcc/.screenshots/, self-gitignored; zero db writes)
       gm diagram from-dope --session-uuid U [--prompt-uuid U] [--code C] [--diagram-code C] [--mutations-out P] [--dry-run]   (dope tree -> one atomic regenerate batch; geometry shared with the renderer; replaces the retired python generator)
+    COGS (Coordination Of General Systems; cog rows live in a dope scope and share its revision, tombstone and tier rules. element_type is registry-governed in Swift and carries NO db CHECK, so a new type is one registry entry + one subtype table, never a migration)
+      gm cog add --scope-uuid U --code C --name N [--description D] [--sort-order N]
+      gm cog update --uuid U --expected-version V [--code C] [--name N] [--description D] [--sort-order N]
+      gm cog delete --uuid U --expected-version V [--soft]
+      gm cog get --scope-uuid U [--code C]
+      gm cog element-add --cog-uuid U --code C --name N [--element-type Primary_System] [--parent-element-uuid P] [--description D] [--sort-order N] [--dope-scope-code C] --primary-path P   (dope-scope-code is a ghost-tolerant CODE resolved at read time, never a uuid FK)
+      gm cog element-update --uuid U --expected-version V [--code C] [--name N] [--description D] [--sort-order N] [--dope-scope-code C | --clear-dope-scope-code] [--primary-path P]
+      gm cog element-delete --uuid U --expected-version V [--soft]
     ARTIFACT / FILE-CHANGE
       gm artifact add --prompt-uuid U --file-path P [--note N]
       gm artifact list --prompt-uuid U

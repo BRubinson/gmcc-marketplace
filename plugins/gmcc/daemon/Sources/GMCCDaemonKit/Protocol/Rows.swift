@@ -1208,6 +1208,14 @@ public struct DiagramRow: Codable, Hashable, Sendable {
     public let name: String
     public let description: String
     public let gmccDiagramPath: String?
+    /// Which dope scope this WHOLE diagram reads and writes through
+    /// (m0016). A ghost-tolerant CODE, resolved at read time, restricted on
+    /// write to the masking tiers.
+    ///
+    /// Distinct from the per-element diagram_dope_scope / diagram_dope_entity
+    /// bindings: those answer "which node does this one shape point at",
+    /// this answers "which scope is this canvas over". Both coexist.
+    public let dopeScopeCode: String?
     /// The whole-tree content counter (bumpDiagramRevision; never the row's
     /// optimistic-lock version).
     public let revision: Int64
@@ -1226,6 +1234,7 @@ public struct DiagramRow: Codable, Hashable, Sendable {
         name: String,
         description: String,
         gmccDiagramPath: String?,
+        dopeScopeCode: String? = nil,
         revision: Int64,
         createdAt: String,
         updatedAt: String
@@ -1241,6 +1250,7 @@ public struct DiagramRow: Codable, Hashable, Sendable {
         self.name = name
         self.description = description
         self.gmccDiagramPath = gmccDiagramPath
+        self.dopeScopeCode = dopeScopeCode
         self.revision = revision
         self.createdAt = createdAt
         self.updatedAt = updatedAt

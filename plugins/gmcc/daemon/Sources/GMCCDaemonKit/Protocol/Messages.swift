@@ -2287,16 +2287,267 @@ public struct DopeGetResponse: Codable, Hashable, Sendable {
     public let hidden: [String]?
     /// Non-fatal observations (orphaned masks). Never an error.
     public let warnings: [String]?
+    /// Per-area content counters ("persistence", "cogs"). A client compares
+    /// one number to decide whether that subtree needs refetching, which is
+    /// what makes dope sub-LOADABLE. These sit BESIDE tree.revision, which
+    /// remains the whole-tree counter and the sole CAS gate.
+    public let areaVersions: [String: Int64]?
 
     public init(tree: DopeScopeTree, resolvedVia: String,
                 resolutions: [DopeOverlay.Resolution]? = nil,
-                hidden: [String]? = nil, warnings: [String]? = nil) {
+                hidden: [String]? = nil, warnings: [String]? = nil,
+                areaVersions: [String: Int64]? = nil) {
         self.tree = tree
         self.resolvedVia = resolvedVia
         self.resolutions = resolutions
         self.hidden = hidden
         self.warnings = warnings
+        self.areaVersions = areaVersions
     }
+}
+
+// MARK: - DOPE_SEARCH
+
+/// The three search scopes, in the prompt's own vocabulary.
+public enum DopeSearchScope: String, Codable, Hashable, CaseIterable, Sendable {
+    case prompt, session, project
+}
+
+/// One UNION arm per source table.
+public enum DopeSearchSource: String, Codable, Hashable, CaseIterable, Sendable {
+    case scope, persistence, entity, property, enumeration, option, cog, cogElement
+}
+
+public struct DopeSearchRequest: Codable, Hashable, Sendable {
+    public let query: String
+    public let scope: DopeSearchScope
+    public let sessionUuid: String?
+    public let promptUuid: String?
+    public let projectUuid: String?
+    /// Keep only hits whose dot-path came from the overlay rather than the
+    /// base. A post-filter over resolver provenance, so the FTS query is the
+    /// same shape with and without it.
+    public let onlyMasks: Bool?
+    public let limit: Int?
+
+    public init(query: String, scope: DopeSearchScope, sessionUuid: String? = nil,
+                promptUuid: String? = nil, projectUuid: String? = nil,
+                onlyMasks: Bool? = nil, limit: Int? = nil) {
+        self.query = query; self.scope = scope; self.sessionUuid = sessionUuid
+        self.promptUuid = promptUuid; self.projectUuid = projectUuid
+        self.onlyMasks = onlyMasks; self.limit = limit
+    }
+}
+
+public struct DopeSearchHit: Codable, Hashable, Sendable {
+    public let kind: String
+    public let subjectUuid: String
+    public let scopeUuid: String
+    public let scopeCode: String
+    public let scopeType: String
+    /// The dot-path — the same identity the resolver merges on.
+    public let path: String
+    public let title: String
+    public let excerpt: String
+    public let score: Double
+    /// Resolver provenance; present only for an --only-masks search.
+    public let origin: String?
+
+    public init(kind: String, subjectUuid: String, scopeUuid: String, scopeCode: String,
+                scopeType: String, path: String, title: String, excerpt: String,
+                score: Double, origin: String?) {
+        self.kind = kind; self.subjectUuid = subjectUuid; self.scopeUuid = scopeUuid
+        self.scopeCode = scopeCode; self.scopeType = scopeType; self.path = path
+        self.title = title; self.excerpt = excerpt; self.score = score; self.origin = origin
+    }
+}
+
+public struct DopeSearchResponse: Codable, Hashable, Sendable {
+    public let hits: [DopeSearchHit]
+    public init(hits: [DopeSearchHit]) { self.hits = hits }
+}
+
+// MARK: - COGS
+
+public struct DopeCogElementNode: Codable, Hashable, Sendable {
+    public let uuid: String
+    public let version: Int64
+    public let elementType: String
+    public let code: String
+    public let name: String
+    public let description: String
+    public let sortOrder: Int
+    public let parentElementUuid: String?
+    /// Ghost-tolerant CODE reference to a dope scope, resolved at read time —
+    /// never a uuid FK (ingest re-mints uuids, and scope delete is not
+    /// offered, so there is no ON DELETE answer to give).
+    public let dopeScopeCode: String?
+    /// From the type's subtype table.
+    public let primaryPath: String?
+    public let deletedOn: String?
+
+    public init(uuid: String, version: Int64, elementType: String, code: String, name: String,
+                description: String, sortOrder: Int, parentElementUuid: String?,
+                dopeScopeCode: String?, primaryPath: String?, deletedOn: String?) {
+        self.uuid = uuid
+        self.version = version
+        self.elementType = elementType
+        self.code = code
+        self.name = name
+        self.description = description
+        self.sortOrder = sortOrder
+        self.parentElementUuid = parentElementUuid
+        self.dopeScopeCode = dopeScopeCode
+        self.primaryPath = primaryPath
+        self.deletedOn = deletedOn
+    }
+}
+
+public struct DopeCogNode: Codable, Hashable, Sendable {
+    public let uuid: String
+    public let version: Int64
+    public let code: String
+    public let name: String
+    public let description: String
+    public let sortOrder: Int
+    public let deletedOn: String?
+    public let elements: [DopeCogElementNode]
+
+    public init(uuid: String, version: Int64, code: String, name: String, description: String,
+                sortOrder: Int, deletedOn: String?, elements: [DopeCogElementNode]) {
+        self.uuid = uuid
+        self.version = version
+        self.code = code
+        self.name = name
+        self.description = description
+        self.sortOrder = sortOrder
+        self.deletedOn = deletedOn
+        self.elements = elements
+    }
+}
+
+public struct DopeCogAddRequest: Codable, Hashable, Sendable {
+    public let scopeUuid: String
+    public let code: String
+    public let name: String
+    public let description: String?
+    public let sortOrder: Int?
+    public init(scopeUuid: String, code: String, name: String,
+                description: String? = nil, sortOrder: Int? = nil) {
+        self.scopeUuid = scopeUuid; self.code = code; self.name = name
+        self.description = description; self.sortOrder = sortOrder
+    }
+}
+
+public struct DopeCogUpdateRequest: Codable, Hashable, Sendable {
+    public let uuid: String
+    public let expectedVersion: Int64
+    public let code: String?
+    public let name: String?
+    public let description: String?
+    public let sortOrder: Int?
+    public init(uuid: String, expectedVersion: Int64, code: String? = nil, name: String? = nil,
+                description: String? = nil, sortOrder: Int? = nil) {
+        self.uuid = uuid; self.expectedVersion = expectedVersion; self.code = code
+        self.name = name; self.description = description; self.sortOrder = sortOrder
+    }
+}
+
+public struct DopeCogDeleteRequest: Codable, Hashable, Sendable {
+    public let uuid: String
+    public let expectedVersion: Int64
+    public let soft: Bool?
+    public init(uuid: String, expectedVersion: Int64, soft: Bool? = nil) {
+        self.uuid = uuid; self.expectedVersion = expectedVersion; self.soft = soft
+    }
+}
+
+public struct DopeCogElementAddRequest: Codable, Hashable, Sendable {
+    public let cogUuid: String
+    public let elementType: String
+    public let code: String
+    public let name: String
+    public let description: String?
+    public let sortOrder: Int?
+    public let parentElementUuid: String?
+    public let dopeScopeCode: String?
+    public let primaryPath: String?
+    public init(cogUuid: String, elementType: String, code: String, name: String,
+                description: String? = nil, sortOrder: Int? = nil,
+                parentElementUuid: String? = nil, dopeScopeCode: String? = nil,
+                primaryPath: String? = nil) {
+        self.cogUuid = cogUuid; self.elementType = elementType; self.code = code
+        self.name = name; self.description = description; self.sortOrder = sortOrder
+        self.parentElementUuid = parentElementUuid; self.dopeScopeCode = dopeScopeCode
+        self.primaryPath = primaryPath
+    }
+}
+
+public struct DopeCogElementUpdateRequest: Codable, Hashable, Sendable {
+    public let uuid: String
+    public let expectedVersion: Int64
+    public let code: String?
+    public let name: String?
+    public let description: String?
+    public let sortOrder: Int?
+    public let dopeScopeCode: String?
+    public let clearDopeScopeCode: Bool?
+    public let primaryPath: String?
+    public init(uuid: String, expectedVersion: Int64, code: String? = nil, name: String? = nil,
+                description: String? = nil, sortOrder: Int? = nil, dopeScopeCode: String? = nil,
+                clearDopeScopeCode: Bool? = nil, primaryPath: String? = nil) {
+        self.uuid = uuid; self.expectedVersion = expectedVersion; self.code = code
+        self.name = name; self.description = description; self.sortOrder = sortOrder
+        self.dopeScopeCode = dopeScopeCode; self.clearDopeScopeCode = clearDopeScopeCode
+        self.primaryPath = primaryPath
+    }
+}
+
+public struct DopeCogElementDeleteRequest: Codable, Hashable, Sendable {
+    public let uuid: String
+    public let expectedVersion: Int64
+    public let soft: Bool?
+    public init(uuid: String, expectedVersion: Int64, soft: Bool? = nil) {
+        self.uuid = uuid; self.expectedVersion = expectedVersion; self.soft = soft
+    }
+}
+
+public struct DopeCogGetRequest: Codable, Hashable, Sendable {
+    public let scopeUuid: String
+    public let code: String?
+    public init(scopeUuid: String, code: String? = nil) {
+        self.scopeUuid = scopeUuid; self.code = code
+    }
+}
+
+public struct DopeCogResponse: Codable, Hashable, Sendable {
+    public let cog: DopeCogNode
+    public let revision: Int64
+    public init(cog: DopeCogNode, revision: Int64) { self.cog = cog; self.revision = revision }
+}
+
+public struct DopeCogElementResponse: Codable, Hashable, Sendable {
+    public let element: DopeCogElementNode
+    public let revision: Int64
+    public init(element: DopeCogElementNode, revision: Int64) {
+        self.element = element; self.revision = revision
+    }
+}
+
+public struct DopeCogDeleteResponse: Codable, Hashable, Sendable {
+    public let deletedUuid: String
+    public let cascadedElements: Int
+    public let scopeUuid: String
+    public let revision: Int64
+    public init(deletedUuid: String, cascadedElements: Int, scopeUuid: String, revision: Int64) {
+        self.deletedUuid = deletedUuid; self.cascadedElements = cascadedElements
+        self.scopeUuid = scopeUuid; self.revision = revision
+    }
+}
+
+public struct DopeCogGetResponse: Codable, Hashable, Sendable {
+    public let cogs: [DopeCogNode]
+    public init(cogs: [DopeCogNode]) { self.cogs = cogs }
 }
 
 /// DOPE_PROMOTE — publish a session's SESSION_INSTANCE tree into the
@@ -2619,6 +2870,10 @@ public struct DiagramInitRequest: Codable, Hashable, Sendable {
     public let name: String
     public let description: String?
     public let gmccDiagramPath: String?
+    /// The dope scope this whole diagram reads/writes through. Restricted to
+    /// the masking tiers (PROJECT_ITEM / SESSION_INSTANCE_ITEM) so a canvas
+    /// always edits a personal overlay rather than shared truth.
+    public let dopeScopeCode: String?
 
     public init(
         projectUuid: String? = nil,
@@ -2628,7 +2883,8 @@ public struct DiagramInitRequest: Codable, Hashable, Sendable {
         code: String,
         name: String,
         description: String? = nil,
-        gmccDiagramPath: String? = nil
+        gmccDiagramPath: String? = nil,
+        dopeScopeCode: String? = nil
     ) {
         self.projectUuid = projectUuid
         self.instanceUuid = instanceUuid
@@ -2638,6 +2894,7 @@ public struct DiagramInitRequest: Codable, Hashable, Sendable {
         self.name = name
         self.description = description
         self.gmccDiagramPath = gmccDiagramPath
+        self.dopeScopeCode = dopeScopeCode
     }
 }
 

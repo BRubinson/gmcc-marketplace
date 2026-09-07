@@ -90,6 +90,10 @@ struct Diagram: ParsableCommand {
         @Option(name: .long) var description: String?
         @Option(name: .long, help: "Repo path anchor (instance tier and below; refused at PROJECT tier).")
         var gmccDiagramPath: String?
+        @Option(name: .customLong("dope-scope-code"),
+                help: "Dope scope this whole diagram reads/writes through (masking tiers only).")
+        var dopeScopeCode: String?
+
 
         func run() throws {
             let response = try withClient {
@@ -97,7 +101,7 @@ struct Diagram: ParsableCommand {
                     projectUuid: owner.projectUuid, instanceUuid: owner.instanceUuid,
                     sessionUuid: owner.sessionUuid, promptUuid: owner.promptUuid,
                     code: code, name: name, description: description,
-                    gmccDiagramPath: gmccDiagramPath))
+                    gmccDiagramPath: gmccDiagramPath, dopeScopeCode: dopeScopeCode))
             }
             if output.json { printJSON(response) } else {
                 let d = response.diagram

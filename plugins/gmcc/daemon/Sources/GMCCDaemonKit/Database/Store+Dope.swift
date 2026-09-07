@@ -41,8 +41,25 @@ extension Store {
 
     /// Advance the whole-tree content counter WITHOUT bumping the scope row's
     /// version — see the extension doc comment and Store.touchSession.
+    /// `area` additionally advances that subtree's own content counter, which
+    /// is what makes dope sub-LOADABLE: a client compares one area's number
+    /// instead of refetching the whole tree.
+    ///
+    /// dope_scope.revision REMAINS the single whole-tree counter and the sole
+    /// CAS gate for read-repo / write-repo / ingest. The area counters sit
+    /// BESIDE it and never replace it — splitting the scalar, as the goal
+    /// originally read, would invalidate all three gates and the version field
+    /// in every committed .doped.json at once, for a signal this already gives.
     @discardableResult
-    func bumpScopeRevision(_ db: Database, scopeUuid: String) throws -> Int64 {
+    func bumpScopeRevision(
+        _ db: Database, scopeUuid: String, area: DopeArea? = nil, ownerUuid: String? = nil
+    ) throws -> Int64 {
+        if let area, let ownerUuid {
+            try db.execute(sql: """
+                UPDATE \(area.table) SET content_revision = content_revision + 1, updated_at = ?
+                 WHERE uuid = ?
+                """, arguments: [Store.isoNow(), ownerUuid])
+        }
         try db.execute(
             sql: "UPDATE dope_scope SET revision = revision + 1, updated_at = ? WHERE uuid = ?",
             arguments: [Store.isoNow(), scopeUuid])
@@ -331,9 +348,12 @@ extension Store {
 
             // Unresolved is the default and is byte-identical to pre-resolver
             // behavior — every existing caller is untouched.
+            let areas = try self.areaVersions(db, scopeUuid: scope.uuid)
+
             guard req.resolved == true, let tier = scope.tier, tier.isOverlay,
                   let baseTier = tier.masks else {
-                return DopeGetResponse(tree: tree, resolvedVia: resolvedVia)
+                return DopeGetResponse(tree: tree, resolvedVia: resolvedVia,
+                                       areaVersions: areas)
             }
 
             // Base pairing is by CODE plus lineage, needing no stored pointer:
@@ -363,8 +383,55 @@ extension Store {
                 resolvedVia: "\(tier.rawValue.lowercased())_over_\(baseTier.rawValue.lowercased())",
                 resolutions: merged.resolutions.values.sorted { $0.path < $1.path },
                 hidden: merged.hidden.sorted(),
-                warnings: merged.warnings)
+                warnings: merged.warnings,
+                areaVersions: areas)
         }
+    }
+
+    /// The dope_persistence row a node lives under — the persistence area's
+    /// counter owner. Mirrors dopeOwningScope's join chain, stopping one level
+    /// short.
+    func owningPersistenceUuid(
+        _ db: Database, level: DopeLevel, nodeUuid: String
+    ) throws -> String? {
+        let sql: String
+        switch level {
+        case .scope: return nil
+        case .persistence: return nodeUuid
+        case .entity:
+            sql = "SELECT dope_persistence_uuid FROM dope_persistence_entity WHERE uuid = ?"
+        case .enumeration:
+            sql = "SELECT dope_persistence_uuid FROM dope_persistence_enum WHERE uuid = ?"
+        case .property:
+            sql = """
+                SELECT e.dope_persistence_uuid FROM dope_persistence_entity e
+                JOIN dope_persistence_entity_property p
+                  ON p.dope_persistence_entity_uuid = e.uuid
+                WHERE p.uuid = ?
+                """
+        case .option:
+            sql = """
+                SELECT n.dope_persistence_uuid FROM dope_persistence_enum n
+                JOIN dope_persistence_enum_option o ON o.dope_persistence_enum_uuid = n.uuid
+                WHERE o.uuid = ?
+                """
+        }
+        return try String.fetchOne(db, sql: sql, arguments: [nodeUuid])
+    }
+
+    /// Per-area content counters, derived as the max content_revision inside
+    /// each area. Derived rather than stored on the scope: one fewer column to
+    /// keep consistent, and the answer a client actually wants ("has anything
+    /// in this area moved?") is exactly a max.
+    func areaVersions(_ db: Database, scopeUuid: String) throws -> [String: Int64] {
+        var out = [String: Int64]()
+        for area in DopeArea.allCases {
+            out[area.rawValue] = try Int64.fetchOne(db, sql: """
+                SELECT COALESCE(MAX(content_revision), 0) FROM \(area.table)
+                 WHERE dope_scope_uuid = ?
+                """, arguments: [scopeUuid]) ?? 0
+        }
+        return out
     }
 
     // MARK: - Hydration (five flat queries, grouped in Swift — never per-node
@@ -1076,7 +1143,9 @@ extension Store {
             }
 
             let uuid = try self.insertBase(db, table: spec.table, extra: extra)
-            let revision = try self.bumpScopeRevision(db, scopeUuid: scope.uuid)
+            let revision = try self.bumpScopeRevision(
+                db, scopeUuid: scope.uuid, area: .persistence,
+                ownerUuid: try self.owningPersistenceUuid(db, level: req.level, nodeUuid: uuid))
             try self.recordDopeChange(db, scope: scope, action: "node_add", level: req.level,
                                       nodeUuid: uuid, revision: revision)
             return DopeNodeResponse(level: req.level, uuid: uuid, version: 0,
@@ -1210,7 +1279,10 @@ extension Store {
             }
             try self.updateBase(db, table: spec.table, uuid: req.nodeUuid,
                                 expectedVersion: req.expectedVersion, set: set)
-            let revision = try self.bumpScopeRevision(db, scopeUuid: scope.uuid)
+            let revision = try self.bumpScopeRevision(
+                db, scopeUuid: scope.uuid, area: .persistence,
+                ownerUuid: try self.owningPersistenceUuid(
+                    db, level: req.level, nodeUuid: req.nodeUuid))
             try self.recordDopeChange(db, scope: scope, action: "node_update", level: req.level,
                                       nodeUuid: req.nodeUuid, revision: revision)
             guard let version = try Int64.fetchOne(
@@ -1264,7 +1336,10 @@ extension Store {
                     db, table: spec.table, uuid: req.nodeUuid,
                     expectedVersion: req.expectedVersion,
                     set: ["deleted_on": Store.isoNow()])
-                let revision = try self.bumpScopeRevision(db, scopeUuid: scope.uuid)
+                let revision = try self.bumpScopeRevision(
+                    db, scopeUuid: scope.uuid, area: .persistence,
+                    ownerUuid: try self.owningPersistenceUuid(
+                        db, level: req.level, nodeUuid: req.nodeUuid))
                 try self.recordDopeChange(
                     db, scope: scope, action: "node_soft_delete", level: req.level,
                     nodeUuid: req.nodeUuid, revision: revision)

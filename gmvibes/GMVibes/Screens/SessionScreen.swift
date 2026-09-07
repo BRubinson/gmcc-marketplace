@@ -19,7 +19,7 @@ import GMCCDaemonKit
 /// consumed: adding a case is a build error instead of silently inheriting
 /// another tab's behavior.
 enum SessionTab: String, CaseIterable, Identifiable, Hashable {
-    case prompts, dope
+    case prompts, diagrams, dope
     var id: String { rawValue }
     var title: String { rawValue.capitalized }
 
@@ -28,6 +28,7 @@ enum SessionTab: String, CaseIterable, Identifiable, Hashable {
     var newItemLabel: String? {
         switch self {
         case .prompts: "New Prompt"
+        case .diagrams: nil  // diagrams are created from the canvas, not here
         case .dope: nil      // Init is the pane's affordance, not a sidebar +
         }
     }
@@ -101,6 +102,7 @@ struct SessionScreen: View {
                 newDisabled: {
                     switch tab {
                     case .prompts: store.session == nil
+                    case .diagrams: false
                     case .dope: false
                     }
                 }(),
@@ -108,6 +110,8 @@ struct SessionScreen: View {
                     switch tab {
                     case .prompts:
                         showCreatePrompt = true
+                    case .diagrams:
+                        break   // no + affordance; diagrams open from a scope
                     case .dope:
                         break   // unreachable: newItemLabel is nil, button hidden
                     }
@@ -170,6 +174,10 @@ struct SessionScreen: View {
                 lastError: store.lastError,
                 onOpen: { openPrompt($0.uuid) }
             )
+        case .diagrams:
+            SessionDiagramsPane(scope: scope) { scopeCode in
+                nav.go(.diagram(windowID, scopeCode: scopeCode))
+            }
         case .dope:
             // Session-level read: SESSION_BASE scope (no promptUuid). The
             // Diagram button opens the full-window Doped Viewer on the
@@ -299,7 +307,10 @@ struct SessionNavigator: View {
             // The dope tab REUSES the prompt list: it keeps the session's
             // working set in view, and clicking a prompt from there navigates
             // into its editor (where the prompt-level dope card lives).
-            case .prompts, .dope:
+            // The dope and diagrams tabs REUSE the prompt list: it keeps the
+            // session's working set in view, and clicking a prompt navigates
+            // into its editor.
+            case .prompts, .diagrams, .dope:
                 SessionPromptListSidebar(
                     sessionName: sessionName,
                     instanceName: instanceName,

@@ -297,7 +297,9 @@ final class DaemonConnectionModel {
             return // forward compat: unknown kinds bump nothing
         }
         switch kind {
-        case .createProject, .createInstance, .createSession:
+        case .createProject, .createInstance, .createSession, .updateProject:
+            // updateProject carries primary_project_branch, which the project
+            // view renders — same topology invalidation as its siblings.
             hub.invalidate(.topology)
         case .updateSession:
             hub.invalidate(.topology)

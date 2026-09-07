@@ -29,6 +29,14 @@ public enum MessageType: String, Codable, Hashable, CaseIterable, Sendable {
     case projectUpdate = "PROJECT_UPDATE"
     // v17 — the masking/promotion/cogs/search family.
     case dopePromote = "DOPE_PROMOTE"
+    case dopeCogAdd = "DOPE_COG_ADD"
+    case dopeCogUpdate = "DOPE_COG_UPDATE"
+    case dopeCogDelete = "DOPE_COG_DELETE"
+    case dopeCogGet = "DOPE_COG_GET"
+    case dopeCogElementAdd = "DOPE_COG_ELEMENT_ADD"
+    case dopeCogElementUpdate = "DOPE_COG_ELEMENT_UPDATE"
+    case dopeCogElementDelete = "DOPE_COG_ELEMENT_DELETE"
+    case dopeSearch = "DOPE_SEARCH"
     case instanceList = "INSTANCE_LIST"
     case sessionList = "SESSION_LIST"
     // Session
