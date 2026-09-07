@@ -10,6 +10,16 @@
       "name" : "Dope Scope",
       "properties" : [
         {
+          "code" : "project_uuid",
+          "data_type" : "relationship",
+          "description" : "Tier ladder root; ALWAYS present, every tier fills it",
+          "is_unique" : false,
+          "name" : "Project UUID",
+          "nullable" : false,
+          "related_property_ref" : "project.project.uuid",
+          "sort_order" : 2
+        },
+        {
           "base_origin_ref" : "base.base_entity.uuid",
           "code" : "uuid",
           "data_type" : "uuid",
@@ -20,12 +30,22 @@
           "sort_order" : 2
         },
         {
+          "code" : "instance_uuid",
+          "data_type" : "relationship",
+          "description" : "Set iff the tier is session-owned (chain-non-null ladder)",
+          "is_unique" : false,
+          "name" : "Instance UUID",
+          "nullable" : true,
+          "related_property_ref" : "project.instance.uuid",
+          "sort_order" : 3
+        },
+        {
           "code" : "session_uuid",
           "data_type" : "relationship",
-          "description" : "Owning session; cascade on delete",
+          "description" : "nil for the two project tiers; the repo/boot axis is session-only",
           "is_unique" : false,
           "name" : "Session",
-          "nullable" : false,
+          "nullable" : true,
           "related_property_ref" : "project.session.uuid",
           "sort_order" : 6
         },
@@ -85,6 +105,42 @@
           "name" : "Revision",
           "nullable" : false,
           "sort_order" : 12
+        },
+        {
+          "code" : "deleted_on",
+          "data_type" : "datetime",
+          "description" : "Soft delete; masking state, only meaningful on the overlay tiers and never serialized",
+          "is_unique" : false,
+          "name" : "Deleted On",
+          "nullable" : true,
+          "sort_order" : 20
+        },
+        {
+          "code" : "promoted_from_scope_uuid",
+          "data_type" : "uuid",
+          "description" : "Audit only: which scope last promoted. NEVER in the promotion predicate",
+          "is_unique" : false,
+          "name" : "Promoted From Scope UUID",
+          "nullable" : true,
+          "sort_order" : 21
+        },
+        {
+          "code" : "promoted_from_revision",
+          "data_type" : "int",
+          "description" : "Promotion HIGH-WATER; stops ping-pong between instances and boot event storms",
+          "is_unique" : false,
+          "name" : "Promoted From Revision",
+          "nullable" : true,
+          "sort_order" : 22
+        },
+        {
+          "code" : "promoted_from_updated_at",
+          "data_type" : "datetime",
+          "description" : "High-water tiebreak when revisions are equal",
+          "is_unique" : false,
+          "name" : "Promoted From Updated At",
+          "nullable" : true,
+          "sort_order" : 23
         }
       ],
       "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
@@ -92,10 +148,10 @@
     },
     {
       "base_composable_ref" : "base.base_entity",
-      "code" : "dope_domain",
+      "code" : "dope_persistence",
       "description" : "Named grouping of entities and enums within a scope, like a db schema",
       "entity_type" : "MODEL",
-      "name" : "Dope Domain",
+      "name" : "Dope Persistence",
       "properties" : [
         {
           "base_origin_ref" : "base.base_entity.uuid",
@@ -153,6 +209,34 @@
           "name" : "Sort Order",
           "nullable" : false,
           "sort_order" : 10
+        },
+        {
+          "code" : "content_revision",
+          "data_type" : "int",
+          "description" : "Per-area counter BESIDE dope_scope.revision, which stays the whole-tree counter and the sole CAS gate",
+          "is_unique" : false,
+          "name" : "Content Revision",
+          "nullable" : false,
+          "sort_order" : 29
+        },
+        {
+          "code" : "deleted_on",
+          "data_type" : "datetime",
+          "description" : "Tombstone / whiteout. Reads never filter it; it rides only on the overlay tiers and never reaches the saved .doped.json",
+          "is_unique" : false,
+          "name" : "Deleted On",
+          "nullable" : true,
+          "sort_order" : 30
+        },
+        {
+          "code" : "mask_kind",
+          "data_type" : "text",
+          "description" : "PASSTHROUGH marks an ancestor shell that carries identity and children only; its field values are never applied over the base",
+          "is_unique" : false,
+          "name" : "Mask Kind",
+          "nullable" : true,
+          "sort_order" : 31,
+          "text_char_limit" : 32
         }
       ],
       "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
@@ -160,10 +244,10 @@
     },
     {
       "base_composable_ref" : "base.base_entity",
-      "code" : "dope_domain_entity",
+      "code" : "dope_persistence_entity",
       "description" : "A modeled table/entity within a domain",
       "entity_type" : "MODEL",
-      "name" : "Dope Domain Entity",
+      "name" : "Dope Persistence Entity",
       "properties" : [
         {
           "base_origin_ref" : "base.base_entity.uuid",
@@ -176,13 +260,13 @@
           "sort_order" : 2
         },
         {
-          "code" : "dope_domain_uuid",
+          "code" : "dope_persistence_uuid",
           "data_type" : "relationship",
           "description" : "Owning domain; cascade on delete",
           "is_unique" : false,
-          "name" : "Domain",
+          "name" : "Persistence UUID",
           "nullable" : false,
-          "related_property_ref" : "doped.dope_domain.uuid",
+          "related_property_ref" : "doped.dope_persistence.uuid",
           "sort_order" : 6
         },
         {
@@ -240,6 +324,35 @@
           "name" : "Representative File",
           "nullable" : true,
           "sort_order" : 12
+        },
+        {
+          "code" : "base_composable_uuid",
+          "data_type" : "relationship",
+          "description" : "The BASE_COMPOSABLE entity whose properties this entity composes (m0008)",
+          "is_unique" : false,
+          "name" : "Base Composable UUID",
+          "nullable" : true,
+          "related_property_ref" : "doped.dope_persistence_entity.uuid",
+          "sort_order" : 25
+        },
+        {
+          "code" : "deleted_on",
+          "data_type" : "datetime",
+          "description" : "Tombstone / whiteout. Reads never filter it; it rides only on the overlay tiers and never reaches the saved .doped.json",
+          "is_unique" : false,
+          "name" : "Deleted On",
+          "nullable" : true,
+          "sort_order" : 30
+        },
+        {
+          "code" : "mask_kind",
+          "data_type" : "text",
+          "description" : "PASSTHROUGH marks an ancestor shell that carries identity and children only; its field values are never applied over the base",
+          "is_unique" : false,
+          "name" : "Mask Kind",
+          "nullable" : true,
+          "sort_order" : 31,
+          "text_char_limit" : 32
         }
       ],
       "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
@@ -247,10 +360,10 @@
     },
     {
       "base_composable_ref" : "base.base_entity",
-      "code" : "dope_domain_entity_property",
+      "code" : "dope_persistence_entity_property",
       "description" : "A modeled column/property of an entity",
       "entity_type" : "MODEL",
-      "name" : "Dope Domain Entity Property",
+      "name" : "Dope Persistence Entity Property",
       "properties" : [
         {
           "base_origin_ref" : "base.base_entity.uuid",
@@ -263,13 +376,13 @@
           "sort_order" : 2
         },
         {
-          "code" : "dope_domain_entity_uuid",
+          "code" : "dope_persistence_entity_uuid",
           "data_type" : "relationship",
           "description" : "Owning entity; cascade on delete",
           "is_unique" : false,
-          "name" : "Entity",
+          "name" : "Persistence Entity UUID",
           "nullable" : false,
-          "related_property_ref" : "doped.dope_domain_entity.uuid",
+          "related_property_ref" : "doped.dope_persistence_entity.uuid",
           "sort_order" : 6
         },
         {
@@ -356,13 +469,13 @@
           "sort_order" : 15
         },
         {
-          "code" : "dope_domain_enum_uuid",
+          "code" : "dope_persistence_enum_uuid",
           "data_type" : "relationship",
           "description" : "Set iff data_type is enum",
           "is_unique" : false,
-          "name" : "Enum",
+          "name" : "Persistence Enum UUID",
           "nullable" : true,
-          "related_property_ref" : "doped.dope_domain_enum.uuid",
+          "related_property_ref" : "doped.dope_persistence_enum.uuid",
           "sort_order" : 16
         },
         {
@@ -372,8 +485,37 @@
           "is_unique" : false,
           "name" : "Related Property",
           "nullable" : true,
-          "related_property_ref" : "doped.dope_domain_entity_property.uuid",
+          "related_property_ref" : "doped.dope_persistence_entity_property.uuid",
           "sort_order" : 17
+        },
+        {
+          "code" : "base_origin_property_uuid",
+          "data_type" : "relationship",
+          "description" : "The BASE_COMPOSABLE property this one materializes; provenance only (m0009)",
+          "is_unique" : false,
+          "name" : "Base Origin Property UUID",
+          "nullable" : true,
+          "related_property_ref" : "doped.dope_persistence_entity_property.uuid",
+          "sort_order" : 25
+        },
+        {
+          "code" : "deleted_on",
+          "data_type" : "datetime",
+          "description" : "Tombstone / whiteout. Reads never filter it; it rides only on the overlay tiers and never reaches the saved .doped.json",
+          "is_unique" : false,
+          "name" : "Deleted On",
+          "nullable" : true,
+          "sort_order" : 30
+        },
+        {
+          "code" : "mask_kind",
+          "data_type" : "text",
+          "description" : "PASSTHROUGH marks an ancestor shell that carries identity and children only; its field values are never applied over the base",
+          "is_unique" : false,
+          "name" : "Mask Kind",
+          "nullable" : true,
+          "sort_order" : 31,
+          "text_char_limit" : 32
         }
       ],
       "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
@@ -381,10 +523,10 @@
     },
     {
       "base_composable_ref" : "base.base_entity",
-      "code" : "dope_domain_enum",
+      "code" : "dope_persistence_enum",
       "description" : "A modeled enum type within a domain",
       "entity_type" : "MODEL",
-      "name" : "Dope Domain Enum",
+      "name" : "Dope Persistence Enum",
       "properties" : [
         {
           "base_origin_ref" : "base.base_entity.uuid",
@@ -397,13 +539,13 @@
           "sort_order" : 2
         },
         {
-          "code" : "dope_domain_uuid",
+          "code" : "dope_persistence_uuid",
           "data_type" : "relationship",
           "description" : "Owning domain; cascade on delete",
           "is_unique" : false,
-          "name" : "Domain",
+          "name" : "Persistence UUID",
           "nullable" : false,
-          "related_property_ref" : "doped.dope_domain.uuid",
+          "related_property_ref" : "doped.dope_persistence.uuid",
           "sort_order" : 6
         },
         {
@@ -451,6 +593,25 @@
           "name" : "Representative File",
           "nullable" : true,
           "sort_order" : 11
+        },
+        {
+          "code" : "deleted_on",
+          "data_type" : "datetime",
+          "description" : "Tombstone / whiteout. Reads never filter it; it rides only on the overlay tiers and never reaches the saved .doped.json",
+          "is_unique" : false,
+          "name" : "Deleted On",
+          "nullable" : true,
+          "sort_order" : 30
+        },
+        {
+          "code" : "mask_kind",
+          "data_type" : "text",
+          "description" : "PASSTHROUGH marks an ancestor shell that carries identity and children only; its field values are never applied over the base",
+          "is_unique" : false,
+          "name" : "Mask Kind",
+          "nullable" : true,
+          "sort_order" : 31,
+          "text_char_limit" : 32
         }
       ],
       "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
@@ -458,10 +619,10 @@
     },
     {
       "base_composable_ref" : "base.base_entity",
-      "code" : "dope_domain_enum_option",
+      "code" : "dope_persistence_enum_option",
       "description" : "One allowed value of a domain enum",
       "entity_type" : "MODEL",
-      "name" : "Dope Domain Enum Option",
+      "name" : "Dope Persistence Enum Option",
       "properties" : [
         {
           "base_origin_ref" : "base.base_entity.uuid",
@@ -474,13 +635,13 @@
           "sort_order" : 2
         },
         {
-          "code" : "dope_domain_enum_uuid",
+          "code" : "dope_persistence_enum_uuid",
           "data_type" : "relationship",
           "description" : "Owning enum; cascade on delete",
           "is_unique" : false,
-          "name" : "Enum",
+          "name" : "Persistence Enum UUID",
           "nullable" : false,
-          "related_property_ref" : "doped.dope_domain_enum.uuid",
+          "related_property_ref" : "doped.dope_persistence_enum.uuid",
           "sort_order" : 6
         },
         {
@@ -519,10 +680,278 @@
           "name" : "Sort Order",
           "nullable" : false,
           "sort_order" : 10
+        },
+        {
+          "code" : "deleted_on",
+          "data_type" : "datetime",
+          "description" : "Tombstone / whiteout. Reads never filter it; it rides only on the overlay tiers and never reaches the saved .doped.json",
+          "is_unique" : false,
+          "name" : "Deleted On",
+          "nullable" : true,
+          "sort_order" : 30
+        },
+        {
+          "code" : "mask_kind",
+          "data_type" : "text",
+          "description" : "PASSTHROUGH marks an ancestor shell that carries identity and children only; its field values are never applied over the base",
+          "is_unique" : false,
+          "name" : "Mask Kind",
+          "nullable" : true,
+          "sort_order" : 31,
+          "text_char_limit" : 32
         }
       ],
       "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
       "sort_order" : 6
+    },
+    {
+      "base_composable_ref" : "base.base_entity",
+      "code" : "dope_cog",
+      "description" : "COGS grouping inside a dope scope; shares the scope's revision, tombstone and tier rules",
+      "entity_type" : "MODEL",
+      "name" : "Dope Cog",
+      "properties" : [
+        {
+          "code" : "uuid",
+          "data_type" : "uuid",
+          "description" : "",
+          "is_unique" : true,
+          "name" : "UUID",
+          "nullable" : false,
+          "sort_order" : 1
+        },
+        {
+          "code" : "dope_scope_uuid",
+          "data_type" : "relationship",
+          "description" : "",
+          "is_unique" : false,
+          "name" : "Scope UUID",
+          "nullable" : false,
+          "related_property_ref" : "doped.dope_scope.uuid",
+          "sort_order" : 2
+        },
+        {
+          "code" : "code",
+          "data_type" : "text",
+          "description" : "",
+          "is_unique" : false,
+          "name" : "Code",
+          "nullable" : false,
+          "sort_order" : 3
+        },
+        {
+          "code" : "name",
+          "data_type" : "text",
+          "description" : "",
+          "is_unique" : false,
+          "name" : "Name",
+          "nullable" : false,
+          "sort_order" : 4
+        },
+        {
+          "code" : "description",
+          "data_type" : "text",
+          "description" : "",
+          "is_unique" : false,
+          "name" : "Description",
+          "nullable" : false,
+          "sort_order" : 5,
+          "text_char_limit" : 512
+        },
+        {
+          "code" : "sort_order",
+          "data_type" : "int",
+          "description" : "",
+          "is_unique" : false,
+          "name" : "Sort Order",
+          "nullable" : false,
+          "sort_order" : 6
+        },
+        {
+          "code" : "content_revision",
+          "data_type" : "int",
+          "description" : "The cogs area counter",
+          "is_unique" : false,
+          "name" : "Content Revision",
+          "nullable" : false,
+          "sort_order" : 7
+        },
+        {
+          "code" : "deleted_on",
+          "data_type" : "datetime",
+          "description" : "",
+          "is_unique" : false,
+          "name" : "Deleted On",
+          "nullable" : true,
+          "sort_order" : 30
+        },
+        {
+          "code" : "mask_kind",
+          "data_type" : "text",
+          "description" : "",
+          "is_unique" : false,
+          "name" : "Mask Kind",
+          "nullable" : true,
+          "sort_order" : 31,
+          "text_char_limit" : 32
+        }
+      ],
+      "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
+      "sort_order" : 7
+    },
+    {
+      "base_composable_ref" : "base.base_entity",
+      "code" : "dope_cog_element",
+      "description" : "A typed node in a cog. element_type carries NO db CHECK on purpose: validity is the Swift registry, so a new type is one entry plus one subtype table, never a migration",
+      "entity_type" : "MODEL",
+      "name" : "Dope Cog Element",
+      "properties" : [
+        {
+          "code" : "uuid",
+          "data_type" : "uuid",
+          "description" : "",
+          "is_unique" : true,
+          "name" : "UUID",
+          "nullable" : false,
+          "sort_order" : 1
+        },
+        {
+          "code" : "dope_cog_uuid",
+          "data_type" : "relationship",
+          "description" : "",
+          "is_unique" : false,
+          "name" : "Cog UUID",
+          "nullable" : false,
+          "related_property_ref" : "doped.dope_cog.uuid",
+          "sort_order" : 2
+        },
+        {
+          "code" : "parent_element_uuid",
+          "data_type" : "relationship",
+          "description" : "Self-parent for nested elements",
+          "is_unique" : false,
+          "name" : "Parent Element UUID",
+          "nullable" : true,
+          "related_property_ref" : "doped.dope_cog_element.uuid",
+          "sort_order" : 3
+        },
+        {
+          "code" : "element_type",
+          "data_type" : "enum",
+          "description" : "Registry-governed in Swift; NO db CHECK, which is what keeps a new type off the migration path",
+          "enum_ref" : "doped.enums.cog_element_type",
+          "is_unique" : false,
+          "name" : "Element Type",
+          "nullable" : false,
+          "sort_order" : 4
+        },
+        {
+          "code" : "code",
+          "data_type" : "text",
+          "description" : "",
+          "is_unique" : false,
+          "name" : "Code",
+          "nullable" : false,
+          "sort_order" : 5
+        },
+        {
+          "code" : "name",
+          "data_type" : "text",
+          "description" : "",
+          "is_unique" : false,
+          "name" : "Name",
+          "nullable" : false,
+          "sort_order" : 6
+        },
+        {
+          "code" : "description",
+          "data_type" : "text",
+          "description" : "",
+          "is_unique" : false,
+          "name" : "Description",
+          "nullable" : false,
+          "sort_order" : 7,
+          "text_char_limit" : 512
+        },
+        {
+          "code" : "sort_order",
+          "data_type" : "int",
+          "description" : "",
+          "is_unique" : false,
+          "name" : "Sort Order",
+          "nullable" : false,
+          "sort_order" : 8
+        },
+        {
+          "code" : "dope_scope_code",
+          "data_type" : "text",
+          "description" : "Ghost-tolerant CODE resolved at read time, never a uuid FK: ingest re-mints uuids and scope delete is not offered",
+          "is_unique" : false,
+          "name" : "Dope Scope Code",
+          "nullable" : true,
+          "sort_order" : 9
+        },
+        {
+          "code" : "deleted_on",
+          "data_type" : "datetime",
+          "description" : "",
+          "is_unique" : false,
+          "name" : "Deleted On",
+          "nullable" : true,
+          "sort_order" : 30
+        },
+        {
+          "code" : "mask_kind",
+          "data_type" : "text",
+          "description" : "",
+          "is_unique" : false,
+          "name" : "Mask Kind",
+          "nullable" : true,
+          "sort_order" : 31,
+          "text_char_limit" : 32
+        }
+      ],
+      "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
+      "sort_order" : 8
+    },
+    {
+      "base_composable_ref" : "base.base_entity",
+      "code" : "dope_cog_primary_system",
+      "description" : "Subtype table for the Primary_System element type; per-type metadata lives here, mirroring diagram_element's subtype shape",
+      "entity_type" : "MODEL",
+      "name" : "Dope Cog Primary System",
+      "properties" : [
+        {
+          "code" : "uuid",
+          "data_type" : "uuid",
+          "description" : "",
+          "is_unique" : true,
+          "name" : "UUID",
+          "nullable" : false,
+          "sort_order" : 1
+        },
+        {
+          "code" : "element_uuid",
+          "data_type" : "relationship",
+          "description" : "UNIQUE: the schema itself proves one subtype row per element",
+          "is_unique" : true,
+          "name" : "Element UUID",
+          "nullable" : false,
+          "related_property_ref" : "doped.dope_cog_element.uuid",
+          "sort_order" : 2
+        },
+        {
+          "code" : "primary_path",
+          "data_type" : "text",
+          "description" : "Root path of the primary system",
+          "is_unique" : false,
+          "name" : "Primary Path",
+          "nullable" : false,
+          "sort_order" : 3
+        }
+      ],
+      "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
+      "sort_order" : 9
     }
   ],
   "enums" : [
@@ -532,15 +961,27 @@
       "name" : "Scope Type",
       "options" : [
         {
-          "code" : "session_base",
-          "description" : "The session's base model",
-          "name" : "SESSION_BASE",
+          "code" : "base_project",
+          "description" : "Project-wide shared truth, promoted from the primary branch; always fully hydrated",
+          "name" : "Base Project",
           "sort_order" : 1
         },
         {
-          "code" : "prompt",
-          "description" : "Prompt-local scope; requires a prompt",
-          "name" : "PROMPT",
+          "code" : "session_instance",
+          "description" : "One session+instance's tree; what .gmcc/dope carries and boot sync reconciles",
+          "name" : "Session Instance",
+          "sort_order" : 1
+        },
+        {
+          "code" : "project_item",
+          "description" : "Personal db-only overlay masking BASE_PROJECT by dot-path position",
+          "name" : "Project Item",
+          "sort_order" : 2
+        },
+        {
+          "code" : "session_instance_item",
+          "description" : "Personal db-only overlay masking SESSION_INSTANCE",
+          "name" : "Session Instance Item",
           "sort_order" : 2
         }
       ],
@@ -563,6 +1004,12 @@
           "description" : "Join table for complex relations",
           "name" : "JUNCTION",
           "sort_order" : 2
+        },
+        {
+          "code" : "base_composable",
+          "description" : "Not persisted alone; a shared column block other entities compose in",
+          "name" : "Base Composable",
+          "sort_order" : 3
         }
       ],
       "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
@@ -630,9 +1077,23 @@
       ],
       "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
       "sort_order" : 3
+    },
+    {
+      "code" : "cog_element_type",
+      "description" : "Registry-governed in Swift (DopeCogElementSpec); deliberately carries NO db CHECK so a new type is one registry entry, never a migration",
+      "name" : "Cog Element Type",
+      "options" : [
+        {
+          "code" : "primary_system",
+          "description" : "A top-level system of the project",
+          "name" : "Primary System",
+          "sort_order" : 1
+        }
+      ],
+      "sort_order" : 4
     }
   ],
   "name" : "DOPED",
   "sort_order" : 2,
-  "version" : 481
+  "version" : 645
 }

@@ -29,6 +29,15 @@
           "sort_order" : 6
         },
         {
+          "code" : "primary_project_branch",
+          "data_type" : "text",
+          "description" : "BASE_DOPED_BRANCH: the branch whose SESSION_INSTANCE scope may promote into BASE_PROJECT",
+          "is_unique" : false,
+          "name" : "Primary Project Branch",
+          "nullable" : false,
+          "sort_order" : 6
+        },
+        {
           "code" : "code",
           "data_type" : "text",
           "description" : "Canonical snake_case code, globally unique",
@@ -396,5 +405,5 @@
   ],
   "name" : "Project",
   "sort_order" : 3,
-  "version" : 481
+  "version" : 645
 }
