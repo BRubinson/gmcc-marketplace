@@ -10,6 +10,7 @@
       "name" : "Diagram",
       "properties" : [
         {
+          "base_origin_ref" : "base.base_entity.uuid",
           "code" : "uuid",
           "data_type" : "uuid",
           "description" : "",
@@ -25,7 +26,7 @@
           "is_unique" : false,
           "name" : "Project UUID",
           "nullable" : false,
-          "related_property_ref" : "project.project.uuid",
+          "relationship_target_ref" : "project.project.uuid",
           "sort_order" : 2
         },
         {
@@ -35,7 +36,7 @@
           "is_unique" : false,
           "name" : "Instance UUID",
           "nullable" : true,
-          "related_property_ref" : "project.instance.uuid",
+          "relationship_target_ref" : "project.instance.uuid",
           "sort_order" : 3
         },
         {
@@ -45,7 +46,7 @@
           "is_unique" : false,
           "name" : "Session UUID",
           "nullable" : true,
-          "related_property_ref" : "project.session.uuid",
+          "relationship_target_ref" : "project.session.uuid",
           "sort_order" : 4
         },
         {
@@ -55,7 +56,7 @@
           "is_unique" : false,
           "name" : "Prompt UUID",
           "nullable" : true,
-          "related_property_ref" : "project.prompt.uuid",
+          "relationship_target_ref" : "project.prompt.uuid",
           "sort_order" : 5
         },
         {
@@ -135,6 +136,7 @@
       "name" : "Diagram Element",
       "properties" : [
         {
+          "base_origin_ref" : "base.base_entity.uuid",
           "code" : "uuid",
           "data_type" : "uuid",
           "description" : "",
@@ -150,7 +152,7 @@
           "is_unique" : false,
           "name" : "Diagram UUID",
           "nullable" : false,
-          "related_property_ref" : "diagrams.diagram.uuid",
+          "relationship_target_ref" : "diagrams.diagram.uuid",
           "sort_order" : 2
         },
         {
@@ -160,7 +162,7 @@
           "is_unique" : false,
           "name" : "Parent Element UUID",
           "nullable" : true,
-          "related_property_ref" : "diagrams.diagram_element.uuid",
+          "relationship_target_ref" : "diagrams.diagram_element.uuid",
           "sort_order" : 3
         },
         {
@@ -258,6 +260,7 @@
       "name" : "Diagram Drawing Layer",
       "properties" : [
         {
+          "base_origin_ref" : "base.base_entity.uuid",
           "code" : "uuid",
           "data_type" : "uuid",
           "description" : "",
@@ -273,7 +276,7 @@
           "is_unique" : true,
           "name" : "Element UUID",
           "nullable" : false,
-          "related_property_ref" : "diagrams.diagram_element.uuid",
+          "relationship_target_ref" : "diagrams.diagram_element.uuid",
           "sort_order" : 2
         },
         {
@@ -315,6 +318,7 @@
       "name" : "Diagram Drawing Stroke",
       "properties" : [
         {
+          "base_origin_ref" : "base.base_entity.uuid",
           "code" : "uuid",
           "data_type" : "uuid",
           "description" : "",
@@ -330,7 +334,7 @@
           "is_unique" : true,
           "name" : "Element UUID",
           "nullable" : false,
-          "related_property_ref" : "diagrams.diagram_element.uuid",
+          "relationship_target_ref" : "diagrams.diagram_element.uuid",
           "sort_order" : 2
         },
         {
@@ -373,6 +377,7 @@
       "name" : "Diagram Drawing Shape",
       "properties" : [
         {
+          "base_origin_ref" : "base.base_entity.uuid",
           "code" : "uuid",
           "data_type" : "uuid",
           "description" : "",
@@ -388,7 +393,7 @@
           "is_unique" : true,
           "name" : "Element UUID",
           "nullable" : false,
-          "related_property_ref" : "diagrams.diagram_element.uuid",
+          "relationship_target_ref" : "diagrams.diagram_element.uuid",
           "sort_order" : 2
         },
         {
@@ -449,6 +454,7 @@
       "name" : "Diagram Dope Scope",
       "properties" : [
         {
+          "base_origin_ref" : "base.base_entity.uuid",
           "code" : "uuid",
           "data_type" : "uuid",
           "description" : "",
@@ -464,7 +470,7 @@
           "is_unique" : true,
           "name" : "Element UUID",
           "nullable" : false,
-          "related_property_ref" : "diagrams.diagram_element.uuid",
+          "relationship_target_ref" : "diagrams.diagram_element.uuid",
           "sort_order" : 2
         },
         {
@@ -488,6 +494,7 @@
       "name" : "Diagram Dope Entity",
       "properties" : [
         {
+          "base_origin_ref" : "base.base_entity.uuid",
           "code" : "uuid",
           "data_type" : "uuid",
           "description" : "",
@@ -503,7 +510,7 @@
           "is_unique" : true,
           "name" : "Element UUID",
           "nullable" : false,
-          "related_property_ref" : "diagrams.diagram_element.uuid",
+          "relationship_target_ref" : "diagrams.diagram_element.uuid",
           "sort_order" : 2
         },
         {
@@ -527,6 +534,7 @@
       "name" : "Diagram Stroke Vertex",
       "properties" : [
         {
+          "base_origin_ref" : "base.base_entity.uuid",
           "code" : "uuid",
           "data_type" : "uuid",
           "description" : "",
@@ -542,7 +550,7 @@
           "is_unique" : false,
           "name" : "Stroke Element UUID",
           "nullable" : false,
-          "related_property_ref" : "diagrams.diagram_drawing_stroke.uuid",
+          "relationship_target_ref" : "diagrams.diagram_drawing_stroke.uuid",
           "sort_order" : 2
         },
         {
@@ -584,6 +592,7 @@
       "name" : "Diagram Shape Vertex",
       "properties" : [
         {
+          "base_origin_ref" : "base.base_entity.uuid",
           "code" : "uuid",
           "data_type" : "uuid",
           "description" : "",
@@ -599,7 +608,7 @@
           "is_unique" : false,
           "name" : "Shape Element UUID",
           "nullable" : false,
-          "related_property_ref" : "diagrams.diagram_drawing_shape.uuid",
+          "relationship_target_ref" : "diagrams.diagram_drawing_shape.uuid",
           "sort_order" : 2
         },
         {
@@ -772,5 +781,5 @@
   ],
   "name" : "Diagrams",
   "sort_order" : 1,
-  "version" : 645
+  "version" : 665
 }

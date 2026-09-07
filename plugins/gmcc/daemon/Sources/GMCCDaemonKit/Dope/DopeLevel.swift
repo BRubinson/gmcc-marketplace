@@ -31,7 +31,7 @@ public enum DopeField: String, Codable, Hashable, CaseIterable, Sendable {
     case code, name, description, sortOrder
     case entityType, repoRepresentativeFile, baseComposableUuid
     case dataType, nullable, isUnique, autoIncrement, textCharLimit
-    case enumUuid, relatedPropertyUuid, baseOriginPropertyUuid
+    case enumUuid, relationshipTargetUuid, baseOriginPropertyUuid
 }
 
 /// One level's registration: table name, parent linkage, legal field set.
@@ -62,7 +62,7 @@ public struct DopeLevelSpec: Sendable {
                           parentLevel: .entity, parentColumn: "dope_persistence_entity_uuid",
                           ownedFields: common.union([.dataType, .nullable, .isUnique,
                                                      .autoIncrement, .textCharLimit,
-                                                     .enumUuid, .relatedPropertyUuid,
+                                                     .enumUuid, .relationshipTargetUuid,
                                                      .baseOriginPropertyUuid])),
             DopeLevelSpec(level: .enumeration, table: "dope_persistence_enum",
                           parentLevel: .persistence, parentColumn: "dope_persistence_uuid",

@@ -73,7 +73,7 @@ final class DopeRepoVerbTests: XCTestCase {
         _ = try store.dopeNodeAdd(DopeNodeAddRequest(
             level: .property, parentUuid: entity.uuid,
             fields: DopeNodeFields(code: "owner", name: "Owner", dataType: .relationship,
-                                   relatedPropertyUuid: id.uuid)))
+                                   relationshipTargetUuid: id.uuid)))
         return try store.dbQueue.read { db in
             try self.store.fetchDopeScope(db, uuid: scope.uuid)!
         }
@@ -222,7 +222,7 @@ final class DopeRepoVerbTests: XCTestCase {
         _ = try store.dopeNodeAdd(DopeNodeAddRequest(
             level: .property, parentUuid: entity.uuid,
             fields: DopeNodeFields(code: "tag", name: "Tag", dataType: .relationship,
-                                   relatedPropertyUuid: sharedId.uuid)))
+                                   relationshipTargetUuid: sharedId.uuid)))
 
         _ = try store.dopeWriteRepo(DopeWriteRepoRequest(scopeUuid: scope.uuid))
         let sandbox = try DopeRepoSandbox.resolve(instanceRoot: repoRoot.path)
@@ -243,7 +243,7 @@ final class DopeRepoVerbTests: XCTestCase {
         let user = core.entities.first { $0.body.code == "user" }!
         XCTAssertEqual(user.properties.first { $0.body.code == "kind" }?.body.enumRef,
                        "zzz_shared.enums.kind")
-        XCTAssertEqual(user.properties.first { $0.body.code == "tag" }?.body.relatedPropertyRef,
+        XCTAssertEqual(user.properties.first { $0.body.code == "tag" }?.body.relationshipTargetRef,
                        "zzz_shared.tag.id")
     }
 
@@ -331,7 +331,7 @@ final class DopeRepoVerbTests: XCTestCase {
         _ = try store.dopeNodeAdd(DopeNodeAddRequest(
             level: .property, parentUuid: post.uuid,
             fields: DopeNodeFields(code: "author", name: "Author", dataType: .relationship,
-                                   relatedPropertyUuid: materialized.uuid)))
+                                   relationshipTargetUuid: materialized.uuid)))
 
         func roundTripOnce() throws {
             _ = try store.dopeWriteRepo(DopeWriteRepoRequest(scopeUuid: scope.uuid))
@@ -359,7 +359,7 @@ final class DopeRepoVerbTests: XCTestCase {
                        "zzz_base.base_entity.uuid")
         let postNode = core.entities.first { $0.body.code == "post" }!
         XCTAssertEqual(postNode.properties.first { $0.body.code == "author" }?
-                        .body.relatedPropertyRef,
+                        .body.relationshipTargetRef,
                        "aaa_core.user.uuid",
                        "relationship must target the MATERIALIZED row, not the base's")
         try store.dbQueue.read { db in

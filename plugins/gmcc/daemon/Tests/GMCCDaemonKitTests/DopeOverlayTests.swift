@@ -8,27 +8,26 @@ final class DopeOverlayTests: XCTestCase {
 
     // MARK: - Builders
 
-    private func ident(_ uuid: String, deleted: String? = nil, mask: String? = nil)
-        -> DopeNodeIdentity {
+    private func ident(_ uuid: String, deleted: String? = nil) -> DopeNodeIdentity {
         DopeNodeIdentity(uuid: uuid, version: 0, createdAt: "t", updatedAt: "t",
-                         deletedOn: deleted, maskKind: mask)
+                         deletedOn: deleted)
     }
 
     private func prop(_ code: String, uuid: String, desc: String = "",
-                      deleted: String? = nil, mask: String? = nil) -> DopePropertyNode {
+                      deleted: String? = nil) -> DopePropertyNode {
         DopePropertyNode(
-            identity: ident(uuid, deleted: deleted, mask: mask),
+            identity: ident(uuid, deleted: deleted),
             body: DopePropertyBody(code: code, name: code, description: desc, sortOrder: 0,
                                    dataType: "text", nullable: true, isUnique: false,
                                    autoIncrement: nil, textCharLimit: nil, enumRef: nil,
-                                   relatedPropertyRef: nil, baseOriginRef: nil))
+                                   relationshipTargetRef: nil, baseOriginRef: nil))
     }
 
     private func entity(_ code: String, uuid: String, desc: String = "",
-                        mask: String? = nil, deleted: String? = nil,
+                        deleted: String? = nil,
                         props: [DopePropertyNode] = []) -> DopeEntityNode {
         DopeEntityNode(
-            identity: ident(uuid, deleted: deleted, mask: mask),
+            identity: ident(uuid, deleted: deleted),
             body: DopeEntityBody(code: code, name: code, entityType: "MODEL", description: desc,
                                  sortOrder: 0, repoRepresentativeFile: nil,
                                  baseComposableRef: nil),
@@ -36,11 +35,11 @@ final class DopeOverlayTests: XCTestCase {
     }
 
     private func domain(_ code: String, uuid: String, desc: String = "",
-                        mask: String? = nil, deleted: String? = nil,
+                        deleted: String? = nil,
                         entities: [DopeEntityNode] = [],
                         enums: [DopeEnumNode] = []) -> DopePersistenceNode {
         DopePersistenceNode(
-            identity: ident(uuid, deleted: deleted, mask: mask),
+            identity: ident(uuid, deleted: deleted),
             body: DopePersistenceBody(code: code, name: code, description: desc, sortOrder: 0),
             entities: entities, enums: enums)
     }
@@ -92,7 +91,7 @@ final class DopeOverlayTests: XCTestCase {
         let base = tree([domain("core", uuid: "d1", entities: [
             entity("user", uuid: "e1"), entity("team", uuid: "e2"),
         ])])
-        let overlay = tree([domain("core", uuid: "o1", mask: "PASSTHROUGH", entities: [
+        let overlay = tree([domain("core", uuid: "o1", entities: [
             entity("user", uuid: "oe1", desc: "mine"),
         ])])
         let r = DopeOverlay.resolve(base: base, overlay: overlay)
@@ -103,27 +102,31 @@ final class DopeOverlayTests: XCTestCase {
 
     // MARK: - PASSTHROUGH
 
-    /// The silent-corruption guard. Masking one property needs its ancestor
-    /// shells present in a sparse overlay; without PASSTHROUGH those shells'
-    /// empty description would overwrite the base's real text.
-    func testPassthroughShellDoesNotOverrideBaseFields() {
+    /// Copy-up is what makes "present in the overlay overrides" exact. An
+    /// ancestor carried along for a deeper edit holds the BASE's real values,
+    /// so overriding wholesale reproduces them rather than blanking them.
+    /// This is the property that replaced the PASSTHROUGH marker.
+    func testCopiedAncestorsCarryTheBaseValuesForward() {
         let base = tree([domain("core", uuid: "d1", desc: "REAL DOMAIN TEXT", entities: [
             entity("user", uuid: "e1", desc: "REAL ENTITY TEXT",
                    props: [prop("id", uuid: "p1", desc: "REAL PROP TEXT")]),
         ])])
-        // Sparse overlay: shells carry NO description, only the leaf is real.
-        let overlay = tree([domain("core", uuid: "o1", desc: "", mask: "PASSTHROUGH", entities: [
-            entity("user", uuid: "oe1", desc: "", mask: "PASSTHROUGH",
+        // Copy-up: the ancestors are faithful copies of the base, and only
+        // the leaf carries the user's edit.
+        let overlay = tree([domain("core", uuid: "o1", desc: "REAL DOMAIN TEXT", entities: [
+            entity("user", uuid: "oe1", desc: "REAL ENTITY TEXT",
                    props: [prop("id", uuid: "op1", desc: "MY PROP TEXT")]),
         ])])
         let r = DopeOverlay.resolve(base: base, overlay: overlay)
         XCTAssertEqual(r.tree.domains[0].body.description, "REAL DOMAIN TEXT",
-                       "a passthrough shell blanked the base domain")
+                       "a copied ancestor lost the base's text")
         XCTAssertEqual(r.tree.domains[0].entities[0].body.description, "REAL ENTITY TEXT",
-                       "a passthrough shell blanked the base entity")
+                       "a copied ancestor lost the base's text")
         XCTAssertEqual(r.tree.domains[0].entities[0].properties[0].body.description,
                        "MY PROP TEXT", "the real overlay leaf must win")
-        XCTAssertEqual(r.resolutions["core"]?.origin, .base)
+        // Every copied node reads as an override now — there is no marker
+        // and no special case, which is the whole simplification.
+        XCTAssertEqual(r.resolutions["core"]?.origin, .overridden)
         XCTAssertEqual(r.resolutions["core.user.id"]?.origin, .overridden)
     }
 
@@ -134,7 +137,7 @@ final class DopeOverlayTests: XCTestCase {
             entity("user", uuid: "e1", props: [prop("id", uuid: "p1")]),
             entity("team", uuid: "e2"),
         ])])
-        let overlay = tree([domain("core", uuid: "o1", mask: "PASSTHROUGH", entities: [
+        let overlay = tree([domain("core", uuid: "o1", entities: [
             entity("user", uuid: "oe1", deleted: "2026-09-07T00:00:00Z"),
         ])])
         let r = DopeOverlay.resolve(base: base, overlay: overlay)
@@ -148,8 +151,8 @@ final class DopeOverlayTests: XCTestCase {
         let base = tree([domain("core", uuid: "d1", entities: [
             entity("user", uuid: "e1", props: [prop("id", uuid: "p1"), prop("name", uuid: "p2")]),
         ])])
-        let overlay = tree([domain("core", uuid: "o1", mask: "PASSTHROUGH", entities: [
-            entity("user", uuid: "oe1", mask: "PASSTHROUGH",
+        let overlay = tree([domain("core", uuid: "o1", entities: [
+            entity("user", uuid: "oe1",
                    props: [prop("id", uuid: "op1", deleted: "2026-09-07T00:00:00Z")]),
         ])])
         let r = DopeOverlay.resolve(base: base, overlay: overlay)
@@ -161,7 +164,7 @@ final class DopeOverlayTests: XCTestCase {
 
     func testOverlayOnlyNodesAreAdditions() {
         let base = tree([domain("core", uuid: "d1", entities: [entity("user", uuid: "e1")])])
-        let overlay = tree([domain("core", uuid: "o1", mask: "PASSTHROUGH", entities: [
+        let overlay = tree([domain("core", uuid: "o1", entities: [
             entity("scratch", uuid: "oe9"),
         ])])
         let r = DopeOverlay.resolve(base: base, overlay: overlay)

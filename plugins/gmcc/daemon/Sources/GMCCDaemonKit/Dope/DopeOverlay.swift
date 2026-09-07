@@ -31,8 +31,7 @@ public enum DopeOverlay {
 
     /// Where a resolved node came from, and what happened to it.
     public enum Origin: String, Codable, Hashable, Sendable {
-        /// Present only in the base, or shadowed solely by a PASSTHROUGH
-        /// shell that contributes no field values.
+        /// Present only in the base — the overlay has nothing at this path.
         case base
         /// The overlay carried a real node at this path; its body won
         /// wholesale (copy-on-write, never a field-level merge).
@@ -93,14 +92,6 @@ public enum DopeOverlay {
         public func flattened() -> DopeScopeTree { tree }
     }
 
-    /// A PASSTHROUGH shell exists only to carry identity and children into a
-    /// sparse overlay. Its field values must NEVER be applied over the base:
-    /// masking one property requires its ancestor domain and entity rows, and
-    /// those shells' empty `description` would otherwise blank out the base's
-    /// real text.
-    static func isPassthrough(_ identity: DopeNodeIdentity) -> Bool {
-        identity.maskKind == "PASSTHROUGH"
-    }
 
     static func isTombstone(_ identity: DopeNodeIdentity) -> Bool {
         identity.deletedOn != nil
@@ -114,9 +105,9 @@ public enum DopeOverlay {
         case (nil, nil):
             return Resolved(tree: DopeScopeTree.empty, resolutions: [:], hidden: [], warnings: [])
         case let (someBase?, nil):
-            return passthroughResolve(someBase, origin: .base)
+            return singleLayerResolve(someBase, origin: .base)
         case let (nil, someOverlay?):
-            var r = passthroughResolve(someOverlay, origin: .orphanedMask)
+            var r = singleLayerResolve(someOverlay, origin: .orphanedMask)
             return Resolved(tree: r.tree, resolutions: r.resolutions, hidden: r.hidden,
                             warnings: r.warnings + ["no base layer: every overlay node resolves alone"])
         case let (someBase?, someOverlay?):
@@ -124,9 +115,9 @@ public enum DopeOverlay {
         }
     }
 
-    // MARK: - Single-layer passthrough (no merging to do)
+    // MARK: - Single layer (nothing to merge against)
 
-    private static func passthroughResolve(_ tree: DopeScopeTree, origin: Origin) -> Resolved {
+    private static func singleLayerResolve(_ tree: DopeScopeTree, origin: Origin) -> Resolved {
         var resolutions = [String: Resolution]()
         var hidden = [String]()
         var domains = [DopePersistenceNode]()
@@ -221,11 +212,13 @@ public enum DopeOverlay {
                 continue
             }
 
-            let shell = ov.map { isPassthrough($0.identity) } ?? false
-            let origin: Origin = (ov == nil || shell) ? .base : .overridden
-            // A PASSTHROUGH shell contributes children only — the base body wins.
-            let body = (ov != nil && !shell) ? ov!.body : baseDomain.body
-            let identity = (ov != nil && !shell) ? ov!.identity : baseDomain.identity
+            // Present in the overlay means it overrides, wholesale. Copy-up
+            // materializes ancestors with the base's real values, so an
+            // ancestor carried along for a deeper edit is a faithful copy
+            // rather than an empty shell — which is why no marker is needed.
+            let origin: Origin = ov == nil ? .base : .overridden
+            let body = ov?.body ?? baseDomain.body
+            let identity = ov?.identity ?? baseDomain.identity
             resolutions[path] = Resolution(path: path, origin: origin,
                                            effectiveUuid: identity.uuid,
                                            baseUuid: baseDomain.identity.uuid,
@@ -250,7 +243,7 @@ public enum DopeOverlay {
                                                baseUuid: nil, overlayUuid: domain.identity.uuid)
                 continue
             }
-            let sub = passthroughResolve(
+            let sub = singleLayerResolve(
                 base.replacingDomains([domain]), origin: .added)
             for (k, v) in sub.resolutions { resolutions[k] = v }
             hidden.append(contentsOf: sub.hidden)
@@ -284,10 +277,9 @@ public enum DopeOverlay {
                                                overlayUuid: ov.identity.uuid)
                 continue
             }
-            let shell = ov.map { isPassthrough($0.identity) } ?? false
-            let use = (ov != nil && !shell) ? ov! : be
+            let use = ov ?? be
             resolutions[path] = Resolution(
-                path: path, origin: (ov == nil || shell) ? .base : .overridden,
+                path: path, origin: ov == nil ? .base : .overridden,
                 effectiveUuid: use.identity.uuid, baseUuid: be.identity.uuid,
                 overlayUuid: ov?.identity.uuid)
 
@@ -307,10 +299,9 @@ public enum DopeOverlay {
                                                     overlayUuid: op.identity.uuid)
                     continue
                 }
-                let pShell = op.map { isPassthrough($0.identity) } ?? false
-                let useP = (op != nil && !pShell) ? op! : bp
+                let useP = op ?? bp
                 resolutions[pPath] = Resolution(
-                    path: pPath, origin: (op == nil || pShell) ? .base : .overridden,
+                    path: pPath, origin: op == nil ? .base : .overridden,
                     effectiveUuid: useP.identity.uuid, baseUuid: bp.identity.uuid,
                     overlayUuid: op?.identity.uuid)
                 props.append(useP)
@@ -347,10 +338,9 @@ public enum DopeOverlay {
                                                overlayUuid: ov.identity.uuid)
                 continue
             }
-            let shell = ov.map { isPassthrough($0.identity) } ?? false
-            let use = (ov != nil && !shell) ? ov! : bn
+            let use = ov ?? bn
             resolutions[path] = Resolution(
-                path: path, origin: (ov == nil || shell) ? .base : .overridden,
+                path: path, origin: ov == nil ? .base : .overridden,
                 effectiveUuid: use.identity.uuid, baseUuid: bn.identity.uuid,
                 overlayUuid: ov?.identity.uuid)
 
@@ -370,10 +360,9 @@ public enum DopeOverlay {
                                                     overlayUuid: oo.identity.uuid)
                     continue
                 }
-                let oShell = oo.map { isPassthrough($0.identity) } ?? false
-                let useO = (oo != nil && !oShell) ? oo! : bo
+                let useO = oo ?? bo
                 resolutions[oPath] = Resolution(
-                    path: oPath, origin: (oo == nil || oShell) ? .base : .overridden,
+                    path: oPath, origin: oo == nil ? .base : .overridden,
                     effectiveUuid: useO.identity.uuid, baseUuid: bo.identity.uuid,
                     overlayUuid: oo?.identity.uuid)
                 options.append(useO)

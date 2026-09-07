@@ -98,7 +98,7 @@ final class DopeMachineTests: XCTestCase {
         let entityUuid = tree.domains[0].entities[0].identity.uuid
         try addNode(.property, parent: entityUuid,
                     DopeNodeFields(code: "owner", name: "Owner", dataType: .relationship,
-                                   relatedPropertyUuid: tree.domains[0].entities[0]
+                                   relationshipTargetUuid: tree.domains[0].entities[0]
                                        .properties[0].identity.uuid))
 
         let cloned = try initScope(prompt: "prompt-a", clone: true)
@@ -112,7 +112,7 @@ final class DopeMachineTests: XCTestCase {
         XCTAssertNotEqual(promptTree.domains[0].identity.uuid, tree.domains[0].identity.uuid)
         // The relationship ref re-resolved inside the clone.
         let owner = promptTree.domains[0].entities[0].properties.first { $0.body.code == "owner" }
-        XCTAssertEqual(owner?.body.relatedPropertyRef, "core.user.id")
+        XCTAssertEqual(owner?.body.relationshipTargetRef, "core.user.id")
     }
 
     // MARK: - Get fallback
@@ -251,11 +251,11 @@ final class DopeMachineTests: XCTestCase {
         let rel = try addNode(.property, parent: ids.entity,
                               DopeNodeFields(code: "owner", name: "Owner",
                                              dataType: .relationship,
-                                             relatedPropertyUuid: ids.property))
+                                             relationshipTargetUuid: ids.property))
         XCTAssertThrowsError(try addNode(
             .property, parent: ids.entity,
             DopeNodeFields(code: "chain", name: "Chain", dataType: .relationship,
-                           relatedPropertyUuid: rel.uuid))) { error in
+                           relationshipTargetUuid: rel.uuid))) { error in
             guard case StoreError.badRequest(let detail) = error else {
                 return XCTFail("wrong error: \(error)")
             }
@@ -312,7 +312,7 @@ final class DopeMachineTests: XCTestCase {
         // domain) must not block the ordered delete.
         _ = try addNode(.property, parent: ids.entity,
                         DopeNodeFields(code: "owner", name: "Owner", dataType: .relationship,
-                                       relatedPropertyUuid: ids.property))
+                                       relationshipTargetUuid: ids.property))
         _ = try addNode(.property, parent: ids.entity,
                         DopeNodeFields(code: "state", name: "State", dataType: .enumeration,
                                        enumUuid: ids.enumUuid))
@@ -335,7 +335,7 @@ final class DopeMachineTests: XCTestCase {
         let ids = try buildSmallTree(scopeUuid: scope.uuid)
         _ = try addNode(.property, parent: ids.entity,
                         DopeNodeFields(code: "owner", name: "Owner", dataType: .relationship,
-                                       relatedPropertyUuid: ids.property))
+                                       relationshipTargetUuid: ids.property))
         let deleted = try store.dopeNodeDelete(DopeNodeDeleteRequest(
             level: .entity, nodeUuid: ids.entity, expectedVersion: 0))
         XCTAssertEqual(deleted.cascaded.properties, 2)

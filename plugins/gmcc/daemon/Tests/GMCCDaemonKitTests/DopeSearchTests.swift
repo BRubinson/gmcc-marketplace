@@ -118,10 +118,6 @@ final class DopeSearchTests: XCTestCase {
         let od = try store.dopeNodeAdd(DopeNodeAddRequest(
             level: .persistence, parentUuid: overlay.uuid,
             fields: DopeNodeFields(code: "billing", name: "Billing")))
-        try store.dbQueue.write { db in
-            try db.execute(sql: "UPDATE dope_persistence SET mask_kind = 'PASSTHROUGH' WHERE uuid = ?",
-                           arguments: [od.uuid])
-        }
         _ = try store.dopeNodeAdd(DopeNodeAddRequest(
             level: .entity, parentUuid: od.uuid,
             fields: DopeNodeFields(code: "invoice", name: "Invoice",

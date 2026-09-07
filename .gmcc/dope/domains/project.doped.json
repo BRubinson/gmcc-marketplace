@@ -92,7 +92,7 @@
           "is_unique" : false,
           "name" : "Project",
           "nullable" : false,
-          "related_property_ref" : "project.project.uuid",
+          "relationship_target_ref" : "project.project.uuid",
           "sort_order" : 6
         },
         {
@@ -159,7 +159,7 @@
           "is_unique" : false,
           "name" : "Instance",
           "nullable" : false,
-          "related_property_ref" : "project.instance.uuid",
+          "relationship_target_ref" : "project.instance.uuid",
           "sort_order" : 6
         },
         {
@@ -245,7 +245,7 @@
           "is_unique" : false,
           "name" : "Session",
           "nullable" : false,
-          "related_property_ref" : "project.session.uuid",
+          "relationship_target_ref" : "project.session.uuid",
           "sort_order" : 6
         },
         {
@@ -405,5 +405,5 @@
   ],
   "name" : "Project",
   "sort_order" : 3,
-  "version" : 645
+  "version" : 665
 }

@@ -26,7 +26,7 @@
           "is_unique" : true,
           "name" : "Prompt",
           "nullable" : false,
-          "related_property_ref" : "project.prompt.uuid",
+          "relationship_target_ref" : "project.prompt.uuid",
           "sort_order" : 6
         },
         {
@@ -94,7 +94,7 @@
           "is_unique" : false,
           "name" : "Summary",
           "nullable" : false,
-          "related_property_ref" : "agentics.clarification_summary.uuid",
+          "relationship_target_ref" : "agentics.clarification_summary.uuid",
           "sort_order" : 6
         },
         {
@@ -182,7 +182,7 @@
           "is_unique" : true,
           "name" : "Prompt",
           "nullable" : false,
-          "related_property_ref" : "project.prompt.uuid",
+          "relationship_target_ref" : "project.prompt.uuid",
           "sort_order" : 6
         },
         {
@@ -232,7 +232,7 @@
           "is_unique" : false,
           "name" : "Summary",
           "nullable" : false,
-          "related_property_ref" : "agentics.architecture_summary.uuid",
+          "relationship_target_ref" : "agentics.architecture_summary.uuid",
           "sort_order" : 6
         },
         {
@@ -299,7 +299,7 @@
           "is_unique" : false,
           "name" : "Persistence Change",
           "nullable" : false,
-          "related_property_ref" : "agentics.architecture_persistence_change.uuid",
+          "relationship_target_ref" : "agentics.architecture_persistence_change.uuid",
           "sort_order" : 6
         },
         {
@@ -411,7 +411,7 @@
           "is_unique" : false,
           "name" : "Summary",
           "nullable" : false,
-          "related_property_ref" : "agentics.architecture_summary.uuid",
+          "relationship_target_ref" : "agentics.architecture_summary.uuid",
           "sort_order" : 6
         },
         {
@@ -497,7 +497,7 @@
           "is_unique" : true,
           "name" : "Prompt",
           "nullable" : false,
-          "related_property_ref" : "project.prompt.uuid",
+          "relationship_target_ref" : "project.prompt.uuid",
           "sort_order" : 6
         },
         {
@@ -547,7 +547,7 @@
           "is_unique" : false,
           "name" : "Summary",
           "nullable" : false,
-          "related_property_ref" : "agentics.exploration_summary.uuid",
+          "relationship_target_ref" : "agentics.exploration_summary.uuid",
           "sort_order" : 6
         },
         {
@@ -587,7 +587,7 @@
           "is_unique" : false,
           "name" : "Summary",
           "nullable" : false,
-          "related_property_ref" : "agentics.exploration_summary.uuid",
+          "relationship_target_ref" : "agentics.exploration_summary.uuid",
           "sort_order" : 6
         },
         {
@@ -664,7 +664,7 @@
           "is_unique" : true,
           "name" : "Prompt",
           "nullable" : false,
-          "related_property_ref" : "project.prompt.uuid",
+          "relationship_target_ref" : "project.prompt.uuid",
           "sort_order" : 6
         },
         {
@@ -724,7 +724,7 @@
           "is_unique" : false,
           "name" : "Summary",
           "nullable" : false,
-          "related_property_ref" : "agentics.review_summary.uuid",
+          "relationship_target_ref" : "agentics.review_summary.uuid",
           "sort_order" : 6
         },
         {
@@ -838,7 +838,7 @@
           "is_unique" : false,
           "name" : "Session",
           "nullable" : false,
-          "related_property_ref" : "project.session.uuid",
+          "relationship_target_ref" : "project.session.uuid",
           "sort_order" : 6
         },
         {
@@ -887,7 +887,7 @@
           "is_unique" : false,
           "name" : "Session File",
           "nullable" : false,
-          "related_property_ref" : "agentics.session_file.uuid",
+          "relationship_target_ref" : "agentics.session_file.uuid",
           "sort_order" : 6
         },
         {
@@ -897,7 +897,7 @@
           "is_unique" : false,
           "name" : "Session",
           "nullable" : false,
-          "related_property_ref" : "project.session.uuid",
+          "relationship_target_ref" : "project.session.uuid",
           "sort_order" : 7
         },
         {
@@ -907,7 +907,7 @@
           "is_unique" : false,
           "name" : "Prompt",
           "nullable" : true,
-          "related_property_ref" : "project.prompt.uuid",
+          "relationship_target_ref" : "project.prompt.uuid",
           "sort_order" : 8
         },
         {
@@ -948,7 +948,7 @@
           "is_unique" : false,
           "name" : "File Change",
           "nullable" : false,
-          "related_property_ref" : "agentics.file_change.uuid",
+          "relationship_target_ref" : "agentics.file_change.uuid",
           "sort_order" : 6
         },
         {
@@ -1006,7 +1006,7 @@
           "is_unique" : false,
           "name" : "Prompt",
           "nullable" : false,
-          "related_property_ref" : "project.prompt.uuid",
+          "relationship_target_ref" : "project.prompt.uuid",
           "sort_order" : 6
         },
         {
@@ -1411,5 +1411,5 @@
   ],
   "name" : "Agentics",
   "sort_order" : 4,
-  "version" : 645
+  "version" : 665
 }

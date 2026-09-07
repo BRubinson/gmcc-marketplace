@@ -18,7 +18,7 @@ final class DopeCanvasLayoutTests: XCTestCase {
                 code: code, name: code, description: "", sortOrder: 0,
                 dataType: "text", nullable: true, isUnique: false,
                 autoIncrement: nil, textCharLimit: nil,
-                enumRef: nil, relatedPropertyRef: nil, baseOriginRef: nil))
+                enumRef: nil, relationshipTargetRef: nil, baseOriginRef: nil))
     }
 
     private func entity(

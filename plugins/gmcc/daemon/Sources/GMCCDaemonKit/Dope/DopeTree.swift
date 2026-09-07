@@ -87,7 +87,7 @@ public struct DopePropertyBody: Codable, Hashable, Sendable {
     /// `domain.enums.enum_code` — non-nil iff dataType == "enum".
     public let enumRef: String?
     /// `domain.entity.property` — non-nil iff dataType == "relationship".
-    public let relatedPropertyRef: String?
+    public let relationshipTargetRef: String?
     /// `domain.entity.property` — the BASE_COMPOSABLE property this one
     /// materializes. Provenance only: the row is real and FK-referenceable;
     /// the tag records where it came from. Orthogonal to dataType.
@@ -97,7 +97,7 @@ public struct DopePropertyBody: Codable, Hashable, Sendable {
         code: String, name: String, description: String, sortOrder: Int,
         dataType: String, nullable: Bool, isUnique: Bool,
         autoIncrement: Bool?, textCharLimit: Int?,
-        enumRef: String?, relatedPropertyRef: String?, baseOriginRef: String?
+        enumRef: String?, relationshipTargetRef: String?, baseOriginRef: String?
     ) {
         self.code = code
         self.name = name
@@ -109,7 +109,7 @@ public struct DopePropertyBody: Codable, Hashable, Sendable {
         self.autoIncrement = autoIncrement
         self.textCharLimit = textCharLimit
         self.enumRef = enumRef
-        self.relatedPropertyRef = relatedPropertyRef
+        self.relationshipTargetRef = relationshipTargetRef
         self.baseOriginRef = baseOriginRef
     }
 }
@@ -164,21 +164,16 @@ public struct DopeNodeIdentity: Codable, Hashable, Sendable {
     /// serialized. Keeping it off the body makes that structural rather than
     /// a rule someone has to remember.
     public let deletedOn: String?
-    /// "PASSTHROUGH" — an ancestor shell that exists in a sparse overlay only
-    /// to carry identity and children; its field values are never applied
-    /// over the base. Same tier rules, same reason for living here.
-    public let maskKind: String?
 
     public init(
         uuid: String, version: Int64, createdAt: String, updatedAt: String,
-        deletedOn: String? = nil, maskKind: String? = nil
+        deletedOn: String? = nil
     ) {
         self.uuid = uuid
         self.version = version
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.deletedOn = deletedOn
-        self.maskKind = maskKind
     }
 
     /// Tolerant: neither field exists on a pre-m0012 peer.
@@ -189,7 +184,6 @@ public struct DopeNodeIdentity: Codable, Hashable, Sendable {
         createdAt = try c.decode(String.self, forKey: .createdAt)
         updatedAt = try c.decode(String.self, forKey: .updatedAt)
         deletedOn = try c.decodeIfPresent(String.self, forKey: .deletedOn)
-        maskKind = try c.decodeIfPresent(String.self, forKey: .maskKind)
     }
 }
 

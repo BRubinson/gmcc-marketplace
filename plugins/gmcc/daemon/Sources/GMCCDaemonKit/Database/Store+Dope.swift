@@ -491,7 +491,7 @@ extension Store {
         func identity(_ row: Row) -> DopeNodeIdentity {
             DopeNodeIdentity(uuid: row["uuid"], version: row["version"],
                              createdAt: row["created_at"], updatedAt: row["updated_at"],
-                             deletedOn: row["deleted_on"], maskKind: row["mask_kind"])
+                             deletedOn: row["deleted_on"])
         }
 
         var propertiesByEntity = [String: [DopePropertyNode]]()
@@ -506,7 +506,7 @@ extension Store {
                     autoIncrement: (row["auto_increment"] as Int64?).map { $0 != 0 },
                     textCharLimit: row["text_char_limit"],
                     enumRef: (row["dope_persistence_enum_uuid"] as String?).flatMap { enumRef[$0] },
-                    relatedPropertyRef: (row["related_property_uuid"] as String?)
+                    relationshipTargetRef: (row["relationship_target_uuid"] as String?)
                         .flatMap { propertyRef[$0] },
                     baseOriginRef: (row["base_origin_property_uuid"] as String?)
                         .flatMap { propertyRef[$0] }))
@@ -680,7 +680,7 @@ extension Store {
                         "auto_increment": body.autoIncrement.map { $0 ? 1 : 0 },
                         "text_char_limit": body.textCharLimit,
                         "dope_persistence_enum_uuid": enumUuid,
-                        "related_property_uuid": nil,
+                        "relationship_target_uuid": nil,
                     ])
                     counts.properties += 1
                     propertyUuidByRef[DopeCode.formatPropertyRef(
@@ -710,10 +710,10 @@ extension Store {
         // every target is a non-relationship property inserted above.
         for pending in pendingRelationship {
             let body = pending.body
-            guard let ref = body.relatedPropertyRef,
+            guard let ref = body.relationshipTargetRef,
                   let target = propertyUuidByRef[ref] else {
                 throw StoreError.badRequest(
-                    detail: "relationship property '\(body.code)' target '\(body.relatedPropertyRef ?? "nil")' did not resolve during insert")
+                    detail: "relationship property '\(body.code)' target '\(body.relationshipTargetRef ?? "nil")' did not resolve during insert")
             }
             let uuid = try insertBase(db, table: "dope_persistence_entity_property", extra: [
                 "dope_persistence_entity_uuid": pending.entityUuid,
@@ -725,7 +725,7 @@ extension Store {
                 "auto_increment": nil,
                 "text_char_limit": nil,
                 "dope_persistence_enum_uuid": nil,
-                "related_property_uuid": target,
+                "relationship_target_uuid": target,
             ])
             counts.properties += 1
             if let entityRef = entityRefByUuid[pending.entityUuid] {
@@ -825,8 +825,8 @@ extension Store {
             carried.append(.textCharLimit)
         }
         if fields.enumUuid != nil || fields.clearEnum == true { carried.append(.enumUuid) }
-        if fields.relatedPropertyUuid != nil || fields.clearRelatedProperty == true {
-            carried.append(.relatedPropertyUuid)
+        if fields.relationshipTargetUuid != nil || fields.clearRelationshipTarget == true {
+            carried.append(.relationshipTargetUuid)
         }
         if fields.baseOriginPropertyUuid != nil || fields.clearBaseOrigin == true {
             carried.append(.baseOriginPropertyUuid)
@@ -851,7 +851,7 @@ extension Store {
     /// message and enforces what SQL cannot see (same scope, no chain refs).
     private func validatePropertyShape(
         _ db: Database, scope: DopeScopeRow, propertyUuid: String?, entityUuid: String,
-        dataType: String, enumUuid: String?, relatedPropertyUuid: String?,
+        dataType: String, enumUuid: String?, relationshipTargetUuid: String?,
         baseOriginPropertyUuid: String?,
         autoIncrement: Bool?, textCharLimit: Int?
     ) throws {
@@ -862,7 +862,7 @@ extension Store {
             throw StoreError.badRequest(
                 detail: "enum properties require --enum-uuid, and only enum properties may carry one")
         }
-        if (type == .relationship) != (relatedPropertyUuid != nil) {
+        if (type == .relationship) != (relationshipTargetUuid != nil) {
             throw StoreError.badRequest(
                 detail: "relationship properties require --related-property-uuid, and only relationship properties may carry one")
         }
@@ -879,18 +879,18 @@ extension Store {
                     detail: "enum \(enumUuid) belongs to a different dope scope")
             }
         }
-        if let relatedPropertyUuid {
-            let owner = try self.dopeOwningScope(db, level: .property, nodeUuid: relatedPropertyUuid)
+        if let relationshipTargetUuid {
+            let owner = try self.dopeOwningScope(db, level: .property, nodeUuid: relationshipTargetUuid)
             guard owner.uuid == scope.uuid else {
                 throw StoreError.badRequest(
-                    detail: "target property \(relatedPropertyUuid) belongs to a different dope scope")
+                    detail: "target property \(relationshipTargetUuid) belongs to a different dope scope")
             }
             let targetType = try String.fetchOne(
                 db, sql: "SELECT data_type FROM dope_persistence_entity_property WHERE uuid = ?",
-                arguments: [relatedPropertyUuid])
+                arguments: [relationshipTargetUuid])
             if targetType == DopePropertyDataType.relationship.rawValue {
                 throw StoreError.badRequest(
-                    detail: "target property \(relatedPropertyUuid) is itself a relationship — chain refs are not allowed")
+                    detail: "target property \(relationshipTargetUuid) is itself a relationship — chain refs are not allowed")
             }
         }
         if let origin = baseOriginPropertyUuid {
@@ -1126,7 +1126,7 @@ extension Store {
                     db, scope: scope, propertyUuid: nil, entityUuid: req.parentUuid,
                     dataType: dataType.rawValue,
                     enumUuid: req.fields.enumUuid,
-                    relatedPropertyUuid: req.fields.relatedPropertyUuid,
+                    relationshipTargetUuid: req.fields.relationshipTargetUuid,
                     baseOriginPropertyUuid: req.fields.baseOriginPropertyUuid,
                     autoIncrement: req.fields.autoIncrement,
                     textCharLimit: req.fields.textCharLimit)
@@ -1136,7 +1136,7 @@ extension Store {
                 extra["auto_increment"] = req.fields.autoIncrement.map { $0 ? 1 : 0 }
                 extra["text_char_limit"] = req.fields.textCharLimit
                 extra["dope_persistence_enum_uuid"] = req.fields.enumUuid
-                extra["related_property_uuid"] = req.fields.relatedPropertyUuid
+                extra["relationship_target_uuid"] = req.fields.relationshipTargetUuid
                 extra["base_origin_property_uuid"] = req.fields.baseOriginPropertyUuid
             default:
                 break
@@ -1226,9 +1226,9 @@ extension Store {
                 var finalEnum: String? = current["dope_persistence_enum_uuid"]
                 if let enumUuid = req.fields.enumUuid { finalEnum = enumUuid }
                 if req.fields.clearEnum == true { finalEnum = nil }
-                var finalRelated: String? = current["related_property_uuid"]
-                if let related = req.fields.relatedPropertyUuid { finalRelated = related }
-                if req.fields.clearRelatedProperty == true { finalRelated = nil }
+                var finalRelated: String? = current["relationship_target_uuid"]
+                if let related = req.fields.relationshipTargetUuid { finalRelated = related }
+                if req.fields.clearRelationshipTarget == true { finalRelated = nil }
                 var finalAutoIncrement = (current["auto_increment"] as Int64?).map { $0 != 0 }
                 if let autoIncrement = req.fields.autoIncrement { finalAutoIncrement = autoIncrement }
                 if req.fields.clearAutoIncrement == true { finalAutoIncrement = nil }
@@ -1243,7 +1243,7 @@ extension Store {
                     db, scope: scope, propertyUuid: req.nodeUuid,
                     entityUuid: current["dope_persistence_entity_uuid"],
                     dataType: finalDataType,
-                    enumUuid: finalEnum, relatedPropertyUuid: finalRelated,
+                    enumUuid: finalEnum, relationshipTargetUuid: finalRelated,
                     baseOriginPropertyUuid: finalBaseOrigin,
                     autoIncrement: finalAutoIncrement, textCharLimit: finalCharLimit)
 
@@ -1264,8 +1264,8 @@ extension Store {
                 if req.fields.enumUuid != nil || req.fields.clearEnum == true {
                     set.updateValue(finalEnum, forKey: "dope_persistence_enum_uuid")
                 }
-                if req.fields.relatedPropertyUuid != nil || req.fields.clearRelatedProperty == true {
-                    set.updateValue(finalRelated, forKey: "related_property_uuid")
+                if req.fields.relationshipTargetUuid != nil || req.fields.clearRelationshipTarget == true {
+                    set.updateValue(finalRelated, forKey: "relationship_target_uuid")
                 }
                 if req.fields.baseOriginPropertyUuid != nil || req.fields.clearBaseOrigin == true {
                     // updateValue, not subscript — the typed-nil clear trap
@@ -1442,7 +1442,7 @@ extension Store {
                 FROM dope_persistence_entity_property p
                 JOIN dope_persistence_entity e ON e.uuid = p.dope_persistence_entity_uuid
                 JOIN dope_persistence d ON d.uuid = e.dope_persistence_uuid
-                WHERE p.related_property_uuid = ? LIMIT 5
+                WHERE p.relationship_target_uuid = ? LIMIT 5
                 """, [nodeUuid]))
             queries.append(("""
                 SELECT d.code || '.' || e.code || '.' || p.code
@@ -1457,7 +1457,7 @@ extension Store {
                 FROM dope_persistence_entity_property p
                 JOIN dope_persistence_entity e ON e.uuid = p.dope_persistence_entity_uuid
                 JOIN dope_persistence d ON d.uuid = e.dope_persistence_uuid
-                JOIN dope_persistence_entity_property tp ON tp.uuid = p.related_property_uuid
+                JOIN dope_persistence_entity_property tp ON tp.uuid = p.relationship_target_uuid
                 WHERE tp.dope_persistence_entity_uuid = ?
                   AND p.dope_persistence_entity_uuid != ? LIMIT 5
                 """, [nodeUuid, nodeUuid]))
@@ -1485,7 +1485,7 @@ extension Store {
                 WHERE d.uuid != ?
                   AND (p.dope_persistence_enum_uuid IN
                         (SELECT uuid FROM dope_persistence_enum WHERE dope_persistence_uuid = ?)
-                    OR p.related_property_uuid IN
+                    OR p.relationship_target_uuid IN
                         (SELECT pp.uuid FROM dope_persistence_entity_property pp
                           JOIN dope_persistence_entity ee ON ee.uuid = pp.dope_persistence_entity_uuid
                          WHERE ee.dope_persistence_uuid = ?))

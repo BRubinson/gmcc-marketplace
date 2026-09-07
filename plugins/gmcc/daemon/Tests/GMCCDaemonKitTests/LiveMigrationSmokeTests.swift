@@ -14,15 +14,31 @@ final class LiveMigrationSmokeTests: XCTestCase {
         try XCTSkipUnless(FileManager.default.fileExists(atPath: path))
 
         let store = try Store(path: path)
+        // The copy may be pre- or post-rename depending on when it was taken:
+        // once the live db has been migrated, the dope_domain* tables are gone.
+        // Compare against whichever vocabulary the copy actually has.
+        let preRename = try store.dbQueue.read { db in
+            try Int.fetchOne(db, sql: """
+                SELECT COUNT(*) FROM sqlite_master
+                 WHERE type = 'table' AND name = 'dope_domain'
+                """) == 1
+        }
+        let sourceTables = preRename
+            ? ["dope_domain", "dope_domain_entity", "dope_domain_enum",
+               "dope_domain_enum_option", "dope_domain_entity_property"]
+            : ["dope_persistence", "dope_persistence_entity", "dope_persistence_enum",
+               "dope_persistence_enum_option", "dope_persistence_entity_property"]
         let scopesBefore = try store.dbQueue.read { db in
             try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM dope_scope") ?? -1
         }
         let before = try store.dbQueue.read { db in
             try [
-                "dope_domain", "dope_domain_entity", "dope_domain_enum",
-                "dope_domain_enum_option", "dope_domain_entity_property",
-            ].map { try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM \($0)") ?? -1 }
+            ].map { _ in 0 }
         }
+        let beforeCounts = try store.dbQueue.read { db in
+            try sourceTables.map { try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM \($0)") ?? -1 }
+        }
+        _ = before
         try store.migrate()
         XCTAssertEqual(try store.schemaVersion(), Migrations.currentSchemaVersion)
 
@@ -32,7 +48,7 @@ final class LiveMigrationSmokeTests: XCTestCase {
                 "dope_persistence_enum_option", "dope_persistence_entity_property",
             ].map { try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM \($0)") ?? -1 }
         }
-        XCTAssertEqual(before, after, "m0012 lost or duplicated rows")
+        XCTAssertEqual(beforeCounts, after, "the rename lost or duplicated rows")
         XCTAssertEqual(
             try store.dbQueue.read { db in
                 try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM dope_scope") ?? -1
@@ -66,6 +82,20 @@ final class LiveMigrationSmokeTests: XCTestCase {
                     WHERE scope_type NOT IN ('BASE_PROJECT', 'PROJECT_ITEM',
                                              'SESSION_INSTANCE', 'SESSION_INSTANCE_ITEM')
                     """), 0)
+            // m0017: the relationship target is renamed and mask_kind is gone.
+            XCTAssertEqual(
+                try Int.fetchOne(db, sql: """
+                    SELECT COUNT(*) FROM pragma_table_info('dope_persistence_entity_property')
+                     WHERE name = 'relationship_target_uuid'
+                    """), 1)
+            for table in ["dope_persistence", "dope_persistence_entity",
+                          "dope_persistence_entity_property", "dope_cog_element"] {
+                XCTAssertEqual(
+                    try Int.fetchOne(db, sql: """
+                        SELECT COUNT(*) FROM pragma_table_info('\(table)')
+                         WHERE name = 'mask_kind'
+                        """), 0, "mask_kind survived on \(table)")
+            }
             XCTAssertEqual(
                 try Int.fetchOne(db, sql: """
                     SELECT COUNT(*) FROM dope_scope ds JOIN session s ON s.uuid = ds.session_uuid

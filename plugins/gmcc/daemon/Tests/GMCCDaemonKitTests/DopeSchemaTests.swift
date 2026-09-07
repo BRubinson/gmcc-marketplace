@@ -208,7 +208,7 @@ final class DopeSchemaTests: XCTestCase {
             // A legal relationship targeting an existing property.
             try db.execute(sql: """
                 INSERT INTO dope_persistence_entity_property (uuid, version, created_at, updated_at,
-                    dope_persistence_entity_uuid, code, name, data_type, nullable, related_property_uuid)
+                    dope_persistence_entity_uuid, code, name, data_type, nullable, relationship_target_uuid)
                 VALUES ('prop-rel', 0, '\(now)', '\(now)', 'ent-1', 'owner', 'Owner',
                         'relationship', 1, 'prop-id')
                 """)
@@ -224,7 +224,7 @@ final class DopeSchemaTests: XCTestCase {
             let now = Store.isoNow()
             try db.execute(sql: """
                 INSERT INTO dope_persistence_entity_property (uuid, version, created_at, updated_at,
-                    dope_persistence_entity_uuid, code, name, data_type, nullable, related_property_uuid)
+                    dope_persistence_entity_uuid, code, name, data_type, nullable, relationship_target_uuid)
                 VALUES ('prop-rel', 0, '\(now)', '\(now)', 'ent-1', 'owner', 'Owner',
                         'relationship', 1, 'prop-id')
                 """)

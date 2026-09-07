@@ -460,12 +460,12 @@ public enum DiagramResolver {
                 if !property.body.nullable { badges.append("NN") }
                 if property.body.isUnique { badges.append("UQ") }
                 if property.body.autoIncrement == true { badges.append("AI") }
-                if property.body.relatedPropertyRef != nil { badges.append("FK") }
+                if property.body.relationshipTargetRef != nil { badges.append("FK") }
                 if fromBase || property.body.baseOriginRef != nil { badges.append("B") }
                 let typeLabel: String
                 if let enumRef = property.body.enumRef {
                     typeLabel = "enum(\(enumRef.split(separator: ".").last.map(String.init) ?? enumRef))"
-                } else if let related = property.body.relatedPropertyRef {
+                } else if let related = property.body.relationshipTargetRef {
                     typeLabel = "→ \(related)"
                 } else {
                     typeLabel = property.body.dataType
@@ -544,7 +544,7 @@ public enum DiagramResolver {
                   let entity = domain.entities.first(where: { $0.body.code == segments[1] })
             else { continue }
             for (rowIndex, property) in entity.properties.enumerated() {
-                guard let ref = property.body.relatedPropertyRef else { continue }
+                guard let ref = property.body.relationshipTargetRef else { continue }
                 let parts = ref.split(separator: ".").map(String.init)
                 guard parts.count == 3 else { continue }
                 let targetEntityCode = "\(parts[0]).\(parts[1])"

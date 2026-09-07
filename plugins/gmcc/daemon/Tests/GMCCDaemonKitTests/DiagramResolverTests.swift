@@ -45,7 +45,7 @@ final class DiagramResolverTests: XCTestCase {
                                 code: code, name: code, description: "", sortOrder: 0,
                                 dataType: dataType, nullable: nullable, isUnique: isUnique,
                                 autoIncrement: nil, textCharLimit: nil, enumRef: nil,
-                                relatedPropertyRef: relatedRef, baseOriginRef: baseOrigin))
+                                relationshipTargetRef: relatedRef, baseOriginRef: baseOrigin))
         }
         let user = DopeEntityNode(
             identity: identity("e-user"),

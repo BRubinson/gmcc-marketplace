@@ -673,7 +673,7 @@ private struct PropertyRow: View {
             if let enumNode, !enumNode.options.isEmpty {
                 DopeEnumBadgeStrip(options: enumNode.options)
             }
-            if let related = property.body.relatedPropertyRef {
+            if let related = property.body.relationshipTargetRef {
                 Text("→ \(related)").font(.caption2.monospaced()).foregroundStyle(.secondary)
             }
             switch mode {

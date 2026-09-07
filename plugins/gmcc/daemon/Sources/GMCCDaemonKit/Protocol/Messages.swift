@@ -2621,7 +2621,7 @@ public struct DopeNodeFields: Codable, Hashable, Sendable {
     public let autoIncrement: Bool?
     public let textCharLimit: Int?
     public let enumUuid: String?
-    public let relatedPropertyUuid: String?
+    public let relationshipTargetUuid: String?
     public let baseOriginPropertyUuid: String?
     public let clearRepoRepresentativeFile: Bool?
     public let clearBaseComposable: Bool?
@@ -2629,7 +2629,7 @@ public struct DopeNodeFields: Codable, Hashable, Sendable {
     public let clearAutoIncrement: Bool?
     public let clearTextCharLimit: Bool?
     public let clearEnum: Bool?
-    public let clearRelatedProperty: Bool?
+    public let clearRelationshipTarget: Bool?
 
     public init(
         code: String? = nil,
@@ -2645,7 +2645,7 @@ public struct DopeNodeFields: Codable, Hashable, Sendable {
         autoIncrement: Bool? = nil,
         textCharLimit: Int? = nil,
         enumUuid: String? = nil,
-        relatedPropertyUuid: String? = nil,
+        relationshipTargetUuid: String? = nil,
         baseOriginPropertyUuid: String? = nil,
         clearRepoRepresentativeFile: Bool? = nil,
         clearBaseComposable: Bool? = nil,
@@ -2653,7 +2653,7 @@ public struct DopeNodeFields: Codable, Hashable, Sendable {
         clearAutoIncrement: Bool? = nil,
         clearTextCharLimit: Bool? = nil,
         clearEnum: Bool? = nil,
-        clearRelatedProperty: Bool? = nil
+        clearRelationshipTarget: Bool? = nil
     ) {
         self.code = code
         self.name = name
@@ -2668,7 +2668,7 @@ public struct DopeNodeFields: Codable, Hashable, Sendable {
         self.autoIncrement = autoIncrement
         self.textCharLimit = textCharLimit
         self.enumUuid = enumUuid
-        self.relatedPropertyUuid = relatedPropertyUuid
+        self.relationshipTargetUuid = relationshipTargetUuid
         self.baseOriginPropertyUuid = baseOriginPropertyUuid
         self.clearRepoRepresentativeFile = clearRepoRepresentativeFile
         self.clearBaseComposable = clearBaseComposable
@@ -2676,7 +2676,7 @@ public struct DopeNodeFields: Codable, Hashable, Sendable {
         self.clearAutoIncrement = clearAutoIncrement
         self.clearTextCharLimit = clearTextCharLimit
         self.clearEnum = clearEnum
-        self.clearRelatedProperty = clearRelatedProperty
+        self.clearRelationshipTarget = clearRelationshipTarget
     }
 }
 

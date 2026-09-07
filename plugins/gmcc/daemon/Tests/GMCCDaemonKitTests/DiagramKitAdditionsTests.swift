@@ -44,7 +44,7 @@ private func dopeFixture() -> DopeScopeTree {
                             dataType: relatedRef == nil ? "uuid" : "relationship",
                             nullable: false, isUnique: false, autoIncrement: nil,
                             textCharLimit: nil, enumRef: nil,
-                            relatedPropertyRef: relatedRef, baseOriginRef: nil))
+                            relationshipTargetRef: relatedRef, baseOriginRef: nil))
     }
     let user = DopeEntityNode(
         identity: identity("e-user"),

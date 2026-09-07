@@ -205,9 +205,9 @@ public enum DopeValidator {
                         errors.append(
                             "property '\(path)': enum_ref must be present exactly when data_type is 'enum'")
                     }
-                    if isRelationship != (body.relatedPropertyRef != nil) {
+                    if isRelationship != (body.relationshipTargetRef != nil) {
                         errors.append(
-                            "property '\(path)': related_property_ref must be present exactly when data_type is 'relationship'")
+                            "property '\(path)': relationship_target_ref must be present exactly when data_type is 'relationship'")
                     }
                     if body.autoIncrement != nil && dataType != .long {
                         errors.append("property '\(path)': auto_increment is only legal on 'long'")
@@ -227,15 +227,15 @@ public enum DopeValidator {
                             }
                         } catch { errors.append(String(describing: error)) }
                     }
-                    if let raw = body.relatedPropertyRef {
+                    if let raw = body.relationshipTargetRef {
                         do {
-                            let ref = try DopeCode.parseRef(raw, field: "property '\(path)' related_property_ref")
+                            let ref = try DopeCode.parseRef(raw, field: "property '\(path)' relationship_target_ref")
                             guard case .property = ref else {
                                 throw DopeCode.ValidationError(
-                                    "property '\(path)' related_property_ref '\(raw)' is not a domain.entity.property path")
+                                    "property '\(path)' relationship_target_ref '\(raw)' is not a domain.entity.property path")
                             }
                             guard let targetType = propertyIndex[raw] else {
-                                errors.append("property '\(path)' related_property_ref '\(raw)' does not resolve")
+                                errors.append("property '\(path)' relationship_target_ref '\(raw)' does not resolve")
                                 continue
                             }
                             // The spec's rule: the target property's type IS

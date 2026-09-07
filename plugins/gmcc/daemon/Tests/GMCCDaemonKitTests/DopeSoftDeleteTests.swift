@@ -169,7 +169,6 @@ final class DopeSoftDeleteTests: XCTestCase {
             data: try DopeDocumentCodec.encoder.encode(bundle.domainFiles[0]), encoding: .utf8)!
         XCTAssertFalse(json.contains("deleted_on"),
                        "the saved format must record real state only")
-        XCTAssertFalse(json.contains("mask_kind"))
         let mainJson = String(
             data: try DopeDocumentCodec.encoder.encode(bundle.main), encoding: .utf8)!
         XCTAssertFalse(mainJson.contains("deleted_on"))
@@ -202,6 +201,5 @@ final class DopeSoftDeleteTests: XCTestCase {
         let json = String(
             data: try DopeDocumentCodec.encoder.encode(bundle.domainFiles[0]), encoding: .utf8)!
         XCTAssertFalse(json.contains("deleted_on"), "nil tombstone must not serialize")
-        XCTAssertFalse(json.contains("mask_kind"), "nil mask_kind must not serialize")
     }
 }

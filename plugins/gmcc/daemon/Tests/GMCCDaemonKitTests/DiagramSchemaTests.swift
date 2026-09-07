@@ -238,6 +238,6 @@ final class DiagramSchemaTests: XCTestCase {
     /// pins the current value so a migration can never land silently.
     func testSchemaVersionMatchesCompiledConstant() throws {
         XCTAssertEqual(try store.schemaVersion(), Migrations.currentSchemaVersion)
-        XCTAssertEqual(Migrations.currentSchemaVersion, 16)
+        XCTAssertEqual(Migrations.currentSchemaVersion, 17)
     }
 }

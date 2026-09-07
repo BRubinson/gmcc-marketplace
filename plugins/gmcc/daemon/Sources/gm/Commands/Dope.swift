@@ -65,7 +65,7 @@ struct Dope: ParsableCommand {
             dataType: partial.dataType, nullable: partial.nullable,
             isUnique: partial.isUnique, autoIncrement: partial.autoIncrement,
             textCharLimit: partial.textCharLimit, enumUuid: partial.enumUuid,
-            relatedPropertyUuid: partial.relatedPropertyUuid,
+            relationshipTargetUuid: partial.relationshipTargetUuid,
             baseOriginPropertyUuid: partial.baseOriginPropertyUuid)
         let response = try withClient {
             try $0.dopeNodeAdd(DopeNodeAddRequest(
@@ -88,7 +88,7 @@ struct Dope: ParsableCommand {
             dataType: partial.dataType, nullable: partial.nullable,
             isUnique: partial.isUnique, autoIncrement: partial.autoIncrement,
             textCharLimit: partial.textCharLimit, enumUuid: partial.enumUuid,
-            relatedPropertyUuid: partial.relatedPropertyUuid,
+            relationshipTargetUuid: partial.relationshipTargetUuid,
             baseOriginPropertyUuid: partial.baseOriginPropertyUuid,
             clearRepoRepresentativeFile: partial.clearRepoRepresentativeFile,
             clearBaseComposable: partial.clearBaseComposable,
@@ -96,7 +96,7 @@ struct Dope: ParsableCommand {
             clearAutoIncrement: partial.clearAutoIncrement,
             clearTextCharLimit: partial.clearTextCharLimit,
             clearEnum: partial.clearEnum,
-            clearRelatedProperty: partial.clearRelatedProperty)
+            clearRelationshipTarget: partial.clearRelationshipTarget)
         let response = try withClient {
             try $0.dopeNodeUpdate(DopeNodeUpdateRequest(
                 level: level, nodeUuid: target.uuid,
@@ -151,7 +151,7 @@ struct Dope: ParsableCommand {
         var autoIncrement: Bool?
         var textCharLimit: Int?
         var enumUuid: String?
-        var relatedPropertyUuid: String?
+        var relationshipTargetUuid: String?
         var baseOriginPropertyUuid: String?
         var clearRepoRepresentativeFile: Bool?
         var clearBaseComposable: Bool?
@@ -159,7 +159,7 @@ struct Dope: ParsableCommand {
         var clearAutoIncrement: Bool?
         var clearTextCharLimit: Bool?
         var clearEnum: Bool?
-        var clearRelatedProperty: Bool?
+        var clearRelationshipTarget: Bool?
     }
 
     // MARK: - Scope
@@ -488,7 +488,7 @@ struct Dope: ParsableCommand {
         @Option(name: .long, help: "Enum row uuid (same scope) — required iff --data-type enum.")
         var enumUuid: String?
         @Option(name: .long, help: "Target property uuid (same scope, not itself a relationship) — required iff --data-type relationship.")
-        var relatedPropertyUuid: String?
+        var relationshipTargetUuid: String?
         @Option(name: .long, help: "Base property uuid this one materializes (same scope; its entity must be a BASE_COMPOSABLE this entity composes; same data_type).")
         var baseOriginUuid: String?
         func run() throws {
@@ -499,7 +499,7 @@ struct Dope: ParsableCommand {
                 $0.autoIncrement = autoIncrement
                 $0.textCharLimit = textCharLimit
                 $0.enumUuid = enumUuid
-                $0.relatedPropertyUuid = relatedPropertyUuid
+                $0.relationshipTargetUuid = relationshipTargetUuid
                 $0.baseOriginPropertyUuid = baseOriginUuid
             }
         }
@@ -521,11 +521,11 @@ struct Dope: ParsableCommand {
         var autoIncrement: Bool?
         @Option(name: .long) var textCharLimit: Int?
         @Option(name: .long) var enumUuid: String?
-        @Option(name: .long) var relatedPropertyUuid: String?
+        @Option(name: .long) var relationshipTargetUuid: String?
         @Option(name: .long, help: "Base property uuid this one materializes (same scope; its entity must be a BASE_COMPOSABLE this entity composes; same data_type).")
         var baseOriginUuid: String?
         @Flag(name: .long, help: "Set the enum ref to NULL.") var clearEnum = false
-        @Flag(name: .long, help: "Set the relationship target to NULL.") var clearRelatedProperty = false
+        @Flag(name: .long, help: "Set the relationship target to NULL.") var clearRelationshipTarget = false
         @Flag(name: .long, help: "Set auto_increment to NULL.") var clearAutoIncrement = false
         @Flag(name: .long, help: "Set text_char_limit to NULL.") var clearTextCharLimit = false
         @Flag(name: .long, help: "Set base_origin_property_uuid to NULL.") var clearBaseOrigin = false
@@ -537,10 +537,10 @@ struct Dope: ParsableCommand {
                 $0.autoIncrement = autoIncrement
                 $0.textCharLimit = textCharLimit
                 $0.enumUuid = enumUuid
-                $0.relatedPropertyUuid = relatedPropertyUuid
+                $0.relationshipTargetUuid = relationshipTargetUuid
                 $0.baseOriginPropertyUuid = baseOriginUuid
                 if clearEnum { $0.clearEnum = true }
-                if clearRelatedProperty { $0.clearRelatedProperty = true }
+                if clearRelationshipTarget { $0.clearRelationshipTarget = true }
                 if clearAutoIncrement { $0.clearAutoIncrement = true }
                 if clearTextCharLimit { $0.clearTextCharLimit = true }
                 if clearBaseOrigin { $0.clearBaseOrigin = true }

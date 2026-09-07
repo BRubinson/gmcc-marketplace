@@ -16,7 +16,7 @@
           "is_unique" : false,
           "name" : "Project UUID",
           "nullable" : false,
-          "related_property_ref" : "project.project.uuid",
+          "relationship_target_ref" : "project.project.uuid",
           "sort_order" : 2
         },
         {
@@ -36,7 +36,7 @@
           "is_unique" : false,
           "name" : "Instance UUID",
           "nullable" : true,
-          "related_property_ref" : "project.instance.uuid",
+          "relationship_target_ref" : "project.instance.uuid",
           "sort_order" : 3
         },
         {
@@ -46,7 +46,7 @@
           "is_unique" : false,
           "name" : "Session",
           "nullable" : true,
-          "related_property_ref" : "project.session.uuid",
+          "relationship_target_ref" : "project.session.uuid",
           "sort_order" : 6
         },
         {
@@ -56,7 +56,7 @@
           "is_unique" : false,
           "name" : "Prompt",
           "nullable" : true,
-          "related_property_ref" : "project.prompt.uuid",
+          "relationship_target_ref" : "project.prompt.uuid",
           "sort_order" : 7
         },
         {
@@ -170,7 +170,7 @@
           "is_unique" : false,
           "name" : "Scope",
           "nullable" : false,
-          "related_property_ref" : "doped.dope_scope.uuid",
+          "relationship_target_ref" : "doped.dope_scope.uuid",
           "sort_order" : 6
         },
         {
@@ -227,16 +227,6 @@
           "name" : "Deleted On",
           "nullable" : true,
           "sort_order" : 30
-        },
-        {
-          "code" : "mask_kind",
-          "data_type" : "text",
-          "description" : "PASSTHROUGH marks an ancestor shell that carries identity and children only; its field values are never applied over the base",
-          "is_unique" : false,
-          "name" : "Mask Kind",
-          "nullable" : true,
-          "sort_order" : 31,
-          "text_char_limit" : 32
         }
       ],
       "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
@@ -266,7 +256,7 @@
           "is_unique" : false,
           "name" : "Persistence UUID",
           "nullable" : false,
-          "related_property_ref" : "doped.dope_persistence.uuid",
+          "relationship_target_ref" : "doped.dope_persistence.uuid",
           "sort_order" : 6
         },
         {
@@ -332,7 +322,7 @@
           "is_unique" : false,
           "name" : "Base Composable UUID",
           "nullable" : true,
-          "related_property_ref" : "doped.dope_persistence_entity.uuid",
+          "relationship_target_ref" : "doped.dope_persistence_entity.uuid",
           "sort_order" : 25
         },
         {
@@ -343,16 +333,6 @@
           "name" : "Deleted On",
           "nullable" : true,
           "sort_order" : 30
-        },
-        {
-          "code" : "mask_kind",
-          "data_type" : "text",
-          "description" : "PASSTHROUGH marks an ancestor shell that carries identity and children only; its field values are never applied over the base",
-          "is_unique" : false,
-          "name" : "Mask Kind",
-          "nullable" : true,
-          "sort_order" : 31,
-          "text_char_limit" : 32
         }
       ],
       "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
@@ -382,7 +362,7 @@
           "is_unique" : false,
           "name" : "Persistence Entity UUID",
           "nullable" : false,
-          "related_property_ref" : "doped.dope_persistence_entity.uuid",
+          "relationship_target_ref" : "doped.dope_persistence_entity.uuid",
           "sort_order" : 6
         },
         {
@@ -475,17 +455,17 @@
           "is_unique" : false,
           "name" : "Persistence Enum UUID",
           "nullable" : true,
-          "related_property_ref" : "doped.dope_persistence_enum.uuid",
+          "relationship_target_ref" : "doped.dope_persistence_enum.uuid",
           "sort_order" : 16
         },
         {
-          "code" : "related_property_uuid",
+          "code" : "relationship_target_uuid",
           "data_type" : "relationship",
-          "description" : "Set iff data_type is relationship; one-sided, target's type is the value",
+          "description" : "The property this relationship points at; set iff data_type is relationship",
           "is_unique" : false,
-          "name" : "Related Property",
+          "name" : "Relationship Target UUID",
           "nullable" : true,
-          "related_property_ref" : "doped.dope_persistence_entity_property.uuid",
+          "relationship_target_ref" : "doped.dope_persistence_entity_property.uuid",
           "sort_order" : 17
         },
         {
@@ -495,7 +475,7 @@
           "is_unique" : false,
           "name" : "Base Origin Property UUID",
           "nullable" : true,
-          "related_property_ref" : "doped.dope_persistence_entity_property.uuid",
+          "relationship_target_ref" : "doped.dope_persistence_entity_property.uuid",
           "sort_order" : 25
         },
         {
@@ -506,16 +486,6 @@
           "name" : "Deleted On",
           "nullable" : true,
           "sort_order" : 30
-        },
-        {
-          "code" : "mask_kind",
-          "data_type" : "text",
-          "description" : "PASSTHROUGH marks an ancestor shell that carries identity and children only; its field values are never applied over the base",
-          "is_unique" : false,
-          "name" : "Mask Kind",
-          "nullable" : true,
-          "sort_order" : 31,
-          "text_char_limit" : 32
         }
       ],
       "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
@@ -545,7 +515,7 @@
           "is_unique" : false,
           "name" : "Persistence UUID",
           "nullable" : false,
-          "related_property_ref" : "doped.dope_persistence.uuid",
+          "relationship_target_ref" : "doped.dope_persistence.uuid",
           "sort_order" : 6
         },
         {
@@ -602,16 +572,6 @@
           "name" : "Deleted On",
           "nullable" : true,
           "sort_order" : 30
-        },
-        {
-          "code" : "mask_kind",
-          "data_type" : "text",
-          "description" : "PASSTHROUGH marks an ancestor shell that carries identity and children only; its field values are never applied over the base",
-          "is_unique" : false,
-          "name" : "Mask Kind",
-          "nullable" : true,
-          "sort_order" : 31,
-          "text_char_limit" : 32
         }
       ],
       "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
@@ -641,7 +601,7 @@
           "is_unique" : false,
           "name" : "Persistence Enum UUID",
           "nullable" : false,
-          "related_property_ref" : "doped.dope_persistence_enum.uuid",
+          "relationship_target_ref" : "doped.dope_persistence_enum.uuid",
           "sort_order" : 6
         },
         {
@@ -689,16 +649,6 @@
           "name" : "Deleted On",
           "nullable" : true,
           "sort_order" : 30
-        },
-        {
-          "code" : "mask_kind",
-          "data_type" : "text",
-          "description" : "PASSTHROUGH marks an ancestor shell that carries identity and children only; its field values are never applied over the base",
-          "is_unique" : false,
-          "name" : "Mask Kind",
-          "nullable" : true,
-          "sort_order" : 31,
-          "text_char_limit" : 32
         }
       ],
       "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
@@ -712,6 +662,7 @@
       "name" : "Dope Cog",
       "properties" : [
         {
+          "base_origin_ref" : "base.base_entity.uuid",
           "code" : "uuid",
           "data_type" : "uuid",
           "description" : "",
@@ -727,7 +678,7 @@
           "is_unique" : false,
           "name" : "Scope UUID",
           "nullable" : false,
-          "related_property_ref" : "doped.dope_scope.uuid",
+          "relationship_target_ref" : "doped.dope_scope.uuid",
           "sort_order" : 2
         },
         {
@@ -784,16 +735,6 @@
           "name" : "Deleted On",
           "nullable" : true,
           "sort_order" : 30
-        },
-        {
-          "code" : "mask_kind",
-          "data_type" : "text",
-          "description" : "",
-          "is_unique" : false,
-          "name" : "Mask Kind",
-          "nullable" : true,
-          "sort_order" : 31,
-          "text_char_limit" : 32
         }
       ],
       "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
@@ -807,6 +748,7 @@
       "name" : "Dope Cog Element",
       "properties" : [
         {
+          "base_origin_ref" : "base.base_entity.uuid",
           "code" : "uuid",
           "data_type" : "uuid",
           "description" : "",
@@ -822,7 +764,7 @@
           "is_unique" : false,
           "name" : "Cog UUID",
           "nullable" : false,
-          "related_property_ref" : "doped.dope_cog.uuid",
+          "relationship_target_ref" : "doped.dope_cog.uuid",
           "sort_order" : 2
         },
         {
@@ -832,7 +774,7 @@
           "is_unique" : false,
           "name" : "Parent Element UUID",
           "nullable" : true,
-          "related_property_ref" : "doped.dope_cog_element.uuid",
+          "relationship_target_ref" : "doped.dope_cog_element.uuid",
           "sort_order" : 3
         },
         {
@@ -899,16 +841,6 @@
           "name" : "Deleted On",
           "nullable" : true,
           "sort_order" : 30
-        },
-        {
-          "code" : "mask_kind",
-          "data_type" : "text",
-          "description" : "",
-          "is_unique" : false,
-          "name" : "Mask Kind",
-          "nullable" : true,
-          "sort_order" : 31,
-          "text_char_limit" : 32
         }
       ],
       "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
@@ -922,6 +854,7 @@
       "name" : "Dope Cog Primary System",
       "properties" : [
         {
+          "base_origin_ref" : "base.base_entity.uuid",
           "code" : "uuid",
           "data_type" : "uuid",
           "description" : "",
@@ -937,7 +870,7 @@
           "is_unique" : true,
           "name" : "Element UUID",
           "nullable" : false,
-          "related_property_ref" : "doped.dope_cog_element.uuid",
+          "relationship_target_ref" : "doped.dope_cog_element.uuid",
           "sort_order" : 2
         },
         {
@@ -1095,5 +1028,5 @@
   ],
   "name" : "DOPED",
   "sort_order" : 2,
-  "version" : 645
+  "version" : 665
 }

@@ -34,14 +34,14 @@ final class DopeCodecTests: XCTestCase {
                                     code: "id", name: "Id", description: "", sortOrder: 0,
                                     dataType: "uuid", nullable: false, isUnique: true,
                                     autoIncrement: nil, textCharLimit: nil,
-                                    enumRef: nil, relatedPropertyRef: nil,
+                                    enumRef: nil, relationshipTargetRef: nil,
                                     baseOriginRef: nil)),
                 DopePropertyNode(identity: identity(22),
                                  body: DopePropertyBody(
                                     code: "state", name: "State", description: "", sortOrder: 1,
                                     dataType: "enum", nullable: false, isUnique: false,
                                     autoIncrement: nil, textCharLimit: nil,
-                                    enumRef: "core.enums.status", relatedPropertyRef: nil,
+                                    enumRef: "core.enums.status", relationshipTargetRef: nil,
                                     baseOriginRef: nil)),
             ])
         let post = DopeEntityNode(
@@ -56,14 +56,14 @@ final class DopeCodecTests: XCTestCase {
                                     code: "author", name: "Author", description: "", sortOrder: 0,
                                     dataType: "relationship", nullable: false, isUnique: false,
                                     autoIncrement: nil, textCharLimit: nil,
-                                    enumRef: nil, relatedPropertyRef: "core.user.id",
+                                    enumRef: nil, relationshipTargetRef: "core.user.id",
                                     baseOriginRef: nil)),
                 DopePropertyNode(identity: identity(32),
                                  body: DopePropertyBody(
                                     code: "title", name: "Title", description: "", sortOrder: 1,
                                     dataType: "text", nullable: false, isUnique: false,
                                     autoIncrement: nil, textCharLimit: 200,
-                                    enumRef: nil, relatedPropertyRef: nil,
+                                    enumRef: nil, relationshipTargetRef: nil,
                                     baseOriginRef: nil)),
                 // Materialized from the base — covers base_origin_ref in the
                 // round-trip / determinism / no-uuid tests.
@@ -73,7 +73,7 @@ final class DopeCodecTests: XCTestCase {
                                     sortOrder: 2,
                                     dataType: "datetime", nullable: false, isUnique: false,
                                     autoIncrement: nil, textCharLimit: nil,
-                                    enumRef: nil, relatedPropertyRef: nil,
+                                    enumRef: nil, relationshipTargetRef: nil,
                                     baseOriginRef: "core.base_entity.created_at")),
             ])
         let baseEntity = DopeEntityNode(
@@ -89,7 +89,7 @@ final class DopeCodecTests: XCTestCase {
                                     sortOrder: 0,
                                     dataType: "datetime", nullable: false, isUnique: false,
                                     autoIncrement: nil, textCharLimit: nil,
-                                    enumRef: nil, relatedPropertyRef: nil,
+                                    enumRef: nil, relationshipTargetRef: nil,
                                     baseOriginRef: nil)),
             ])
         let core = DopePersistenceNode(
@@ -168,7 +168,7 @@ final class DopeCodecTests: XCTestCase {
             code: "BadCode", name: "x", description: "", sortOrder: 0,
             dataType: "enum", nullable: true, isUnique: false,
             autoIncrement: nil, textCharLimit: nil,
-            enumRef: "core.enums.missing", relatedPropertyRef: nil, baseOriginRef: nil))
+            enumRef: "core.enums.missing", relationshipTargetRef: nil, baseOriginRef: nil))
         let entity = DopeEntityDocument(
             body: DopeEntityBody(code: "extra", name: "Extra", entityType: "MODEL",
                                  description: "", sortOrder: 9,
@@ -208,7 +208,7 @@ final class DopeCodecTests: XCTestCase {
             code: "chain", name: "Chain", description: "", sortOrder: 7,
             dataType: "relationship", nullable: true, isUnique: false,
             autoIncrement: nil, textCharLimit: nil,
-            enumRef: nil, relatedPropertyRef: "core.post.author", baseOriginRef: nil))   // author is a relationship
+            enumRef: nil, relationshipTargetRef: "core.post.author", baseOriginRef: nil))   // author is a relationship
         let user = bundle.domainFiles[0].entities[0]
         let patchedUser = DopeEntityDocument(body: user.body,
                                              properties: user.properties + [chain])
@@ -315,7 +315,7 @@ final class DopeCodecTests: XCTestCase {
             code: code, name: code, description: "", sortOrder: 0,
             dataType: dataType, nullable: true, isUnique: false,
             autoIncrement: nil, textCharLimit: nil,
-            enumRef: nil, relatedPropertyRef: nil, baseOriginRef: origin))
+            enumRef: nil, relationshipTargetRef: nil, baseOriginRef: origin))
     }
 
     func testValidatorRejectsBadBaseOriginRefs() throws {
