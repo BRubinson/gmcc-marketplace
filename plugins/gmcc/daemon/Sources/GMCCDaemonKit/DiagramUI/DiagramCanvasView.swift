@@ -12,12 +12,19 @@ import SwiftUI
 // views for dope cards, Canvas paths for strokes/shapes/edges. Views make no
 // flat-2D-window assumptions — geometry comes from the resolved model, not
 // window queries.
+//
+// COORDINATE CONTRACT: the resolver emits DIAGRAM-space geometry; the view
+// layer converts to view space by adding one offset. The offset is applied
+// INSIDE each Canvas (context.translateBy) and on each .position — never as
+// a .offset view modifier: Canvas clips its drawing to its own bounds BEFORE
+// a view offset applies, so offset-then-draw silently discards everything at
+// negative diagram coordinates (and drags the background out of frame).
 
-/// Root view: draws a resolved diagram in diagram-space coordinates offset
-/// so contentBounds' origin lands at the view origin. Only the two
-/// parent-level kinds appear at the top (the store's invariant); the switch
-/// is exhaustive anyway — the compiler forces every render site to handle
-/// every kind, ghosts included (the prompt's critical design pattern).
+/// Root view: draws a resolved diagram, offset so contentBounds' origin
+/// lands at (padding, padding). Only the two parent-level kinds appear at
+/// the top (the store's invariant); the switch is exhaustive anyway — the
+/// compiler forces every render site to handle every kind, ghosts included
+/// (the prompt's critical design pattern).
 public struct DiagramCanvasView: View {
     public let resolved: ResolvedDiagram
 
@@ -25,6 +32,7 @@ public struct DiagramCanvasView: View {
         self.resolved = resolved
     }
 
+    /// Diagram-space → view-space translation.
     private var offset: CGSize {
         CGSize(width: resolved.environment.padding - resolved.contentBounds.minX,
                height: resolved.environment.padding - resolved.contentBounds.minY)
@@ -37,17 +45,21 @@ public struct DiagramCanvasView: View {
 
     public var body: some View {
         ZStack(alignment: .topLeading) {
+            // The background stays UN-offset — it paints the whole frame.
             (resolved.environment.colorScheme == .dark
                 ? Color(red: 0.11, green: 0.11, blue: 0.13)
                 : Color(red: 0.97, green: 0.97, blue: 0.98))
             // Depth-first painter order; siblings arrive pre-sorted by
             // (elementZ, code) from the resolver.
             ForEach(resolved.topLevel, id: \.uuid) { element in
-                ResolvedElementView(element: element, environment: resolved.environment)
+                ResolvedElementView(element: element,
+                                    environment: resolved.environment,
+                                    offset: offset)
             }
-            DiagramEdgeCanvas(edges: resolved.edges, environment: resolved.environment)
+            DiagramEdgeCanvas(edges: resolved.edges,
+                              environment: resolved.environment,
+                              offset: offset)
         }
-        .offset(offset)
         .frame(width: totalSize.width, height: totalSize.height, alignment: .topLeading)
         .environment(\.colorScheme, resolved.environment.colorScheme == .dark ? .dark : .light)
     }
@@ -58,32 +70,40 @@ public struct DiagramCanvasView: View {
 public struct ResolvedElementView: View {
     public let element: ResolvedElement
     public let environment: DiagramRenderEnvironment
+    public let offset: CGSize
 
-    public init(element: ResolvedElement, environment: DiagramRenderEnvironment) {
+    public init(element: ResolvedElement, environment: DiagramRenderEnvironment,
+                offset: CGSize = .zero) {
         self.element = element
         self.environment = environment
+        self.offset = offset
     }
 
     public var body: some View {
         Group {
             switch element.kind {
             case .layer(let style):
-                DrawingLayerView(element: element, style: style, environment: environment)
+                DrawingLayerView(element: element, style: style,
+                                 environment: environment, offset: offset)
             case .stroke(let stroke):
-                StrokeView(stroke: stroke)
+                StrokeView(stroke: stroke, offset: offset)
             case .shape(let shape):
-                ShapeView(shape: shape)
+                ShapeView(shape: shape, offset: offset)
             case .scopeCard(let card):
-                DopeScopeOutlineView(element: element, card: card, environment: environment)
+                DopeScopeOutlineView(element: element, card: card,
+                                     environment: environment, offset: offset)
             case .entityCard(let model):
                 DopeEntityCardView(element: element, model: model,
-                                   environment: environment, ghostCode: nil)
+                                   environment: environment, ghostCode: nil,
+                                   offset: offset)
             case .absentScope(let code):
-                DopeScopeOutlineView(element: element, card: nil, environment: environment,
-                                     ghostCode: code)
+                DopeScopeOutlineView(element: element, card: nil,
+                                     environment: environment, ghostCode: code,
+                                     offset: offset)
             case .absentEntity(let code):
                 DopeEntityCardView(element: element, model: nil,
-                                   environment: environment, ghostCode: code)
+                                   environment: environment, ghostCode: code,
+                                   offset: offset)
             }
         }
     }
@@ -96,11 +116,13 @@ public struct DrawingLayerView: View {
     public let element: ResolvedElement
     public let style: LayerStyle
     public let environment: DiagramRenderEnvironment
+    public let offset: CGSize
 
     public var body: some View {
         ZStack(alignment: .topLeading) {
             ForEach(element.children, id: \.uuid) { child in
-                ResolvedElementView(element: child, environment: environment)
+                ResolvedElementView(element: child, environment: environment,
+                                    offset: offset)
             }
         }
         .opacity(style.visible ? style.opacity : 0)
@@ -109,10 +131,13 @@ public struct DrawingLayerView: View {
 
 struct StrokeView: View {
     let stroke: ResolvedStroke
+    let offset: CGSize
 
     var body: some View {
         Canvas { context, _ in
             guard stroke.points.count >= 2 else { return }
+            // Translate INSIDE the canvas — see the coordinate contract.
+            context.translateBy(x: offset.width, y: offset.height)
             var path = Path()
             path.move(to: stroke.points[0])
             for point in stroke.points.dropFirst() { path.addLine(to: point) }
@@ -128,9 +153,11 @@ struct StrokeView: View {
 
 struct ShapeView: View {
     let shape: ResolvedShape
+    let offset: CGSize
 
     var body: some View {
         Canvas { context, _ in
+            context.translateBy(x: offset.width, y: offset.height)
             let path = shapePath()
             if let fill = shape.fillColor {
                 context.fill(path, with: .color(Color(hex: fill)))
@@ -195,13 +222,16 @@ public struct DopeScopeOutlineView: View {
     public let card: ResolvedScopeCard?
     public let environment: DiagramRenderEnvironment
     public var ghostCode: String?
+    public let offset: CGSize
 
     public init(element: ResolvedElement, card: ResolvedScopeCard?,
-                environment: DiagramRenderEnvironment, ghostCode: String? = nil) {
+                environment: DiagramRenderEnvironment, ghostCode: String? = nil,
+                offset: CGSize = .zero) {
         self.element = element
         self.card = card
         self.environment = environment
         self.ghostCode = ghostCode
+        self.offset = offset
     }
 
     public var body: some View {
@@ -211,7 +241,8 @@ public struct DopeScopeOutlineView: View {
                                                  dash: card == nil ? [6, 4] : []))
                 .foregroundStyle(card == nil ? Color.secondary : Color.accentColor.opacity(0.6))
                 .frame(width: element.frame.width, height: element.frame.height)
-                .position(x: element.frame.midX, y: element.frame.midY)
+                .position(x: element.frame.midX + offset.width,
+                          y: element.frame.midY + offset.height)
             HStack(spacing: 6) {
                 Text(card?.scopeName ?? "⌀ \(ghostCode ?? element.code)")
                     .font(.system(size: 13, weight: .semibold))
@@ -227,9 +258,11 @@ public struct DopeScopeOutlineView: View {
                         .background(Capsule().fill(Color.secondary.opacity(0.2)))
                 }
             }
-            .position(x: element.frame.midX, y: element.frame.minY - 12)
+            .position(x: element.frame.midX + offset.width,
+                      y: element.frame.minY - 12 + offset.height)
             ForEach(element.children, id: \.uuid) { child in
-                ResolvedElementView(element: child, environment: environment)
+                ResolvedElementView(element: child, environment: environment,
+                                    offset: offset)
             }
         }
     }
@@ -243,13 +276,16 @@ public struct DopeEntityCardView: View {
     public let model: EntityCardModel?
     public let environment: DiagramRenderEnvironment
     public let ghostCode: String?
+    public let offset: CGSize
 
     public init(element: ResolvedElement, model: EntityCardModel?,
-                environment: DiagramRenderEnvironment, ghostCode: String?) {
+                environment: DiagramRenderEnvironment, ghostCode: String?,
+                offset: CGSize = .zero) {
         self.element = element
         self.model = model
         self.environment = environment
         self.ghostCode = ghostCode
+        self.offset = offset
     }
 
     private var headerColor: Color {
@@ -300,7 +336,8 @@ public struct DopeEntityCardView: View {
             .strokeBorder(style: StrokeStyle(lineWidth: 1, dash: model == nil ? [4, 3] : []))
             .foregroundStyle(model == nil ? Color.secondary : Color.primary.opacity(0.25)))
         .frame(width: element.frame.width)
-        .position(x: element.frame.midX, y: element.frame.midY)
+        .position(x: element.frame.midX + offset.width,
+                  y: element.frame.midY + offset.height)
     }
 }
 
@@ -310,14 +347,18 @@ public struct DopeEntityCardView: View {
 public struct DiagramEdgeCanvas: View {
     public let edges: [ResolvedEdge]
     public let environment: DiagramRenderEnvironment
+    public let offset: CGSize
 
-    public init(edges: [ResolvedEdge], environment: DiagramRenderEnvironment) {
+    public init(edges: [ResolvedEdge], environment: DiagramRenderEnvironment,
+                offset: CGSize = .zero) {
         self.edges = edges
         self.environment = environment
+        self.offset = offset
     }
 
     public var body: some View {
         Canvas { context, _ in
+            context.translateBy(x: offset.width, y: offset.height)
             for edge in edges {
                 var path = Path()
                 path.move(to: edge.from)

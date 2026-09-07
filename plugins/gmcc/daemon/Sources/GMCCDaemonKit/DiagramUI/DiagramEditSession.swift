@@ -11,6 +11,12 @@ public protocol DiagramCommitting: Sendable {
     func commit(_ mutations: [DiagramMutation], expectedRevision: Int64?) async throws -> Int64
 }
 
+public enum DiagramEditSessionError: Error, Sendable {
+    /// flush() was called while a previous flush's commit was still awaited —
+    /// refused rather than double-committing the same staged prefix.
+    case flushInFlight
+}
+
 #if canImport(Observation)
 import Observation
 
@@ -37,13 +43,28 @@ public final class DiagramEditSession {
         staged.append(mutation)
     }
 
-    /// Replace the last staged mutation (per-frame geometry updates collapse
-    /// into one mutation per touched element instead of one per frame).
+    /// Per-frame collapse: replace the last staged mutation ONLY when it
+    /// targets the same element (same kind + element identity); otherwise
+    /// append — restaging element A must never clobber a pending edit to
+    /// element B.
     public func restage(_ mutation: DiagramMutation) {
-        if staged.isEmpty {
-            staged.append(mutation)
-        } else {
+        if let last = staged.last, Self.sameTarget(last, mutation) {
             staged[staged.count - 1] = mutation
+        } else {
+            staged.append(mutation)
+        }
+    }
+
+    private static func sameTarget(_ a: DiagramMutation, _ b: DiagramMutation) -> Bool {
+        switch (a, b) {
+        case (.elementUpdate(let x), .elementUpdate(let y)):
+            return x.elementUuid == y.elementUuid
+        case (.elementAdd(let x), .elementAdd(let y)):
+            return x.clientRef != nil && x.clientRef == y.clientRef
+        case (.diagramUpdate, .diagramUpdate):
+            return true
+        default:
+            return false
         }
     }
 
@@ -51,15 +72,26 @@ public final class DiagramEditSession {
         staged.removeAll()
     }
 
-    /// Gesture-end commit: everything staged, one transaction, one revision.
+    private var inFlight = false
+
+    /// Gesture-end commit: everything staged at call time, one transaction,
+    /// one revision. Mutations staged DURING the awaited commit stay staged
+    /// for the next flush (only the committed prefix is removed), and a
+    /// second flush while one is in flight is refused rather than
+    /// double-committing.
     @discardableResult
     public func flush(guarded: Bool = true) async throws -> Int64? {
         guard !staged.isEmpty else { return baseRevision }
+        guard !inFlight else {
+            throw DiagramEditSessionError.flushInFlight
+        }
+        inFlight = true
+        defer { inFlight = false }
         let mutations = staged
         do {
             let revision = try await committer.commit(
                 mutations, expectedRevision: guarded ? baseRevision : nil)
-            staged.removeAll()
+            staged.removeFirst(mutations.count)
             baseRevision = revision
             lastError = nil
             return revision

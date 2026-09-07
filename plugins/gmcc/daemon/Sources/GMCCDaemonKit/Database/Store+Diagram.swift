@@ -502,14 +502,26 @@ extension Store {
     /// Mint `stroke_0007`-style codes when an add omits one — hand-naming
     /// hundreds of freedraw strokes is hostile. MAX numeric suffix + 1 per
     /// type prefix within the diagram-wide code namespace.
+    ///
+    /// The LIKE underscore is ESCAPEd (it is a single-char wildcard, so a
+    /// bare `stroke_%` would also match `strokes9000`), and suffixes are
+    /// bounded before the +1 so a crafted 19-digit code can never overflow
+    /// Int and trap the shared single-writer daemon — absurd suffixes are
+    /// simply ignored by the mint.
+    private static let maxMintedSuffix = 999_999
+
     private func mintElementCode(
         _ db: Database, diagramUuid: String, type: DiagramElementType
     ) throws -> String {
         let prefix = type.codePrefix + "_"
+        let pattern = prefix.replacingOccurrences(of: "_", with: "\\_") + "%"
         let existing = try String.fetchAll(db, sql: """
-            SELECT code FROM diagram_element WHERE diagram_uuid = ? AND code LIKE ?
-            """, arguments: [diagramUuid, prefix + "%"])
-        let maxSuffix = existing.compactMap { Int($0.dropFirst(prefix.count)) }.max() ?? 0
+            SELECT code FROM diagram_element WHERE diagram_uuid = ? AND code LIKE ? ESCAPE '\\'
+            """, arguments: [diagramUuid, pattern])
+        let maxSuffix = existing
+            .compactMap { Int($0.dropFirst(prefix.count)) }
+            .filter { (0...Self.maxMintedSuffix).contains($0) }
+            .max() ?? 0
         return prefix + String(format: "%04d", maxSuffix + 1)
     }
 
@@ -529,32 +541,50 @@ extension Store {
             }
             var ledger: [String: String] = [:]
             var results: [DiagramMutationResult] = []
+            // Tracked so later mutations validate against POST-mutation state
+            // (a promotion earlier in the batch changes the tier the next
+            // diagramUpdate must see) and the event carries the final row.
+            var currentDiagram = diagram
+            var lastElementUuid: String?
             for (index, mutation) in req.mutations.enumerated() {
                 switch mutation {
                 case .elementAdd(let add):
                     let result = try self.applyElementAdd(
-                        db, diagram: diagram, add: add, ledger: &ledger, index: index)
+                        db, diagram: currentDiagram, add: add, ledger: &ledger, index: index)
                     results.append(result)
+                    lastElementUuid = result.uuid
                 case .elementUpdate(let update):
                     let result = try self.applyElementUpdate(
-                        db, diagram: diagram, update: update, index: index)
+                        db, diagram: currentDiagram, update: update, index: index)
                     results.append(result)
+                    lastElementUuid = result.uuid
                 case .elementDelete(let delete):
                     let result = try self.applyElementDelete(
-                        db, diagram: diagram, delete: delete, index: index)
+                        db, diagram: currentDiagram, delete: delete, index: index)
                     results.append(result)
+                    lastElementUuid = result.uuid
                 case .diagramUpdate(let update):
                     let result = try self.applyDiagramRowUpdate(
-                        db, diagram: diagram, update: update, index: index)
+                        db, diagram: currentDiagram, update: update, index: index)
                     results.append(result)
+                    guard let refreshed = try self.fetchDiagram(db, uuid: diagram.uuid) else {
+                        throw StoreError.corruptState(
+                            entity: "diagram", detail: "vanished mid-batch")
+                    }
+                    currentDiagram = refreshed
                 }
             }
             let revision = try self.bumpDiagramRevision(db, diagramUuid: diagram.uuid)
             let action = req.mutations.count == 1
                 ? req.mutations[0].kind : "batch_apply"
+            // The event carries the FINAL row: a batch containing a promotion
+            // must signal the NEW tier/session (and touch the new session),
+            // or a GMVibes window filtering by session never sees a diagram
+            // promoted into it. element_uuid is set only for a single ELEMENT
+            // mutation — a lone diagram_update names no element.
             try self.recordDiagramChange(
-                db, diagram: diagram, action: action,
-                elementUuid: req.mutations.count == 1 ? results.first?.uuid : nil,
+                db, diagram: currentDiagram, action: action,
+                elementUuid: req.mutations.count == 1 ? lastElementUuid : nil,
                 mutationCount: req.mutations.count, revision: revision)
             return DiagramBatchApplyResponse(
                 diagramUuid: diagram.uuid, revision: revision, results: results)
@@ -994,18 +1024,6 @@ extension Store {
         return DiagramNodeDeleteResponse(
             deletedUuid: result.uuid ?? "", cascadedElements: result.cascadedElements ?? 1,
             diagramUuid: batch.diagramUuid, revision: batch.revision)
-    }
-
-    /// Public so the CLI's `gm diagram update` (a diagramUpdate one-mutation
-    /// batch) shares the exact wire path GMVibes uses.
-    public func diagramUpdate(
-        diagramUuid: String, update: DiagramRowUpdate
-    ) throws -> DiagramNodeResponse {
-        let batch = try diagramBatchApply(DiagramBatchApplyRequest(
-            diagramUuid: diagramUuid, mutations: [.diagramUpdate(update)]))
-        let result = batch.results[0]
-        return DiagramNodeResponse(uuid: result.uuid ?? "", version: result.version ?? 0,
-                                   diagramUuid: batch.diagramUuid, revision: batch.revision)
     }
 
     private func owningDiagramUuid(elementUuid: String) throws -> String {

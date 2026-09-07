@@ -375,3 +375,67 @@ final class DiagramMachineTests: XCTestCase {
         XCTAssertTrue(String(data: setData, encoding: .utf8)!.contains("\"op\":\"set\""))
     }
 }
+
+/// Registry drift guards: DiagramElementTypeSpec is the single truth for
+/// subtype persistence and containment — a table rename or a containment
+/// change must show up here before it ships.
+extension DiagramMachineTests {
+
+    func testElementTypeRegistryIsTotalAndNamesRealTables() throws {
+        for type in DiagramElementType.allCases {
+            let spec = DiagramElementTypeSpec.spec(for: type)
+            XCTAssertEqual(spec.type, type)
+            let tables = try store.dbQueue.read { db in
+                try String.fetchAll(db, sql: """
+                    SELECT name FROM sqlite_master WHERE type = 'table'
+                    """)
+            }
+            XCTAssertTrue(tables.contains(spec.subtypeTable),
+                          "\(type.rawValue) subtype table \(spec.subtypeTable) missing from schema")
+            if let vertexTable = spec.vertexTable {
+                XCTAssertTrue(tables.contains(vertexTable),
+                              "\(type.rawValue) vertex table \(vertexTable) missing from schema")
+                XCTAssertNotNil(spec.vertexParentColumn)
+            } else {
+                XCTAssertNil(spec.vertexParentColumn)
+            }
+        }
+    }
+
+    func testElementTypeRegistryContainmentMatchesTheSpec() {
+        // Top-level types: dope_scope + drawing_layer, exactly.
+        let topLevel = DiagramElementType.allCases
+            .filter { DiagramElementTypeSpec.spec(for: $0).allowedParentTypes == nil }
+        XCTAssertEqual(Set(topLevel), [.dopeScope, .drawingLayer])
+        XCTAssertEqual(DiagramElementTypeSpec.spec(for: .drawingStroke).allowedParentTypes,
+                       [.drawingLayer])
+        XCTAssertEqual(DiagramElementTypeSpec.spec(for: .drawingShape).allowedParentTypes,
+                       [.drawingLayer])
+        XCTAssertEqual(DiagramElementTypeSpec.spec(for: .dopeEntity).allowedParentTypes,
+                       [.dopeScope])
+        XCTAssertEqual(DiagramElementType.allCases.filter {
+            DiagramElementTypeSpec.spec(for: $0).isDopeBinding
+        }.sorted { $0.rawValue < $1.rawValue }, [.dopeEntity, .dopeScope])
+    }
+
+    func testMintPrefixesAreDistinctAndMintIgnoresAbsurdSuffixes() throws {
+        XCTAssertEqual(Set(DiagramElementType.allCases.map(\.codePrefix)).count,
+                       DiagramElementType.allCases.count)
+        let diagram = try initDiagram().diagram
+        let layer = try addElement(diagram.uuid, payload: .drawingLayer(DrawingLayerPayload()))
+        // A crafted near-Int.max suffix must not overflow the next mint, and
+        // a LIKE-wildcard perturbation (strokes9000 matching stroke_%'s
+        // underscore-as-wildcard) must not perturb the sequence either.
+        try addElement(diagram.uuid, payload: .drawingStroke(DrawingStrokePayload()),
+                       parent: layer.uuid, code: "stroke_9223372036854775807")
+        try addElement(diagram.uuid, payload: .drawingStroke(DrawingStrokePayload()),
+                       parent: layer.uuid, code: "strokes9000")
+        let minted = try addElement(diagram.uuid,
+                                    payload: .drawingStroke(DrawingStrokePayload()),
+                                    parent: layer.uuid)
+        let tree = try store.diagramGet(DiagramGetRequest(diagramUuid: diagram.uuid)).tree
+        let mintedCode = tree.elements[0].children
+            .first { $0.identity.uuid == minted.uuid }?.base.code
+        XCTAssertEqual(mintedCode, "stroke_0001")
+    }
+}

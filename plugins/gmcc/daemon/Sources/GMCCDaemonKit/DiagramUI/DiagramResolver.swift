@@ -233,8 +233,7 @@ public enum DiagramResolver {
                            environment: environment, entityFrames: &entityFrames)
         }
 
-        let edges = resolveEdges(topLevel: sortedTop, dope: dope,
-                                 entityFrames: entityFrames)
+        let edges = resolveEdges(dope: dope, entityFrames: entityFrames)
 
         var bounds = CGRect.null
         func union(_ element: ResolvedElement) {
@@ -437,14 +436,20 @@ public enum DiagramResolver {
     /// under the SAME scope element family, draw an edge between the two
     /// card borders.
     private static func resolveEdges(
-        topLevel: [DiagramElementNode], dope: DiagramDopeContext,
+        dope: DiagramDopeContext,
         entityFrames: [String: (frame: CGRect, entityCode: String, scopeCode: String)]
     ) -> [ResolvedEdge] {
         var edges: [ResolvedEdge] = []
-        // entityCode+scopeCode → (uuid, frame)
+        // entityCode+scopeCode → (uuid, frame). Built from a SORTED walk with
+        // first-wins so duplicate cards binding the same entity always pick
+        // the same (lowest-uuid) target — screenshot determinism is a
+        // correctness requirement, and dictionary iteration order is not.
         var cardByEntity: [String: (uuid: String, frame: CGRect)] = [:]
-        for (uuid, info) in entityFrames {
-            cardByEntity["\(info.scopeCode)|\(info.entityCode)"] = (uuid, info.frame)
+        for (uuid, info) in entityFrames.sorted(by: { $0.key < $1.key }) {
+            let key = "\(info.scopeCode)|\(info.entityCode)"
+            if cardByEntity[key] == nil {
+                cardByEntity[key] = (uuid, info.frame)
+            }
         }
 
         for (uuid, info) in entityFrames.sorted(by: { $0.key < $1.key }) {

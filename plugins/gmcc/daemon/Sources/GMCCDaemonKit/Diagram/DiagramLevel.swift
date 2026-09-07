@@ -1,14 +1,10 @@
 import Foundation
 
-/// The two DIAGRAM tree levels. Subtype tables are deliberately NOT levels:
-/// `element_type` discriminates, and the tagged `DiagramElementPayload`
-/// carries each subtype's fields — so the level registry stays two entries
-/// while the element-axis registry (`DiagramElementTypeSpec`) is the single
-/// truth for subtype persistence and containment.
-public enum DiagramLevel: String, Codable, Hashable, CaseIterable, Sendable {
-    case diagram
-    case element
-}
+// The DIAGRAM tree has exactly two levels (diagram, element), and unlike
+// dope they never travel on the wire — the tagged DiagramElementPayload and
+// mutation kinds discriminate everything. There is deliberately NO level
+// registry: the element-axis registry below (DiagramElementTypeSpec) is the
+// single truth for subtype persistence and containment.
 
 /// diagram.tier values — the chain-non-null ownership ladder.
 public enum DiagramTier: String, Codable, Hashable, CaseIterable, Sendable {
@@ -65,29 +61,6 @@ public enum DiagramStrokeTool: String, Codable, Hashable, CaseIterable, Sendable
     case pencil
     case marker
     case highlighter
-}
-
-/// One level's registration — the DopeLevelSpec mirror (shares nothing with
-/// dope, an explicit user decision). Two entries; the element level's parent
-/// linkage is the diagram FK, while parent_element_uuid is containment state
-/// validated by the element-axis registry below.
-public struct DiagramLevelSpec: Sendable {
-    public let level: DiagramLevel
-    public let table: String
-    public let parentLevel: DiagramLevel?
-    public let parentColumn: String?
-
-    public static let all: [DiagramLevel: DiagramLevelSpec] = [
-        .diagram: DiagramLevelSpec(level: .diagram, table: "diagram",
-                                   parentLevel: nil, parentColumn: nil),
-        .element: DiagramLevelSpec(level: .element, table: "diagram_element",
-                                   parentLevel: .diagram, parentColumn: "diagram_uuid"),
-    ]
-
-    public static func spec(for level: DiagramLevel) -> DiagramLevelSpec {
-        // The registry is total over DiagramLevel by construction.
-        all[level]!
-    }
 }
 
 /// The element-axis registry: subtype table, vertex table, legal parents,
