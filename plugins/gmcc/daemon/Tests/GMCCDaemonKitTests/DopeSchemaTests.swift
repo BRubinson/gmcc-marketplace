@@ -77,10 +77,12 @@ final class DopeSchemaTests: XCTestCase {
             XCTAssertEqual(
                 try Int.fetchOne(db, sql: "SELECT MAX(version) FROM schema_migrations"),
                 Migrations.currentSchemaVersion)
-            // No FTS mirrors this pass — dope has no search entry point yet.
+            // m0007 shipped without FTS mirrors and its comment promised
+            // them "later as a pure-ADD migration". m0015 is that migration:
+            // one mirror per dope source table.
             XCTAssertEqual(
                 try Int.fetchOne(db, sql:
-                    "SELECT COUNT(*) FROM sqlite_master WHERE name LIKE 'dope%fts'"), 0)
+                    "SELECT COUNT(*) FROM sqlite_master WHERE name LIKE 'dope%fts'"), 8)
         }
     }
 

@@ -193,6 +193,25 @@ public struct DopeNodeIdentity: Codable, Hashable, Sendable {
     }
 }
 
+public extension DopeScopeTree {
+    /// The same scope with a different domain list — the resolver rebuilds
+    /// the tree structurally and must not invent scope identity.
+    func replacingDomains(_ domains: [DopePersistenceNode]) -> DopeScopeTree {
+        DopeScopeTree(identity: identity, body: body, sessionUuid: sessionUuid,
+                      promptUuid: promptUuid, scopeType: scopeType,
+                      revision: revision, domains: domains)
+    }
+
+    /// A structurally valid empty tree, for the both-layers-absent case.
+    static var empty: DopeScopeTree {
+        DopeScopeTree(
+            identity: DopeNodeIdentity(uuid: "", version: 0, createdAt: "", updatedAt: ""),
+            body: DopeScopeBody(code: "", name: "", description: ""),
+            sessionUuid: nil, promptUuid: nil,
+            scopeType: DopeScopeType.sessionInstance.rawValue, revision: 0, domains: [])
+    }
+}
+
 // MARK: - Wire nodes (identity + body + children, flattened)
 
 public struct DopeOptionNode: Codable, Hashable, Sendable {

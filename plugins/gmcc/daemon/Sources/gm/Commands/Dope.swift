@@ -14,7 +14,7 @@ struct Dope: ParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "DOPED domain modeling: init, get, granular node edits, and whole-tree repo JSON I/O.",
         subcommands: [
-            Init.self, List.self, Get.self, ScopeUpdate.self,
+            Init.self, List.self, Get.self, Promote.self, ScopeUpdate.self,
             PersistenceAdd.self, PersistenceUpdate.self, PersistenceDelete.self,
             EntityAdd.self, EntityUpdate.self, EntityDelete.self,
             PropertyAdd.self, PropertyUpdate.self, PropertyDelete.self,
@@ -217,23 +217,80 @@ struct Dope: ParsableCommand {
         }
     }
 
+    /// gm dope promote — publish this session's SESSION_INSTANCE tree into
+    /// the project's BASE_PROJECT scope. Automatic at boot; the verb exists
+    /// because a non-throwing boot path that silently does nothing is
+    /// undebuggable, and --dry-run is how you answer "why didn't it promote?"
+    /// (the same reason `gm dope sync` exists alongside the boot sync).
+    struct Promote: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "promote",
+            abstract: "Publish SESSION_INSTANCE -> BASE_PROJECT (primary branch only).")
+
+        @OptionGroup var output: OutputOptions
+        @Option(name: .long) var sessionUuid: String
+        @Option(name: .long, help: "Limit to one scope code.") var code: String?
+        @Flag(name: .customLong("dry-run"),
+              help: "Report what would happen without writing.")
+        var dryRun: Bool = false
+
+        func run() throws {
+            if dryRun {
+                // A read-only preview: ask for the resolved picture without
+                // taking the write path at all.
+                let scopes = try withClient {
+                    try $0.dopeList(DopeListRequest(sessionUuid: sessionUuid))
+                }.scopes.filter { code == nil || $0.code == code }
+                if output.json { printJSON(scopes) } else {
+                    print("[gm] dope promote --dry-run: \(scopes.count) session scope(s) eligible")
+                    for s in scopes {
+                        print("  \(s.code) revision \(s.revision) (\(s.scopeType))")
+                    }
+                    print("  (promotion also requires this session to be the project's primary branch)")
+                }
+                return
+            }
+            let response = try withClient {
+                try $0.dopePromote(DopePromoteRequest(sessionUuid: sessionUuid, code: code))
+            }
+            if output.json { printJSON(response) } else if response.promoted.isEmpty {
+                print("[gm] dope promote: nothing published (\(response.skipped ?? "up_to_date"))")
+                if let detail = response.detail { print("  \(detail)") }
+            } else {
+                for p in response.promoted {
+                    print("[gm] dope promoted '\(p.code)' -> BASE_PROJECT \(p.baseScopeUuid) "
+                        + "(high-water \(p.fromRevision) -> \(p.toRevision), "
+                        + "\(p.counts.domains)d/\(p.counts.entities)e/\(p.counts.properties)p)")
+                }
+            }
+        }
+    }
+
     struct Get: ParsableCommand {
         static let configuration = CommandConfiguration(
-            abstract: "Read the full tree. With --prompt-uuid the PROMPT scope is preferred and SESSION_BASE is the fallback; --code disambiguates when a session holds several scopes.")
+            abstract: "Read the full tree. With --prompt-uuid the SESSION_INSTANCE_ITEM scope is preferred and SESSION_INSTANCE is the fallback; --code disambiguates when a session holds several scopes. --resolved merges a masking overlay over its base.")
 
         @OptionGroup var output: OutputOptions
         @Option(name: .long) var sessionUuid: String
         @Option(name: .long) var promptUuid: String?
         @Option(name: .long) var code: String?
+        @Flag(name: .customLong("resolved"),
+              help: "Merge the masking overlay over its base (read-through); no-op on a base scope.")
+        var resolved: Bool = false
 
         func run() throws {
             let response = try withClient {
                 try $0.dopeGet(DopeGetRequest(
-                    sessionUuid: sessionUuid, promptUuid: promptUuid, code: code))
+                    sessionUuid: sessionUuid, promptUuid: promptUuid, code: code,
+                    resolved: resolved ? true : nil))
             }
             if output.json { printJSON(response) } else {
                 let t = response.tree
                 print("[gm] dope scope '\(t.body.code)' (\(t.scopeType), via \(response.resolvedVia), revision \(t.revision))")
+                if let hidden = response.hidden, !hidden.isEmpty {
+                    print("  masked away (\(hidden.count)): \(hidden.joined(separator: ", "))")
+                }
+                for warning in response.warnings ?? [] { print("  WARN: \(warning)") }
                 for domain in t.domains {
                     print("  \(domain.body.code): \(domain.entities.count) entities, \(domain.enums.count) enums")
                     for entity in domain.entities {

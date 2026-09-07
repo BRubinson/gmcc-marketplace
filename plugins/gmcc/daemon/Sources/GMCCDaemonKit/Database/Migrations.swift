@@ -14,7 +14,7 @@ public enum Migrations {
     /// skips a changed body on an existing db, so any schema change lands as a
     /// new registerMigration and existing databases upgrade in place. Never
     /// instruct anyone to wipe ~/gmcc/gmcc.db* again.
-    public static let currentSchemaVersion = 13
+    public static let currentSchemaVersion = 16
 
     /// The five BaseEntity columns wrapped into every domain table.
     /// `id` is the internal rowid; `uuid` is the external join key — all FKs
@@ -1818,6 +1818,188 @@ public enum Migrations {
             try db.execute(
                 sql: "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
                 arguments: [13, Store.isoNow()]
+            )
+        }
+
+        // m0014 — COGS (Coordination Of General Systems). Pure ADD.
+        //
+        // Shape mirrors m0010's diagram_element: a generic element row plus a
+        // per-type SUBTYPE table carrying that type's typed fields. A second
+        // element type is then one new subtype table plus one registry entry
+        // — never a migration against this table.
+        //
+        // DELIBERATE DIVERGENCE FROM m0010, and the whole point of the
+        // registry: element_type carries NO CHECK constraint. m0010's
+        // diagram_element.element_type has one, which is exactly why adding a
+        // type there means rebuilding the table — the pain m0008 already paid
+        // once for dope_domain_entity. Validity is enforced in Swift by
+        // DopeCogElementSpec.spec(for:) throwing on an unknown value at READ,
+        // the same pattern Store+Diagram.fetchElementInfo already uses, plus
+        // the structural guarantee that exactly one subtype row exists.
+        //
+        // dope_scope_code is a ghost-tolerant CODE resolved at read time, not
+        // a uuid FK: ingest re-mints every child uuid, and a uuid FK would
+        // need an ON DELETE answer dope_scope cannot give (scope delete is not
+        // offered). Same precedent as diagram_dope_scope — a dangling code is
+        // a legal, renderable state, never an error.
+        //
+        // deleted_on/mask_kind ride here for the same reason they ride on the
+        // persistence tables, and under the same rule: they are masking state,
+        // meaningful only on the overlay tiers, and never serialized.
+        migrator.registerMigration("m0014_dopeCogElement") { db in
+            try db.execute(sql: """
+                CREATE TABLE dope_cog (
+                    \(baseColumns),
+                    dope_scope_uuid TEXT NOT NULL
+                        REFERENCES dope_scope(uuid) ON DELETE CASCADE,
+                    code TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    description TEXT NOT NULL DEFAULT ''
+                        CHECK (length(description) <= 512),
+                    sort_order INTEGER NOT NULL DEFAULT 0,
+                    content_revision INTEGER NOT NULL DEFAULT 0
+                        CHECK (content_revision >= 0),
+                    deleted_on TEXT,
+                    mask_kind TEXT CHECK (mask_kind IS NULL OR mask_kind = 'PASSTHROUGH')
+                );
+
+                CREATE TABLE dope_cog_element (
+                    \(baseColumns),
+                    dope_cog_uuid TEXT NOT NULL
+                        REFERENCES dope_cog(uuid) ON DELETE CASCADE,
+                    parent_element_uuid TEXT
+                        REFERENCES dope_cog_element(uuid) ON DELETE CASCADE,
+                    element_type TEXT NOT NULL,
+                    code TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    description TEXT NOT NULL DEFAULT ''
+                        CHECK (length(description) <= 512),
+                    sort_order INTEGER NOT NULL DEFAULT 0,
+                    dope_scope_code TEXT,
+                    deleted_on TEXT,
+                    mask_kind TEXT CHECK (mask_kind IS NULL OR mask_kind = 'PASSTHROUGH'),
+                    CHECK (parent_element_uuid IS NULL OR parent_element_uuid != uuid)
+                );
+
+                CREATE TABLE dope_cog_primary_system (
+                    \(baseColumns),
+                    element_uuid TEXT NOT NULL UNIQUE
+                        REFERENCES dope_cog_element(uuid) ON DELETE CASCADE,
+                    primary_path TEXT NOT NULL
+                );
+
+                CREATE UNIQUE INDEX idx_dope_cog_scope_code
+                    ON dope_cog(dope_scope_uuid, code) WHERE deleted_on IS NULL;
+                CREATE UNIQUE INDEX idx_dope_cog_element_code
+                    ON dope_cog_element(dope_cog_uuid, code) WHERE deleted_on IS NULL;
+
+                CREATE INDEX idx_dope_cog_scope_fk ON dope_cog(dope_scope_uuid);
+                CREATE INDEX idx_dope_cog_element_cog_fk
+                    ON dope_cog_element(dope_cog_uuid);
+                CREATE INDEX idx_dope_cog_element_parent_fk
+                    ON dope_cog_element(parent_element_uuid);
+                CREATE INDEX idx_dope_cog_primary_system_element_fk
+                    ON dope_cog_primary_system(element_uuid);
+                """)
+
+            try db.execute(
+                sql: "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+                arguments: [14, Store.isoNow()]
+            )
+        }
+
+        // m0015 — FTS5 mirrors over the dope tables. Pure ADD, and exactly
+        // the migration m0007's own comment anticipated: "mirrors attach later
+        // as a pure-ADD migration exactly as m0003 did for m0002's tables."
+        //
+        // The FtsSpec loop is a PRIVATE COPY of m0003's, per the frozen-
+        // migration rule — a registered migration never reaches out to shared
+        // code that might change under it.
+        //
+        // Sequenced strictly AFTER both rebuilds: a DROP TABLE takes its
+        // triggers with it (m0005 step 5), so mirrors attached before m0012/
+        // m0013 would have been silently destroyed.
+        migrator.registerMigration("m0015_dopeSearchIndexes") { db in
+            struct FtsSpec {
+                let source: String
+                let columns: [String]
+            }
+            let specs = [
+                FtsSpec(source: "dope_scope", columns: ["code", "name", "description"]),
+                FtsSpec(source: "dope_persistence", columns: ["code", "name", "description"]),
+                FtsSpec(source: "dope_persistence_entity",
+                        columns: ["code", "name", "description"]),
+                FtsSpec(source: "dope_persistence_entity_property",
+                        columns: ["code", "name", "description"]),
+                FtsSpec(source: "dope_persistence_enum", columns: ["code", "name", "description"]),
+                FtsSpec(source: "dope_persistence_enum_option",
+                        columns: ["code", "name", "description"]),
+                FtsSpec(source: "dope_cog", columns: ["code", "name", "description"]),
+                FtsSpec(source: "dope_cog_element", columns: ["code", "name", "description"]),
+            ]
+            for spec in specs {
+                let fts = "\(spec.source)_fts"
+                let cols = spec.columns.joined(separator: ", ")
+                let newVals = spec.columns.map { "new.\($0)" }.joined(separator: ", ")
+                let oldVals = spec.columns.map { "old.\($0)" }.joined(separator: ", ")
+                try db.execute(sql: """
+                    CREATE VIRTUAL TABLE \(fts) USING fts5(
+                        \(cols),
+                        content='\(spec.source)',
+                        content_rowid='id'
+                    );
+
+                    CREATE TRIGGER \(spec.source)_ai AFTER INSERT ON \(spec.source) BEGIN
+                        INSERT INTO \(fts)(rowid, \(cols))
+                        VALUES (new.id, \(newVals));
+                    END;
+
+                    CREATE TRIGGER \(spec.source)_ad AFTER DELETE ON \(spec.source) BEGIN
+                        INSERT INTO \(fts)(\(fts), rowid, \(cols))
+                        VALUES ('delete', old.id, \(oldVals));
+                    END;
+
+                    CREATE TRIGGER \(spec.source)_au AFTER UPDATE ON \(spec.source) BEGIN
+                        INSERT INTO \(fts)(\(fts), rowid, \(cols))
+                        VALUES ('delete', old.id, \(oldVals));
+                        INSERT INTO \(fts)(rowid, \(cols))
+                        VALUES (new.id, \(newVals));
+                    END;
+
+                    INSERT INTO \(fts)(\(fts)) VALUES('rebuild');
+                    """)
+            }
+
+            try db.execute(
+                sql: "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+                arguments: [15, Store.isoNow()]
+            )
+        }
+
+        // m0016 — the diagram-level dope binding: which scope does this WHOLE
+        // diagram read and write through. Pure ADD COLUMN.
+        //
+        // Distinct from, and coexisting with, the existing PER-ELEMENT
+        // diagram_dope_scope / diagram_dope_entity code bindings resolved
+        // through dopeScopeCandidates. Those answer "which node does this one
+        // shape point at"; this answers "which scope is this canvas over".
+        //
+        // The prompt asked for the ITEM-tier restriction as a CHECK. It cannot
+        // be one: a SQLite CHECK cannot reference another table, and ALTER
+        // TABLE ADD COLUMN cannot add a CHECK at all. The restriction is a
+        // Swift guard on write plus ghost-tolerant resolution on read —
+        // consistent with the per-element binding, which is also a code and
+        // never a SQL FK.
+        migrator.registerMigration("m0016_diagramDopeScopeBinding") { db in
+            try db.execute(sql: """
+                ALTER TABLE diagram ADD COLUMN dope_scope_code TEXT;
+
+                CREATE INDEX idx_diagram_dope_scope_code ON diagram(dope_scope_code);
+                """)
+
+            try db.execute(
+                sql: "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+                arguments: [16, Store.isoNow()]
             )
         }
 

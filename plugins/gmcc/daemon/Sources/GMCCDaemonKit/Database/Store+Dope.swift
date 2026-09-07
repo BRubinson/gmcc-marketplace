@@ -27,7 +27,8 @@ extension Store {
             .map(Self.dopeScopeRow)
     }
 
-    private static func dopeScopeRow(_ row: Row) -> DopeScopeRow {
+    // internal, not private: the promotion machine builds scope rows too.
+    static func dopeScopeRow(_ row: Row) -> DopeScopeRow {
         DopeScopeRow(
             uuid: row["uuid"], version: row["version"],
             projectUuid: row["project_uuid"], instanceUuid: row["instance_uuid"],
@@ -110,23 +111,32 @@ extension Store {
         return Self.dopeScopeRow(row)
     }
 
-    private func recordDopeChange(
+    // internal: the promotion machine emits DOPE_CHANGE too.
+    func recordDopeChange(
         _ db: Database, scope: DopeScopeRow, action: String, level: DopeLevel?,
         nodeUuid: String?, revision: Int64
     ) throws {
+        // A project-tier scope (BASE_PROJECT / PROJECT_ITEM) has no session,
+        // so the event carries the key only when there is one to carry, and
+        // there is no session activity to touch below.
         var payload: [String: Any] = [
             "action": action,
             "scope_uuid": scope.uuid,
-            "session_uuid": try scope.requireSessionUuid(),
             "scope_type": scope.scopeType,
             "revision": Int(revision),
         ]
+        if let sessionUuid = scope.sessionUuid { payload["session_uuid"] = sessionUuid }
+        if let projectUuid = scope.projectUuid.isEmpty ? nil : scope.projectUuid {
+            payload["project_uuid"] = projectUuid
+        }
         if let level { payload["level"] = level.rawValue }
         if let nodeUuid { payload["node_uuid"] = nodeUuid }
         if let promptUuid = scope.promptUuid { payload["prompt_uuid"] = promptUuid }
         try appendEvent(db, kind: .dopeChange, subjectUuid: scope.uuid,
                         payload: Store.jsonPayload(payload))
-        try touchSession(db, uuid: scope.requireSessionUuid())
+        if let sessionUuid = scope.sessionUuid {
+            try touchSession(db, uuid: sessionUuid)
+        }
     }
 
     // MARK: - Init
@@ -204,9 +214,7 @@ extension Store {
                     throw StoreError.badRequest(
                         detail: "no SESSION_INSTANCE scope with code '\(req.code)' to clone from")
                 }
-                let baseTree = try self.fetchDopeTree(db, scope: Self.dopeScopeRow(baseRow))
-                let bundle = DopeProjection.documents(from: baseTree)
-                _ = try self.insertDopeTree(db, scopeUuid: uuid, domainFiles: bundle.domainFiles)
+                _ = try self.copyDopeTree(db, from: Self.dopeScopeRow(baseRow), into: uuid)
             }
 
             guard let scope = try self.fetchDopeScope(db, uuid: uuid) else {
@@ -320,7 +328,42 @@ extension Store {
                     sessionUuid: req.sessionUuid, promptUuid: req.promptUuid, code: req.code)
             }
             let tree = try self.fetchDopeTree(db, scope: scope)
-            return DopeGetResponse(tree: tree, resolvedVia: resolvedVia)
+
+            // Unresolved is the default and is byte-identical to pre-resolver
+            // behavior — every existing caller is untouched.
+            guard req.resolved == true, let tier = scope.tier, tier.isOverlay,
+                  let baseTier = tier.masks else {
+                return DopeGetResponse(tree: tree, resolvedVia: resolvedVia)
+            }
+
+            // Base pairing is by CODE plus lineage, needing no stored pointer:
+            // an overlay masks the same-coded scope one tier up. A missing
+            // base is legal — the overlay resolves alone, warned.
+            // Tier-aware: a SESSION_INSTANCE_ITEM masks its session's base,
+            // but a PROJECT_ITEM masks a PROJECT-tier base that has no
+            // session at all. Keying both off session_uuid would throw on the
+            // project pair.
+            let baseRows: [DopeScopeRow]
+            if baseTier.isSessionOwned {
+                baseRows = try self.dopeScopeCandidates(
+                    db, sessionUuid: try scope.requireSessionUuid(), scopeType: baseTier,
+                    code: scope.code)
+            } else {
+                baseRows = try Row.fetchAll(db, sql: """
+                    SELECT * FROM dope_scope
+                     WHERE project_uuid = ? AND scope_type = ? AND code = ?
+                     ORDER BY code
+                    """, arguments: [scope.projectUuid, baseTier.rawValue, scope.code])
+                    .map(Self.dopeScopeRow)
+            }
+            let baseTree = try baseRows.first.map { try self.fetchDopeTree(db, scope: $0) }
+            let merged = DopeOverlay.resolve(base: baseTree, overlay: tree)
+            return DopeGetResponse(
+                tree: merged.tree,
+                resolvedVia: "\(tier.rawValue.lowercased())_over_\(baseTier.rawValue.lowercased())",
+                resolutions: merged.resolutions.values.sorted { $0.path < $1.path },
+                hidden: merged.hidden.sorted(),
+                warnings: merged.warnings)
         }
     }
 
@@ -449,6 +492,23 @@ extension Store {
                                 description: scope.description),
             sessionUuid: scope.sessionUuid, promptUuid: scope.promptUuid,
             scopeType: scope.scopeType, revision: scope.revision, domains: domains)
+    }
+
+    /// Whole-tree copy between scopes: hydrate, project to identity-free
+    /// documents, re-insert. EXTRACTED verbatim from what dopeInit already
+    /// inlined for --clone-from-session-base, so `dopeInit` and
+    /// `dopePromote` share ONE copy path rather than growing a second.
+    ///
+    /// Child uuids are re-minted by insertDopeTree, which is exactly why
+    /// cross-layer references are dot-path codes and never uuids.
+    @discardableResult
+    func copyDopeTree(
+        _ db: Database, from source: DopeScopeRow, into targetScopeUuid: String
+    ) throws -> DopeTreeCounts {
+        let tree = try fetchDopeTree(db, scope: source)
+        let bundle = DopeProjection.documents(from: tree)
+        return try insertDopeTree(db, scopeUuid: targetScopeUuid,
+                                  domainFiles: bundle.domainFiles)
     }
 
     // MARK: - Whole-tree insert (clone + ingest share it). Documents in,

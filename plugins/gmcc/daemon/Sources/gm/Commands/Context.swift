@@ -57,6 +57,17 @@ struct Context: ParsableCommand {
                 if let notice = dopeNotice {
                     FileHandle.standardError.write(Data((notice + "\n").utf8))
                 }
+
+                // Promotion rides directly behind the files -> db reconcile,
+                // so it publishes whatever boot sync just settled on. Every
+                // outcome is non-throwing, exactly like DopeBootSync's: a
+                // domain model must never be able to block a session start.
+                let promotion = withClientOutcome { client in
+                    DopePromotion.run(client: client, sessionUuid: response.sessionUuid)
+                }
+                if let notice = promotion.flatMap({ DopePromotion.notice(for: $0) }) {
+                    FileHandle.standardError.write(Data((notice + "\n").utf8))
+                }
             }
 
             if output.json {
@@ -71,9 +82,11 @@ struct Context: ParsableCommand {
 
         /// Run a non-throwing body against a fresh client; nil when the
         /// daemon is unreachable (boot sync degrades, never blocks).
-        private func withClientOutcome(
-            _ body: (DaemonClient) -> DopeBootSync.Outcome
-        ) -> DopeBootSync.Outcome? {
+        /// Generic over the outcome type so both boot-path machines
+        /// (DopeBootSync and DopePromotion) share one degradation rule.
+        private func withClientOutcome<Outcome>(
+            _ body: (DaemonClient) -> Outcome
+        ) -> Outcome? {
             try? withClient { client in body(client) }
         }
     }

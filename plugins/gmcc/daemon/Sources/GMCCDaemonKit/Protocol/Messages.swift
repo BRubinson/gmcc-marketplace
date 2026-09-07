@@ -2260,22 +2260,88 @@ public struct DopeGetRequest: Codable, Hashable, Sendable {
     public let sessionUuid: String
     public let promptUuid: String?
     public let code: String?
+    /// Merge the masking overlay over its base and return the resolved tree.
+    /// OPT-IN, and deliberately so: without it every existing caller — the
+    /// CLI, GMVibes, gm diagram from-dope, the screenshot path — keeps its
+    /// exact single-layer semantics. Additive OPTIONAL, so an older peer that
+    /// omits it means "unresolved", which is today's behavior.
+    public let resolved: Bool?
 
-    public init(sessionUuid: String, promptUuid: String? = nil, code: String? = nil) {
+    public init(sessionUuid: String, promptUuid: String? = nil, code: String? = nil,
+                resolved: Bool? = nil) {
         self.sessionUuid = sessionUuid
         self.promptUuid = promptUuid
         self.code = code
+        self.resolved = resolved
     }
 }
 
 public struct DopeGetResponse: Codable, Hashable, Sendable {
     public let tree: DopeScopeTree
-    /// "prompt" | "session_base"
+    /// Which scope supplied the tree: "prompt" | "session_base", or
+    /// "<overlay_tier>_over_<base_tier>" when --resolved merged two layers.
     public let resolvedVia: String
+    /// Present only for a resolved read: dot-path -> provenance.
+    public let resolutions: [DopeOverlay.Resolution]?
+    /// Dot-paths a whiteout masked away.
+    public let hidden: [String]?
+    /// Non-fatal observations (orphaned masks). Never an error.
+    public let warnings: [String]?
 
-    public init(tree: DopeScopeTree, resolvedVia: String) {
+    public init(tree: DopeScopeTree, resolvedVia: String,
+                resolutions: [DopeOverlay.Resolution]? = nil,
+                hidden: [String]? = nil, warnings: [String]? = nil) {
         self.tree = tree
         self.resolvedVia = resolvedVia
+        self.resolutions = resolutions
+        self.hidden = hidden
+        self.warnings = warnings
+    }
+}
+
+/// DOPE_PROMOTE — publish a session's SESSION_INSTANCE tree into the
+/// project's BASE_PROJECT scope. Runs automatically at boot behind
+/// DopeBootSync, and manually via `gm dope promote` (a non-throwing boot path
+/// that silently does nothing is undebuggable, so the verb exists too).
+public struct DopePromoteRequest: Codable, Hashable, Sendable {
+    public let sessionUuid: String
+    public let code: String?
+
+    public init(sessionUuid: String, code: String? = nil) {
+        self.sessionUuid = sessionUuid
+        self.code = code
+    }
+}
+
+public struct DopePromotedScope: Codable, Hashable, Sendable {
+    public let code: String
+    public let baseScopeUuid: String
+    /// The high-water the base carried before this promotion.
+    public let fromRevision: Int64
+    /// The source revision now recorded as the high-water.
+    public let toRevision: Int64
+    public let counts: DopeTreeCounts
+
+    public init(code: String, baseScopeUuid: String, fromRevision: Int64,
+                toRevision: Int64, counts: DopeTreeCounts) {
+        self.code = code
+        self.baseScopeUuid = baseScopeUuid
+        self.fromRevision = fromRevision
+        self.toRevision = toRevision
+        self.counts = counts
+    }
+}
+
+public struct DopePromoteResponse: Codable, Hashable, Sendable {
+    public let promoted: [DopePromotedScope]
+    /// "branch_mismatch" | "no_session_scope" | "up_to_date" | nil
+    public let skipped: String?
+    public let detail: String?
+
+    public init(promoted: [DopePromotedScope], skipped: String? = nil, detail: String? = nil) {
+        self.promoted = promoted
+        self.skipped = skipped
+        self.detail = detail
     }
 }
 
