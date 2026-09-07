@@ -236,17 +236,19 @@ struct Dope: ParsableCommand {
 
         func run() throws {
             if dryRun {
-                // A read-only preview: ask for the resolved picture without
-                // taking the write path at all.
-                let scopes = try withClient {
-                    try $0.dopeList(DopeListRequest(sessionUuid: sessionUuid))
-                }.scopes.filter { code == nil || $0.code == code }
-                if output.json { printJSON(scopes) } else {
-                    print("[gm] dope promote --dry-run: \(scopes.count) session scope(s) eligible")
-                    for s in scopes {
-                        print("  \(s.code) revision \(s.revision) (\(s.scopeType))")
+                let r = try withClient {
+                    try $0.dopePromote(DopePromoteRequest(
+                        sessionUuid: sessionUuid, code: code, dryRun: true))
+                }
+                if output.json { printJSON(r) } else if r.promoted.isEmpty {
+                    print("[gm] dope promote --dry-run: would publish nothing "
+                        + "(\(r.skipped ?? "up_to_date"))")
+                    if let detail = r.detail { print("  \(detail)") }
+                } else {
+                    for p in r.promoted {
+                        print("[gm] dope promote --dry-run: WOULD publish '\(p.code)' "
+                            + "(high-water \(p.fromRevision) -> \(p.toRevision))")
                     }
-                    print("  (promotion also requires this session to be the project's primary branch)")
                 }
                 return
             }

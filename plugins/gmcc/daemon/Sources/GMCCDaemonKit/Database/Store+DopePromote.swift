@@ -92,6 +92,15 @@ extension Store {
                             "refusing to promote an empty tree over populated BASE_PROJECT "
                             + "'\(source.code)' — publish real content first")
                     }
+                    if req.dryRun == true {
+                        promoted.append(DopePromotedScope(
+                            code: source.code, baseScopeUuid: base.uuid,
+                            fromRevision: hwRevision < 0 ? 0 : hwRevision,
+                            toRevision: source.revision,
+                            counts: DopeTreeCounts(domains: 0, entities: 0, properties: 0,
+                                                   enums: 0, options: 0)))
+                        continue
+                    }
                     try self.wipeDopeTree(db, scopeUuid: base.uuid)
                     let counts = try self.copyDopeTree(db, from: source, into: base.uuid)
                     // The base's own revision is ITS counter: +1, never copied
@@ -117,6 +126,14 @@ extension Store {
                         toRevision: source.revision, counts: counts))
                 } else {
                     guard sourceCounts > 0 else { continue }
+                    if req.dryRun == true {
+                        promoted.append(DopePromotedScope(
+                            code: source.code, baseScopeUuid: "(would be created)",
+                            fromRevision: 0, toRevision: source.revision,
+                            counts: DopeTreeCounts(domains: 0, entities: 0, properties: 0,
+                                                   enums: 0, options: 0)))
+                        continue
+                    }
                     let uuid = try self.insertBase(db, table: "dope_scope", extra: [
                         "project_uuid": projectUuid,
                         "scope_type": DopeScopeType.baseProject.rawValue,
@@ -135,7 +152,7 @@ extension Store {
                 }
             }
 
-            for entry in promoted {
+            for entry in promoted where req.dryRun != true {
                 if let base = try self.fetchDopeScope(db, uuid: entry.baseScopeUuid) {
                     try self.recordDopeChange(db, scope: base, action: "promote",
                                               level: .scope, nodeUuid: base.uuid,

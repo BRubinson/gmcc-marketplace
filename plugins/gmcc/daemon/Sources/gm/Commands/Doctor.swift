@@ -142,6 +142,22 @@ struct Doctor: ParsableCommand {
             default:
                 break
             }
+
+            // 5b. BASE_PROJECT staleness. A DRY RUN — doctor reports, it must
+            // never publish as a side effect of being run.
+            let promotion = try? withClient { client -> DopePromoteResponse in
+                let sessionUuid = try ContextBuilder.resolveSessionUuid(client)
+                return try client.dopePromote(DopePromoteRequest(
+                    sessionUuid: sessionUuid, dryRun: true))
+            }
+            for pending in promotion?.promoted ?? [] {
+                findings.append(Finding(
+                    code: "dope_base_project_stale",
+                    message: "BASE_PROJECT '\(pending.code)' is behind this session "
+                           + "(high-water \(pending.fromRevision), session at "
+                           + "\(pending.toRevision)) — promotion has not run",
+                    remedy: "gm dope promote --session-uuid <U>"))
+            }
         }
 
         if output.json {

@@ -2557,10 +2557,15 @@ public struct DopeCogGetResponse: Codable, Hashable, Sendable {
 public struct DopePromoteRequest: Codable, Hashable, Sendable {
     public let sessionUuid: String
     public let code: String?
+    /// Compute the decision and write NOTHING. This is what makes
+    /// "why didn't it promote?" answerable, and it is what gm doctor uses to
+    /// report a stale BASE_PROJECT without ever publishing as a side effect.
+    public let dryRun: Bool?
 
-    public init(sessionUuid: String, code: String? = nil) {
+    public init(sessionUuid: String, code: String? = nil, dryRun: Bool? = nil) {
         self.sessionUuid = sessionUuid
         self.code = code
+        self.dryRun = dryRun
     }
 }
 
@@ -2584,6 +2589,8 @@ public struct DopePromotedScope: Codable, Hashable, Sendable {
 }
 
 public struct DopePromoteResponse: Codable, Hashable, Sendable {
+    /// On a dry run these are what WOULD be published, and nothing was
+    /// written.
     public let promoted: [DopePromotedScope]
     /// "branch_mismatch" | "no_session_scope" | "up_to_date" | nil
     public let skipped: String?

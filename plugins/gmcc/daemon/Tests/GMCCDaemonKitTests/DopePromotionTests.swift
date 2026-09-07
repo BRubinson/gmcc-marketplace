@@ -182,4 +182,34 @@ final class DopePromotionTests: XCTestCase {
         XCTAssertEqual(r.promoted[0].counts.domains, 2)
         XCTAssertGreaterThan(try baseScope()!.revision, r1)
     }
+
+    /// gm doctor calls promotion as a DRY RUN, so it must report what would
+    /// happen and write absolutely nothing. A doctor that published as a side
+    /// effect of being run would be a trap.
+    func testDryRunReportsWithoutWriting() throws {
+        try seed(session: "sess-a", domains: 2)
+        let preview = try store.dopePromote(DopePromoteRequest(
+            sessionUuid: "sess-a", dryRun: true))
+        XCTAssertEqual(preview.promoted.count, 1, "dry run must report the pending publish")
+        XCTAssertNil(try baseScope(), "dry run created a BASE_PROJECT scope")
+
+        // And the real run still works afterwards.
+        let real = try store.dopePromote(DopePromoteRequest(sessionUuid: "sess-a"))
+        XCTAssertEqual(real.promoted.count, 1)
+        XCTAssertNotNil(try baseScope())
+
+        // A second dry run now reports nothing pending.
+        XCTAssertTrue(try store.dopePromote(DopePromoteRequest(
+            sessionUuid: "sess-a", dryRun: true)).promoted.isEmpty)
+    }
+
+    /// A dry run must not advance the high-water either, or the real
+    /// promotion that follows would be skipped.
+    func testDryRunDoesNotAdvanceTheHighWater() throws {
+        try seed(session: "sess-a", domains: 1)
+        _ = try store.dopePromote(DopePromoteRequest(sessionUuid: "sess-a"))
+        let rev = try baseScope()!.revision
+        _ = try store.dopePromote(DopePromoteRequest(sessionUuid: "sess-a", dryRun: true))
+        XCTAssertEqual(try baseScope()!.revision, rev)
+    }
 }
