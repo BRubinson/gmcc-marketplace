@@ -7,7 +7,19 @@ import Foundation
 /// rejected — the daemon stays up (an old pinned-Kit GMVibes must never be
 /// able to kill-loop a fresh daemon).
 public enum GMCCWireProtocol {
-    public static let version = 17
+    /// v18 — m0017 RENAMED a wire field on an existing message rather than
+    /// adding one: DopePropertyBody.related_property_ref became
+    /// relationship_target_ref, and DopeNodeFields.related_property_uuid
+    /// became relationship_target_uuid.
+    ///
+    /// That is an INCOMPATIBLE change under the rule in CLAUDE.md, and the
+    /// failure it prevents is silent rather than loud: both fields are
+    /// Optional, so a stale peer's `related_property_ref` decodes to nil, and
+    /// a relationship property with a nil target then trips
+    ///   CHECK ((data_type = 'relationship') = (relationship_target_uuid IS NOT NULL))
+    /// at write time — or worse, writes nothing where a reference was meant.
+    /// The handshake has to reject that peer instead of letting it through.
+    public static let version = 18
 }
 
 /// Discriminator for every NDJSON message on the socket. One case per spec
