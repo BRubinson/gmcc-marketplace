@@ -14,7 +14,8 @@ struct Cheatsheet: ParsableCommand {
     static let text: String = """
     GM CHEATSHEET (wire v\(GMCCWireProtocol.version)) — exact signatures. Every command also accepts --json (raw wire response; the form skills/bots should parse).
     CORE
-      gm setup [--launchd]
+      gm setup [--launchd] [--install-path [--path-dir DIR]]   (--install-path puts the call-time gm resolver shim on your PATH; both flags prod-only, refused under GMCC_ROOT)
+      gm doctor   (host-wiring findings: env-vs-db roots, PATH shim, retired zshrc block, daemon health, session dope drift; exit 1 = findings)
       gm status
       gm ping
       gm daemon start · gm daemon stop · gm daemon restart · gm daemon status
@@ -23,7 +24,8 @@ struct Cheatsheet: ParsableCommand {
       gm paths
       gm config set --key ckfs_root|kbite_root|kbite_open_root|kbite_digested_root --value V
     CONTEXT / BROWSE / SEARCH
-      gm context ensure
+      gm context ensure [--no-dope-sync]   (also provisions the ckfs artifact home and runs the dope files -> db boot sync)
+      gm context env --plugin-root P [--no-check]   (SessionStart env contract owner: stdout = KEY=VALUE lines for CLAUDE_ENV_FILE, stderr = warnings, ALWAYS exit 0)
       gm context get
       gm project list
       gm instance list [--project-uuid U]
@@ -74,7 +76,7 @@ struct Cheatsheet: ParsableCommand {
       gm review complete --summary-uuid S --expected-version V (--overview TEXT | --overview-file PATH) --verdict approved|approved_with_nits|changes_requested
       gm review reopen --summary-uuid S --expected-version V
       gm review get --prompt-uuid U [--full | --max-rating N | --rating-range A:B]   (mutually exclusive)
-    DOPE (domain modeling; dope_scope.revision = the whole-tree counter = the .doped.json version field; json refs are dot-path codes, granular verbs take uuids)
+    DOPE (Domain Optimized Project Essence [Driver — the saved .doped.json form]; dope_scope.revision = the whole-tree counter = the .doped.json version field; json refs are dot-path codes, granular verbs take uuids)
       gm dope init --session-uuid U --code C --name N [--prompt-uuid U] [--description D] [--clone-from-session-base]   (idempotent; PROMPT-typed iff --prompt-uuid)
       gm dope list --session-uuid U [--prompt-uuid U]   (scope rows for a picker; SESSION_BASE scopes, or ONLY that prompt's PROMPT scopes with --prompt-uuid — never a union; empty list is normal, unknown uuid is NOT_FOUND)
       gm dope get --session-uuid U [--prompt-uuid U] [--code C]   (PROMPT scope preferred, SESSION_BASE fallback; --code disambiguates)
@@ -86,7 +88,8 @@ struct Cheatsheet: ParsableCommand {
       gm dope domain-delete · gm dope entity-delete · gm dope property-delete · gm dope enum-delete · gm dope option-delete --uuid U --expected-version V   (subtree cascades; still-referenced targets refused naming the referrer; scope delete not offered yet)
       gm dope read-repo (--scope-uuid U | --dir-path P)   (parse + validate {instance_root}/.gmcc/dope; never writes; reports drift)
       gm dope write-repo --scope-uuid U [--force]   (db -> files, atomic whole-tree swap; refuses when files are AHEAD of the db unless --force)
-      gm dope ingest --scope-uuid U [--dir-path P]   (files -> db whole-tree overwrite, no smart diff, child uuids change; on-disk version must be EXACTLY db revision + 1)
+      gm dope ingest --scope-uuid U [--dir-path P] [--adopt]   (files -> db whole-tree overwrite, no smart diff, child uuids change; on-disk version must be EXACTLY db revision + 1. --adopt is boot-sync-only: accepts any strictly FORWARD version, discards db-only gap revisions, never moves backward)
+      gm dope sync [--session-uuid U]   (files -> db reconcile of the session's SESSION_BASE scope from {instance_root}/.gmcc/dope: seeds a virgin scope, re-adopts when files are ahead, WARNS ONLY when the db is ahead; runs automatically at boot via gm context ensure — run manually after a mid-session branch change)
     DIAGRAM (db-persisted canvases over dope; diagram.revision = whole-tree counter; exactly ONE owner flag picks the tier PROJECT|INSTANCE|SESSION|PROMPT; batch-apply is THE interactive write — the element verbs are one-mutation batches over the same body)
       gm diagram init (--project-uuid U | --instance-uuid U | --session-uuid U | --prompt-uuid U) --code C --name N [--description D] [--gmcc-diagram-path P]   (idempotent per owner+code; path refused at PROJECT tier)
       gm diagram list (--project-uuid U | --instance-uuid U | --session-uuid U | --prompt-uuid U)   (that tier's rows only, never a union; empty is normal, unknown owner NOT_FOUND)
@@ -97,6 +100,7 @@ struct Cheatsheet: ParsableCommand {
       gm diagram element-delete --uuid U --expected-version V   (subtree CASCADE; no referrer guards in this family)
       gm diagram batch-apply --diagram-uuid U (--mutations JSON | --mutations-file P) [--expected-revision N]   (one txn/revision/event; strict order; clientRef parenting; all-or-nothing; expected-revision = whole-diagram CAS)
       gm diagram screenshot (--diagram-uuid U | one owner flag: --project-uuid|--instance-uuid|--session-uuid|--prompt-uuid [--code C]) [--scheme light|dark] [--scale N] [--out-name N] [--artifact --artifact-prompt-uuid U]   (client-side headless render -> {instance_root}/.gmcc/.screenshots/, self-gitignored; zero db writes)
+      gm diagram from-dope --session-uuid U [--prompt-uuid U] [--code C] [--diagram-code C] [--mutations-out P] [--dry-run]   (dope tree -> one atomic regenerate batch; geometry shared with the renderer; replaces the retired python generator)
     ARTIFACT / FILE-CHANGE
       gm artifact add --prompt-uuid U --file-path P [--note N]
       gm artifact list --prompt-uuid U
@@ -112,6 +116,9 @@ struct Cheatsheet: ParsableCommand {
       gm kbite file-get --file-uuid U
       gm kbite search "<query>" [--code C] [--kbite-uuids U ...] [--limit N]   (bm25-ranked stubs with briefs; read briefs, then file-get)
       gm kbite keyword-tag --level kbite|file --target-uuid U --keywords K ... [--detach]
+    SANDBOX (local-dev sandbox at {ckfs_root}/development/local_sandbox; prod db touched ONLY by the Online-Backup read; kbites never copied; never gm setup --launchd in a sandbox)
+      gm sandbox refresh   (run from the gmcc-marketplace repo root, prod env only — refuses under GMCC_ROOT; quiesce -> gm backup -> OFFLINE retarget of the staged db (config roots + instance identity + storage paths) -> ckfs subtree rsync -> git clone --local / fetch+reset -> binaries+launchers -> atomic db install -> snapshot_meta.json LAST; re-run is always safe recovery)
+      gm sandbox status   (generation, instance code, daemon liveness; a metaless sandbox is partial — re-run refresh)
     OTHER
       gm cheatsheet   (this sheet)
     INVARIANTS
@@ -120,6 +127,7 @@ struct Cheatsheet: ParsableCommand {
       - Always pass --prompt-uuid on gm file-change add — the implementation-state comparison sees only attributed changes.
       - SUMMARY_ABSENT means the prompt exists but that summary was never opened — open it (gm clarify/arch/explore/review open); for dope it means the session/prompt exists but no scope was ever initialized (gm dope init). Never a file fallback.
       - Dope refs in .doped.json are dot-path codes, never uuids (domain.entity.property / domain.enums.enum_code / domain.entity for base composables); granular dope verbs bump revision by 1 each and leave row versions to --expected-version.
+      - Dope boot sync is strictly files -> db and forward-only: context ensure / dope sync never write repo files and never move revision backward; a db AHEAD of the files only warns (publish with gm dope write-repo). Never use --adopt outside that sync path.
       - A base_composable target must be a BASE_COMPOSABLE entity in the same scope; chaining is allowed, cycles are refused, and deleting a still-composed base (or its domain) is refused naming the composer.
       - A materialized property tags its origin (base_origin_ref: domain.entity.property): the origin must live on a base the entity composes and keep its data_type; changing a base that strands a tag, or deleting a tagged origin, is refused naming the referrer.
       - Diagram dope bindings are CODES resolved at read time through the diagram's own session/prompt context (resolved_via surfaced); a dangling code is a LEGAL state rendered as a ghost, never an error — and dope deletes are never blocked by diagrams.

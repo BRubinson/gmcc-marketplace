@@ -20,7 +20,7 @@ Never run `gm ... --help` roundtrips or guess flags.
 do not inherit this session's SessionStart context, yet they drive gm
 directly. Every teammate spawn prompt below must additionally include a
 `## GM Cheatsheet` section containing the verbatim output of
-`~/gmcc/bin/gm cheatsheet`. **`gm_bot_rpi.md` is the reference for the exact gm-call sequence** (creation, clarify transitions, artifact registration, file-change tracking) — this file only documents what differs for teams.
+`gm cheatsheet`. **`gm_bot_rpi.md` is the reference for the exact gm-call sequence** (creation, clarify transitions, artifact registration, file-change tracking) — this file only documents what differs for teams.
 
 ---
 
@@ -45,7 +45,7 @@ Or use /gm_bot_rpi for subagent-based workflow.
 ```
 Exit without proceeding.
 
-1. `~/gmcc/bin/gm session get --json` for current session state. On exit 2, self-heal per `gm_bot_rpi.md`.
+1. `gm session get --json` for current session state. On exit 2, self-heal per `gm_bot_rpi.md`.
 2. One call for the whole session's report state: `gm prompt list --with-reports --json` (per-prompt clarification/architecture/exploration/review stubs). A null report means that summary was never opened. Topic lookup across prompts is `gm search "<topic>" --json` — do NOT grep the ckfs or open memory files for context.
 
 ---
@@ -63,6 +63,10 @@ Identical to `/gm_bot` and `/gm_bot_rpi`. Quick summary:
 
 Same as `/gm_bot_rpi`: read `kbite_codes` from `gm prompt get`; explicit add only (`gm kbite add --scope prompt`); read the purpose at the kbite root, then load content from the db (`gm kbite get` → `search` → `file-get`); compile the kbite context summary. The summary is passed into every teammate spawn.
 
+## Phase 1b: DOPE Dump
+
+`gm dope list --session-uuid U` — if the session carries a SESSION_BASE scope, `gm dope get --session-uuid U --json` and hold the tree in primary context. The dump is **force-injected into every explore teammate spawn** (see the spawn template's `## Domain Model (DOPE)` block); architects get the fetch command, not the dump. The dump is always the persistence layer's source of truth (boot-synced from `.gmcc/dope`); no scope → note it and move on. Full protocol: `skills/gmcc/ref/bot_workflows.md`.
+
 ---
 
 ## Phase 2: Implementation Overview (Explore Team)
@@ -79,14 +83,17 @@ Read and follow your agent identity from: $GMCC_PLUGIN_ROOT/prompts/gmcc_agent_c
 ## Task Context
 **Exploration Target**: {prompt row's goal + detail}
 **Repository**: Explore from the current working directory
-**Branch**: $(basename $GMCC_SESSION_PATH)
+**Branch**: {session code from gm session get}
 
 ## KBite Knowledge
 {kbite context summary}
 
+## Domain Model (DOPE)
+{dope dump — the session's SESSION_BASE tree from gm dope get, force-injected; it IS the persistence layer. Omit the section only when the session has no dope scope, and say so.}
+
 ## DB-Native Persistence (you hold the pen)
 The exploration record is db rows. Summary uuid: {S — from gm explore open, run by the primary before spawning}.
-As you explore, record directly via the gm CLI (~/gmcc/bin/gm):
+As you explore, record directly via the gm CLI (bare `gm` — it is on your PATH):
 - gm explore key-file-add --summary-uuid {S} --file-path <repo-relative>   (deduped set — duplicates are fine)
 - gm explore finding-add --summary-uuid {S} --kind <kind> --title "..." --body "..." --agent-name {methodology} --rating <0-999>
 Self-rate every finding: 0 = absolute critical … 999 = ignore (read threshold 100). NEVER call gm explore rank/complete/reopen — ranking is the re-ranker's pass and the overview is the primary's.
@@ -175,6 +182,9 @@ Read and follow your agent identity from: $GMCC_PLUGIN_ROOT/prompts/gmcc_agent_c
 ## KBite Knowledge
 {kbite context summary}
 
+## Domain Model (DOPE)
+The session's dope tree is the persistence layer's source of truth — load it on demand with `gm dope get --session-uuid {U} --json`. An architecture proposing new persistence is proposing dope changes.
+
 ## Methodology Assignment: {methodology}
 Commit FULLY to this methodology. Propose the architecture YOUR methodology would build.
 
@@ -248,7 +258,7 @@ Read and follow your agent identity from: $GMCC_PLUGIN_ROOT/prompts/gmcc_agent_c
 
 ## DB-Native Persistence (you hold the pen)
 The review record is db rows. Summary uuid: {S — from gm review open, run by the primary before spawning}.
-Record every finding directly via the gm CLI (~/gmcc/bin/gm):
+Record every finding directly via the gm CLI (bare `gm` — it is on your PATH):
 - gm review finding-add --summary-uuid {S} --kind <kind> --title "..." --body "..." [--file-path <p> --line-start N [--line-end M]] --agent-name {methodology} --rating <0-999>
 Self-rate 0-999 (0 = critical, 999 = ignore; threshold 100). NEVER call gm review rank/resolve/complete — ranking is the re-ranker's pass; overview/verdict/resolutions are the primary's.
 
@@ -298,7 +308,7 @@ status `done` plus the clarification/architecture/exploration/review rows and fi
 ```
 Bot Team Complete: prompt {seq} ({name})
 
-**Session**: {GMCC_SESSION_PATH relative to GMCC_PROJECTS}
+**Session**: {session ckfs_relative_storage_path from gm session get --json}
 **Files Modified**: {count from gm file-change list --prompt-uuid U}
 **Teams Used**: explore, architect, review (4 teammates each)
 **Review Status**: {pass / pass_with_issues}

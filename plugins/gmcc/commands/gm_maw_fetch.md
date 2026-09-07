@@ -23,9 +23,9 @@ To fix: Restart Claude Code from within a git repository.
 ```
 Exit without proceeding.
 
-1. Verify GM-CDE is initialized (`$GMCC_KBITE` is set)
+1. Resolve the kbite roots from `gm paths --json` (kbite_open_root)
 2. Parse `{kbite_name}` from first token of `$ARGUMENTS`
-3. Verify maw exists at `$GMCC_KBITE_OPEN/{kbite_name}/`
+3. Verify maw exists at `{kbite_open_root}/{kbite_name}/`
 4. Read MAW_INDEX.md for current state
 5. Verify Node.js v18+ is available:
    ```bash
@@ -195,15 +195,15 @@ Task tool:
     Download web pages for kbite "{kbite_name}".
 
     **Script Path**: $GMCC_PLUGIN_ROOT/scripts/maw_web_fetch.mjs
-    **Maw Root**: $GMCC_KBITE_OPEN/{kbite_name}/
-    **MAW_INDEX**: $GMCC_KBITE_OPEN/{kbite_name}/MAW_INDEX.md
+    **Maw Root**: {kbite_open_root}/{kbite_name}/
+    **MAW_INDEX**: {kbite_open_root}/{kbite_name}/MAW_INDEX.md
 
     Resource to download:
     - Name: {resource_name}
     - URLs: {url_list as JSON array}
     - Axis1: {axis1}
     - Axis2: {axis2}
-    - Output Dir: $GMCC_KBITE_OPEN/{kbite_name}/{axis1}/{axis2}/{resource_name}/
+    - Output Dir: {kbite_open_root}/{kbite_name}/{axis1}/{axis2}/{resource_name}/
 ```
 
 ### Step 3: Collect Results
@@ -217,7 +217,7 @@ Read agent results. Track success/failure per resource.
 ```
 Maw Fetch Complete: {kbite_name}
 
-**Maw Location**: $GMCC_KBITE_OPEN/{kbite_name}/
+**Maw Location**: {kbite_open_root}/{kbite_name}/
 
 ## Download Summary
 
@@ -260,11 +260,11 @@ Falling back to direct script execution via Bash.
 
 On agent failure, attempt direct execution as fallback:
 ```bash
-# Write manifest to $GMCC_KBITE_OPEN/{kbite_name}/.maw_fetch_manifest.json
+# Write manifest to {kbite_open_root}/{kbite_name}/.maw_fetch_manifest.json
 # Execute: node $GMCC_PLUGIN_ROOT/scripts/maw_web_fetch.mjs /path/to/manifest.json
 # Verify results
 # Update MAW_INDEX manually
-# Cleanup: rm -f $GMCC_KBITE_OPEN/{kbite_name}/.maw_fetch_manifest.json
+# Cleanup: rm -f {kbite_open_root}/{kbite_name}/.maw_fetch_manifest.json
 ```
 
 **All downloads failed:**

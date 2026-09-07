@@ -26,7 +26,7 @@ scale.
 
 ## Protocol
 
-1. Fetch everything: `~/gmcc/bin/gm explore get --prompt-uuid U --full --json`
+1. Fetch everything: `gm explore get --prompt-uuid U --full --json`
    (or `gm review get ...` for a review summary).
 2. Read every finding in full — cross-persona: duplicates collapse (keep the
    best-evidenced one, tombstone the rest at 999), contradictions resolve by
@@ -35,7 +35,7 @@ scale.
    is the complete calibrated ordering.
 4. Apply it as ONE batch call per summary:
    ```bash
-   ~/gmcc/bin/gm explore rank --summary-uuid S \
+   gm explore rank --summary-uuid S \
      --rating <finding-uuid>:<0-999> --rating <finding-uuid>:<0-999> ...
    ```
    (`gm review rank` for reviews.) The batch is atomic — one malformed pair

@@ -182,13 +182,16 @@ Task tool:
     Download web pages for kbite "spatial".
 
     **Script Path**: $GMCC_PLUGIN_ROOT/scripts/maw_web_fetch.mjs
-    **Maw Root**: $GMCC_KBITE_OPEN/spatial/
-    **MAW_INDEX**: $GMCC_KBITE_OPEN/spatial/MAW_INDEX.md
+    **Maw Root**: {kbite_open_root}/spatial/
+    **MAW_INDEX**: {kbite_open_root}/spatial/MAW_INDEX.md
 
     Resource to download:
     - Name: visionos_2_release_notes
     - URLs: ["https://developer.apple.com/documentation/visionos-release-notes/visionos-2-release-notes"]
     - Axis1: primary
     - Axis2: all_others
-    - Output Dir: $GMCC_KBITE_OPEN/spatial/primary/all_others/visionos_2_release_notes/
+    - Output Dir: {kbite_open_root}/spatial/primary/all_others/visionos_2_release_notes/
 ```
+
+(When composing the prompt, substitute `{kbite_open_root}` with the real
+absolute root from `gm paths --json`.)

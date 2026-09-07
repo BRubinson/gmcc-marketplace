@@ -9,7 +9,9 @@ allowed-tools: Read, Write, Bash, Glob, AskUserQuestion
 # /gmcc_session_cleanup
 
 Run the GM-CDE **session-scoped** cleanup auditor. Cross-checks only the
-current session — `$GMCC_SESSION_PATH` on disk vs this session's db rows via
+current session — the session's artifact home on disk
+(`$GMCC_CKFS_ROOT/{session ckfs_relative_storage_path}`, from
+`gm session get --json`) vs this session's db rows via
 `gm` (not the whole environment — that is `/gmcc_environment_cleanup`),
 reports non-compliant state, and prompts per-finding for an action. Full
 spec in `$GMCC_PLUGIN_ROOT/skills/gmcc_session_cleanup/SKILL.md`.
@@ -26,7 +28,9 @@ Restart Claude Code from within a git repository, then retry.
 ```
 Exit without proceeding.
 
-Verify `$GMCC_SESSION_PATH` is set and exists. If not, the environment never
+Verify the session's artifact home exists (resolve it as
+`$GMCC_CKFS_ROOT/{ckfs_relative_storage_path}` from
+`gm session get --json`). If not, the environment never
 resolved a session — suggest restarting Claude Code from inside a git repo (or
 running the `gmcc_session_creation` skill) and exit.
 

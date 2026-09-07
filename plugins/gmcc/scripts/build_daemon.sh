@@ -20,7 +20,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 GMCC_PLUGIN_DIR="$(dirname "$SCRIPT_DIR")"
 DAEMON_PKG="$GMCC_PLUGIN_DIR/daemon"
 
-GMCC_RUNTIME="$HOME/gmcc"
+GMCC_RUNTIME="${GMCC_ROOT:-$HOME/gmcc}"
 GMCC_BIN="$GMCC_RUNTIME/bin"
 
 if [ ! -f "$DAEMON_PKG/Package.swift" ]; then

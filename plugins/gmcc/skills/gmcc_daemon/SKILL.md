@@ -1,6 +1,6 @@
 ---
 name: gmcc_daemon
-description: How to invoke the GMCC daemon system - the gm CLI at ~/gmcc/bin/gm, its subcommands (context, session, prompt, clarify, arch, explore, review, artifact, file-change, kbite, events, config/paths, backup), the single-writer SQLite model, and the self-heal rule when binaries are missing or stale. Use whenever recording file changes to the daemon db, managing prompts/clarifications/architectures/artifacts/kbites over the daemon, searching kbite knowledge, checking daemon/db health, or building the daemon.
+description: How to invoke the GMCC daemon system - the gm CLI on the session PATH, its subcommands (context, session, prompt, clarify, arch, explore, review, artifact, file-change, kbite, events, config/paths, backup), the single-writer SQLite model, and the self-heal rule when binaries are missing or stale. Use whenever recording file changes to the daemon db, managing prompts/clarifications/architectures/artifacts/kbites over the daemon, searching kbite knowledge, checking daemon/db health, or building the daemon.
 ---
 
 # GMCC Daemon (gm CLI)
@@ -18,7 +18,7 @@ shipping three products:
   via `DaemonEventSubscription`).
 
 Transport: NDJSON over a unix socket at `~/gmcc/daemon.sock` (wire protocol
-v14, schema m0009, one spec-named message per handler). Clients autostart the daemon when
+v15, schema m0010, one spec-named message per handler). Clients autostart the daemon when
 the socket is dead. The protocol handshake is DIRECTIONAL: a newer client
 makes a stale daemon self-exit after rebuilds; an older client is rejected
 while the daemon stays up — you never need to manage daemon lifecycle
@@ -30,10 +30,11 @@ daemon writes the db ONLY — it never touches ckfs yamls.
 
 ## Invocation pattern
 
-Always call the installed binary by absolute path:
+Call the bare `gm` command — the session PATH (emitted by `gm context env`
+at SessionStart) resolves it to the correct prod or sandbox binary:
 
 ```bash
-~/gmcc/bin/gm <subcommand> [options]
+gm <subcommand> [options]
 ```
 
 All subcommands accept `--json` for the raw response. Subcommands (grouped by
@@ -103,7 +104,7 @@ message family):
 | `gm kbite list [--scope project\|instance\|session\|prompt] [--owner-uuid U] [--all]` | Registered kbites at a scope, resolved through the inheritance chain at read time. Scope defaults to session; owner defaults to the current repo/branch context (prompt scope needs an explicit uuid). `--all` ignores scope and lists every kbite row in the db (the cleanup drift-check listing; not combinable with `--owner-uuid`). |
 | `gm kbite add --code C [--scope S] [--owner-uuid U]` | Explicit-only registration at one scope (v11 model — never auto-add). Db-only — the db is the sole registry. Idempotent. |
 | `gm kbite remove --code C [--scope S] [--owner-uuid U]` | Remove a kbite from one scope's registry. Db-only. |
-| `gm kbite maw-open --name N [--maw-path P]` | Create the open-maw filesystem skeleton + MAW_INDEX.md (no db rows; maws are not tracked in the db). Path defaults to `$GMCC_KBITE_OPEN/{name}` — resolved client-side. KBITE_PURPOSE.md stays an interactive skill step. |
+| `gm kbite maw-open --name N [--maw-path P]` | Create the open-maw filesystem skeleton + MAW_INDEX.md (no db rows; maws are not tracked in the db). Path defaults to `{kbite_open_root}/{name}` (kbite_open_root from `gm paths --json`) — resolved client-side. KBITE_PURPOSE.md stays an interactive skill step. |
 | `gm kbite digest --code C [--kbite-open-path P]` | One-step import: parse `*_chewed.md` under the scan root (default: the open maw) into kbite_resource / kbite_resource_file / keyword rows (full text inline for text types), then DELETE the chewed files. Raw sources are kept on disk; the db is canonical for digested text. Re-digesting a resource replaces its rows. The client-side follow-up (move raw sources open/ → digested/, delete the maw) lives in `/gm_crunch_digest`. |
 | `gm kbite get --code C` | One kbite: resources, file stubs (names + summaries, NO content), keywords. |
 | `gm kbite file-get --file-uuid U` | A single resource file including full content — the targeted load replacing "cat the chewed file". |
@@ -147,7 +148,7 @@ anything it can't anchor).
 
 ## Self-heal rule
 
-If `~/gmcc/bin/gm` is missing, or any `gm` call exits 2 with a
+If `gm` is not found on the PATH, or any `gm` call exits 2 with a
 "daemon binary missing" message, build first:
 
 ```bash
@@ -272,6 +273,17 @@ carries) that other entities point at via `--base-composable-uuid`
   daemon creates, seeds, or special-cases a domain coded `base`; it is simply
   where a scope keeps its shared blocks by convention. Create it like any
   other domain.
+
+### Boot-time sync and session env
+
+`gm dope sync` reconciles the session's SESSION_BASE scope from the on-disk
+files at `{instance_root}/.gmcc/dope` into the db: it seeds a virgin scope,
+re-adopts when the files are ahead (any forward gap), and WARNS ONLY when the
+db is ahead. It runs automatically at boot via `gm context ensure`; the
+underlying `gm dope ingest --adopt` is the boot-sync-only files-win mode —
+never for interactive use. Relatedly, `gm context env` is the SessionStart
+env owner: it emits the session environment (GMCC_BOOTED, GMCC_PLUGIN_ROOT,
+GMCC_CKFS_ROOT, PATH, plus GMCC_ROOT when sandboxed).
 
 ## DIAGRAM — db-persisted canvases (wire v15)
 

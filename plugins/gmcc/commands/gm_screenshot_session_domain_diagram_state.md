@@ -17,7 +17,7 @@ self-gitignored `{instance_root}/.gmcc/.screenshots/` directory.
 1. **Boot check.** If `$GMCC_BOOTED` is not set, stop with
    `[GMB] ERROR: GMCC not booted` (run /gmcc_boot for diagnostics).
 
-2. **Resolve context.** `~/gmcc/bin/gm session get --json` for the current
+2. **Resolve context.** `gm session get --json` for the current
    session uuid. If the user passed `--prompt`, also resolve the active
    prompt uuid from the same response (or ask which prompt).
 
@@ -31,7 +31,7 @@ self-gitignored `{instance_root}/.gmcc/.screenshots/` directory.
 
 4. **Render.**
    ```bash
-   ~/gmcc/bin/gm diagram screenshot --session-uuid <U> [--code <C>] \
+   gm diagram screenshot --session-uuid <U> [--code <C>] \
      [--scheme light|dark] --json
    ```
    (`--prompt-uuid <U>` instead when prompt-scoped. The verb fetches

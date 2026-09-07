@@ -183,9 +183,10 @@ public enum ChewedArtifactParser {
     /// Text types get their full content inlined into the db; everything else
     /// (images, archives, media, unknown binaries) stays filesystem-only.
     private static let textExtensions: Set<String> = [
-        "md", "markdown", "txt", "rst",
+        "md", "markdown", "mdx", "txt", "rst",
         "swift", "py", "rb", "go", "rs", "c", "h", "cc", "cpp", "hpp", "java", "kt",
-        "ts", "tsx", "js", "jsx", "json", "yaml", "yml",
+        "ts", "tsx", "js", "jsx", "mjs", "cjs", "json", "yaml", "yml",
+        "vue", "svelte",
         "html", "htm", "css", "scss",
         "sh", "bash", "zsh", "sql", "toml", "xml", "csv", "tsv",
         "log", "conf", "ini", "env",

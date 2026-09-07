@@ -56,6 +56,11 @@ final class MemoryWatcher: @unchecked Sendable {
         for path in paths {
             guard path.hasPrefix(rootPrefix) else { continue }
             let relative = String(path.dropFirst(rootPrefix.count))
+            // development/ holds the local-dev sandbox (its own db/ckfs/repo
+            // churn). Prune it here to stop the event traffic; even without
+            // this, the exact-match contract (A4) can never bind a
+            // development/… relative to a stored projects/… path.
+            guard !relative.hasPrefix("development/") else { continue }
             // Expect …/prompts/{seq}_{name}/memory[/…] — anchor on the memory
             // segment and keep everything before it as the prompt folder.
             guard let memoryRange = relative.range(of: "/memory") else { continue }

@@ -34,6 +34,13 @@ public struct DiagramRenderEnvironment: Hashable, Sendable {
         self.cardHeaderHeight = cardHeaderHeight
         self.cardRowHeight = cardRowHeight
     }
+
+    /// Entity card height (points, pre-scale) for a row count. The single
+    /// home of the formula — the resolver's frames and DopeCanvasLayout's
+    /// generated geometry both call this, so they can never disagree.
+    public func cardHeight(rowCount: Int) -> Double {
+        cardHeaderHeight + Double(max(rowCount, 1)) * cardRowHeight + 8
+    }
 }
 
 /// Deterministic domain colors. FNV-1a, NEVER Swift's `Hasher` — Hasher is

@@ -36,22 +36,25 @@ identity, raw sources, and in-progress maws:
 | Home | What lives there |
 |------|------------------|
 | Daemon db (`~/gmcc/gmcc.db`) | Resources, per-file summaries + full text, keywords, FTS5 search, kbite registries. Read via `gm kbite`. |
-| `$GMCC_KBITE/{name}/` (kbite root) | `KBITE_PURPOSE.md` (identity — defined once, above the lifecycle split) and `KBITE_RELATIONSHIPS.md` when relationships exist. |
-| `$GMCC_KBITE_DIGESTED/{name}/` | **Raw-source archive**: the `{axis1}/{axis2}/{resource}/` folders moved out of the maw at digest time. No indexes — `gm kbite get` is the index. |
-| `$GMCC_KBITE_OPEN/{name}/` | **In-progress maw**: raw sources being collected/chewed, plus `MAW_INDEX.md`. Deleted at digest time. |
+| `{kbite_root}/{name}/` (kbite root) | `KBITE_PURPOSE.md` (identity — defined once, above the lifecycle split) and `KBITE_RELATIONSHIPS.md` when relationships exist. |
+| `{kbite_digested_root}/{name}/` | **Raw-source archive**: the `{axis1}/{axis2}/{resource}/` folders moved out of the maw at digest time. No indexes — `gm kbite get` is the index. |
+| `{kbite_open_root}/{name}/` | **In-progress maw**: raw sources being collected/chewed, plus `MAW_INDEX.md`. Deleted at digest time. |
 
-### Env vars
+### Path roots
 
-| Var | Value | Per-kbite usage |
-|-----|-------|-----------------|
-| `GMCC_KBITE` | `$GMCC_CKFS_ROOT/kbites` | `$GMCC_KBITE/{name}/KBITE_PURPOSE.md` |
-| `GMCC_KBITE_DIGESTED` | `$GMCC_CKFS_ROOT/kbites/digested` | `$GMCC_KBITE_DIGESTED/{name}/...` (raw archive) |
-| `GMCC_KBITE_OPEN` | `$GMCC_CKFS_ROOT/kbites/open` | `$GMCC_KBITE_OPEN/{name}/...` (open maw) |
+The kbite roots are daemon config, read from `gm paths --json` (they are
+NOT env vars):
+
+| `gm paths` key | Default value | Per-kbite usage |
+|----------------|---------------|-----------------|
+| `kbite_root` | `$GMCC_CKFS_ROOT/kbites` | `{kbite_root}/{name}/KBITE_PURPOSE.md` |
+| `kbite_digested_root` | `$GMCC_CKFS_ROOT/kbites/digested` | `{kbite_digested_root}/{name}/...` (raw archive) |
+| `kbite_open_root` | `$GMCC_CKFS_ROOT/kbites/open` | `{kbite_open_root}/{name}/...` (open maw) |
 
 The list of known kbites is `gm kbite list --all` (every kbite row in the db).
 
 > **Historical**: kbites digested before v16 may still carry `KBITE_INDEX.md`
-> and `*_chewed.md` files under `$GMCC_KBITE_DIGESTED/{name}/` and no db rows.
+> and `*_chewed.md` files under `{kbite_digested_root}/{name}/` and no db rows.
 > The cleanup skill detects these and backfills them (archive chewed files to
 > cold storage, then `gm kbite digest`).
 
@@ -90,12 +93,12 @@ Example: `primary/documentation/claude_code_hooks/`
 ## Open Maw Structure (Temporary Processing)
 
 The **open maw** is a temporary holding area for resources being processed
-("crunched") into the db. It lives under `$GMCC_KBITE_OPEN/{kbite_name}/` —
+("crunched") into the db. It lives under `{kbite_open_root}/{kbite_name}/` —
 there is at most one open maw per kbite, system-wide. The skeleton is created
 by `gm kbite maw-open --name {kbite_name}` (idempotent, no db rows):
 
 ```
-$GMCC_KBITE_OPEN/{kbite_name}/
+{kbite_open_root}/{kbite_name}/
 ├── MAW_INDEX.md                        # Index of crunchables in this maw
 │
 ├── primary/
@@ -170,7 +173,7 @@ A glossary/table of contents of the raw source contents:
 | {filename} | {md/ts/json/etc} | {what this file contains} |
 
 **Full Paths**:
-- `{$GMCC_KBITE_OPEN}/{kbite}/{axis1}/{axis2}/{resource}/{file}`
+- `{kbite_open_root}/{kbite}/{axis1}/{axis2}/{resource}/{file}`
 
 ---
 
@@ -218,7 +221,7 @@ Each takeaway is marked as GOOD (do this) or BAD (avoid this):
 
 ## KBITE_PURPOSE.md
 
-Defines the purpose and scope of a kbite. Lives at `$GMCC_KBITE/{kbite_name}/KBITE_PURPOSE.md` (above the digested/open lifecycle split — purpose is identity-level, not lifecycle-level). Created interactively at open-maw time; it stays a filesystem file, not a db row:
+Defines the purpose and scope of a kbite. Lives at `{kbite_root}/{kbite_name}/KBITE_PURPOSE.md` (above the digested/open lifecycle split — purpose is identity-level, not lifecycle-level). Created interactively at open-maw time; it stays a filesystem file, not a db row:
 
 ```markdown
 # KBite Purpose: {kbite_name}
@@ -281,7 +284,7 @@ Tracks relationships between kbites. Managed by `/gm_kbite_relate`; lives at the
 
 ### 1. Open Maw (`/gm_crunch_open_maw {kbite_name}`)
 
-Creates the maw skeleton at `$GMCC_KBITE_OPEN/{kbite_name}/` via
+Creates the maw skeleton at `{kbite_open_root}/{kbite_name}/` via
 `gm kbite maw-open` (two-axis tree + MAW_INDEX.md, no db rows) and, for a new
 kbite, interactively creates `KBITE_PURPOSE.md` at the kbite root.
 
@@ -305,7 +308,7 @@ Imports the maw's knowledge into the db and archives raw sources:
    commits, then deletes the chewed files. Re-digesting a resource replaces
    its rows.
 2. Client-side: raw source folders are moved from
-   `$GMCC_KBITE_OPEN/{kbite_name}/` to `$GMCC_KBITE_DIGESTED/{kbite_name}/`
+   `{kbite_open_root}/{kbite_name}/` to `{kbite_digested_root}/{kbite_name}/`
    (same `{axis1}/{axis2}/` layout) and the open maw is deleted.
 3. Verify with `gm kbite get --code {kbite_name}`.
 
@@ -325,7 +328,7 @@ operating in GM-CDE mode, GMB MUST:
    `gm prompt get`); scoped listing via `gm kbite list --scope ...`, full db
    listing via `gm kbite list --all`. There is no per-prompt keyword scan.
 2. **Load Registered KBites from the db**: read the purpose at the kbite
-   root (`$GMCC_KBITE/{name}/KBITE_PURPOSE.md`), then
+   root (`{kbite_root}/{name}/KBITE_PURPOSE.md`), then
    `gm kbite get --code {name}` (resources + file stubs + keywords),
    `gm kbite search "<query>"` (bm25-ranked stubs; scope with
    `--kbite-uuids`), and `gm kbite file-get --file-uuid U` (full content).
@@ -340,7 +343,7 @@ operating in GM-CDE mode, GMB MUST:
 ```
 1. Read the active kbite codes via gm (session get / context get / prompt get)
 2. For each registered kbite:
-   a. Read $GMCC_KBITE/{name}/KBITE_PURPOSE.md (root, filesystem)
+   a. Read {kbite_root}/{name}/KBITE_PURPOSE.md (root, filesystem)
    b. gm kbite get --code {name} --json          # overview: resources, stubs, keywords
    c. gm kbite search "<topic>" --json           # rank what matters for the task
    d. gm kbite file-get --file-uuid U --json     # pull full content, top files only
@@ -386,7 +389,7 @@ Full CLI reference: `$GMCC_PLUGIN_ROOT/skills/gmcc_daemon/SKILL.md`.
 
 The kbite system integrates with core GMCC:
 
-1. **Environment**: Uses `$GMCC_KBITE`, `$GMCC_KBITE_DIGESTED`, `$GMCC_KBITE_OPEN` for path resolution (resolved client-side; the daemon receives absolute paths)
+1. **Paths**: Uses the daemon's configured kbite roots — `kbite_root`, `kbite_digested_root`, `kbite_open_root` from `gm paths --json` — for path resolution (resolved client-side; the daemon receives absolute paths)
 2. **System-Level Storage**: Kbites are independent of FAM/branch — one db + one kbites tree per machine
 3. **Agent System**: Uses GMCC agent framework for chewing
 4. **Registry System**: Active kbites live in the daemon db's `{project,instance,session,prompt}_active_kbite` registries (read via `gm`; explicit add via `gm kbite add`)

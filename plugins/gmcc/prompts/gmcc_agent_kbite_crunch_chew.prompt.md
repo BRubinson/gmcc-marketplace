@@ -253,8 +253,11 @@ Task tool with subagent_type="gmcc:gmcc_agent_kbite_crunch_chew":
     Crunchable: official_docs
     Axis1: primary
     Axis2: documentation
-    Maw path: $GMCC_KBITE_OPEN/claude_code_sdk/primary/documentation/official_docs/
+    Maw path: {kbite_open_root}/claude_code_sdk/primary/documentation/official_docs/
 ```
+
+(When composing the prompt, substitute `{kbite_open_root}` with the real
+absolute root from `gm paths --json`.)
 
 The agent will:
 1. Read all files in the maw path

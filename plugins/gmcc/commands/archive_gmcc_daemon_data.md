@@ -36,11 +36,11 @@ If `~/gmcc/gmcc.db` does not exist, report "nothing to archive" and stop.
 ## Execution
 
 1. **Confirm** — AskUserQuestion: show the db size, mtime, and current
-   table row counts (`~/gmcc/bin/gm status`), and confirm the user wants
+   table row counts (`gm status`), and confirm the user wants
    the live db archived and replaced with an empty one. Abort on anything
    but an explicit yes.
 
-2. **Stop the daemon** — `~/gmcc/bin/gm daemon stop` (drains, WAL
+2. **Stop the daemon** — `gm daemon stop` (drains, WAL
    checkpoints, removes socket + pidfile, exit 0). Treat "daemon
    unreachable" (exit 2) as already-stopped and continue.
 
@@ -57,16 +57,16 @@ If `~/gmcc/gmcc.db` does not exist, report "nothing to archive" and stop.
    MOVE, never copy-then-delete, and never touch `~/gmcc/bin/` or
    `~/gmcc/backups/` (those are live-db snapshots, not archives).
 
-4. **Fresh start** — `~/gmcc/bin/gm daemon start`; the daemon recreates
+4. **Fresh start** — `gm daemon start`; the daemon recreates
    `gmcc.db` from the m0001 baseline on first connection. Then run
-   `~/gmcc/bin/gm context ensure` from the repo root so the current
+   `gm context ensure` from the repo root so the current
    project/instance/session rows exist again (idempotent, reuses ckfs
    uuids).
 
-5. **Verify** — `~/gmcc/bin/gm status`: fresh schema version, near-zero
+5. **Verify** — `gm status`: fresh schema version, near-zero
    row counts (just the ensured context chain).
 
-**Self-heal**: if `~/gmcc/bin/gm` is missing at any step, run
+**Self-heal**: if the gm binary is missing at any step, run
 `bash $GMCC_PLUGIN_ROOT/scripts/build_daemon.sh` and retry once.
 
 ---

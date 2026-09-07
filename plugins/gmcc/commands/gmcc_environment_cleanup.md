@@ -1,6 +1,6 @@
 ---
 name: gmcc_environment_cleanup
-description: Audit the GMCC environment — daemon/db health, db-vs-disk drift, leftover pre-daemon yaml runtime files, archive hygiene, host config drift — and interactively resolve each finding with the user. Environment-wide counterpart to /gmcc_session_cleanup.
+description: Audit the GMCC ckfs/db environment — daemon/db health, db-vs-disk drift, leftover pre-daemon yaml runtime files, archive hygiene — and interactively resolve each finding with the user. Host wiring (PATH shim, retired zshrc block, grants) is /gmcc_cleanup_system. Environment-wide counterpart to /gmcc_session_cleanup.
 argument-hint: "[--dry-run]"
 disable-model-invocation: true
 allowed-tools: Read, Write, Bash, Glob, AskUserQuestion
@@ -9,8 +9,11 @@ allowed-tools: Read, Write, Bash, Glob, AskUserQuestion
 # /gmcc_environment_cleanup
 
 Run the GM-CDE environment auditor. Checks daemon/db health via `gm`, walks
-`$GMCC_CKFS_ROOT` (bounded), reports non-compliant state, prompts per-finding
+the ckfs root (bounded), reports non-compliant state, prompts per-finding
 for an action. Full spec in `$GMCC_PLUGIN_ROOT/skills/gmcc_cleanup/SKILL.md`.
+Host wiring (retired `~/.zshrc` gmcc block, PATH shim, permission grants,
+env-vs-db root agreement) is `/gmcc_cleanup_system`'s audit — suggest it
+when host drift shows up.
 
 ---
 

@@ -12,17 +12,17 @@ Read this file when executing bot workflow commands.
 
 ## Session + Prompt Model (v16)
 
-All bot workflows operate inside the **current session** — resolved by
-`detect_repo.sh` from `$PWD` + active git branch (env: `$GMCC_SESSION_PATH`
-for the file home) and registered in the daemon db by `gm context ensure`
-at SessionStart. All prompt/session DATA lives on db rows accessed through
+All bot workflows operate inside the **current session** — resolved from
+`$PWD` + the active git branch and registered in the daemon db by
+`gm context ensure` at SessionStart (which also creates the session's
+artifact home under `$GMCC_CKFS_ROOT`). All prompt/session DATA lives on db rows accessed through
 the `gm` CLI (see `skills/gmcc_daemon/SKILL.md`). Since v19 (m0004) EVERY
 bot report is db-native: clarification (`gm clarify`), architecture
 (`gm arch`), exploration (`gm explore`), and review (`gm review`). The
 prompt folder on disk still exists —
 
 ```
-$GMCC_SESSION_PATH/prompts/{seq}_{name}/
+$GMCC_CKFS_ROOT/{session ckfs_relative_storage_path}/prompts/{seq}_{name}/
     memory/                          # usually EMPTY now — reports live in the db
 ```
 
@@ -41,7 +41,7 @@ the existing session. The canonical lifecycle every tier follows:
    was down at SessionStart).
 2. **Create** —
    ```bash
-   ~/gmcc/bin/gm prompt create --name {name} \
+   gm prompt create --name {name} \
      --detail "<the entire passed prompt, verbatim>" \
      --backstory "<session row's backstory, verbatim>" \
      --command /gm_bot{,_rpi,_team} --json
@@ -191,12 +191,36 @@ and `gm search` is the search surface.
 Kbites are **inherited, not auto-detected** — read the prompt's active
 list from `gm prompt get` (`kbite_codes`). Kbites are added only on
 explicit user request. For each active kbite: read
-`$GMCC_KBITE/{name}/KBITE_PURPOSE.md`, get the db overview
-(`gm kbite get --code {name}`), then `gm kbite search` (bm25
-relevance-ordered; `--code` scopes to one kbite). Read the `file_summary`
-brief on every hit and pull the full content of every file whose brief is
-relevant (`gm kbite file-get`) — typically 5-10 files, not a fixed top-N
-cap. Compile a kbite context summary and pass it to all spawned agents.
+`{kbite_root}/{name}/KBITE_PURPOSE.md` (root from `gm paths --json`), get
+the db overview (`gm kbite get --code {name}`), then `gm kbite search`
+(bm25 relevance-ordered; `--code` scopes to one kbite). Read the
+`file_summary` brief on every hit and pull the full content of every file
+whose brief is relevant (`gm kbite file-get`) — typically 5-10 files, not
+a fixed top-N cap. Compile a kbite context summary and pass it to all
+spawned agents.
+
+## DOPE Dump Injection (explore agents)
+
+**DOPE = Domain Optimized Project Essence** — the session's domain model
+and always the PERSISTENCE LAYER's source of truth. Boot seeds it from the
+repo's `.gmcc/dope` tree (`gm context ensure` / `gm dope sync`), so it is
+populated from the first prompt of a fresh branch.
+
+Before spawning explore agents, every tier runs
+`gm dope list --session-uuid U`. If the session carries a SESSION_BASE
+scope, fetch the tree (`gm dope get --session-uuid U --json`) and
+**force-inject** it into EVERY explore spawn as a `## Domain Model (DOPE)`
+block, exactly like the kbite context summary — explorers do not choose
+whether to load it. Architect agents get the *command*
+(`gm dope get --session-uuid U --json`), not the dump, and load on demand.
+An architecture proposing new persistence is proposing dope changes — say
+so in the block. No scope → note "no dope scope" and move on; never init
+one for this purpose.
+
+Caveat for the coming UI-doping flow: dope trees will become mutable
+mid-prompt (user edits in GMVibes), so re-fetch per phase rather than
+caching one dump across phases — and future UI-focused doping may need a
+more careful, view-scoped dump for UI-based tasks.
 
 ## GM Cheatsheet (state load)
 
@@ -268,6 +292,6 @@ Agents are specialized personas defined in `$GMCC_PLUGIN_ROOT/prompts/`:
 If the daemon/db is unreachable (`gm` exit code 2):
 1. `bash $GMCC_PLUGIN_ROOT/scripts/build_daemon.sh` (self-heal rule in `skills/gmcc_daemon/SKILL.md`)
 2. Re-run `gm context ensure`
-3. If the ckfs file tree is missing, run `/gm_init` and restart Claude Code so `detect_repo.sh` re-exports the env
+3. If the ckfs file tree is missing, run `/gm_init` and restart Claude Code so the SessionStart boot re-runs (env re-emitted via `gm context env`)
 
-If `$GMCC_SESSION_PATH` is missing at command time, the SessionStart hook didn't run. Restart Claude Code.
+If `$GMCC_BOOTED` is unset at command time, the SessionStart hook didn't run. Restart Claude Code.

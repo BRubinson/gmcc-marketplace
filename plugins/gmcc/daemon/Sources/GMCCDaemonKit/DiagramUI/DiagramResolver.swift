@@ -62,9 +62,19 @@ public struct ResolvedElement: Sendable {
     public let elementZ: Double
     public let kind: ResolvedElementKind
     public let children: [ResolvedElement]
+    /// This element's composed diagram-space center — the same value the
+    /// resolver positioned the frame around. Hosts invert view hits with it
+    /// instead of re-walking the tree.
+    public let accumulatedCenter: CGPoint
+    /// This element's OWN composed scale (parentScale × node.scale). The
+    /// drag-delta divisor is the PARENT's accumulated scale — use
+    /// `DiagramDrag.moveMutation`, which divides correctly, rather than
+    /// dividing by this value directly.
+    public let accumulatedScale: Double
 
     public init(uuid: String, code: String, name: String, frame: CGRect,
-                elementZ: Double, kind: ResolvedElementKind, children: [ResolvedElement]) {
+                elementZ: Double, kind: ResolvedElementKind, children: [ResolvedElement],
+                accumulatedCenter: CGPoint = .zero, accumulatedScale: Double = 1) {
         self.uuid = uuid
         self.code = code
         self.name = name
@@ -72,6 +82,36 @@ public struct ResolvedElement: Sendable {
         self.elementZ = elementZ
         self.kind = kind
         self.children = children
+        self.accumulatedCenter = accumulatedCenter
+        self.accumulatedScale = accumulatedScale
+    }
+}
+
+extension ResolvedElement {
+    /// Diagram-space y of one drawn property row's center on this entity
+    /// card — the FK-exit formula. `resolveEdges` and the host's search
+    /// field-jump both call this, so the two can never disagree. Row order
+    /// is own-properties-first, composed-base union appended.
+    public func rowCenterY(_ rowIndex: Int, environment: DiagramRenderEnvironment) -> CGFloat {
+        DiagramResolver.rowCenterY(frameMinY: frame.minY, scale: accumulatedScale,
+                                   rowIndex: rowIndex, environment: environment)
+    }
+}
+
+extension ResolvedDiagram {
+    /// Swap ONLY the color scheme — an O(1) copy for live appearance flips.
+    /// Valid because `DiagramResolver.resolve` never reads
+    /// `environment.colorScheme` (geometry depends only on the card metrics);
+    /// changing metrics or padding still requires a full resolve.
+    public func reskinned(_ scheme: DiagramRenderEnvironment.ColorScheme) -> ResolvedDiagram {
+        guard scheme != environment.colorScheme else { return self }
+        let env = DiagramRenderEnvironment(
+            colorScheme: scheme, displayScale: environment.displayScale,
+            padding: environment.padding, cardWidth: environment.cardWidth,
+            cardHeaderHeight: environment.cardHeaderHeight,
+            cardRowHeight: environment.cardRowHeight)
+        return ResolvedDiagram(contentBounds: contentBounds, topLevel: topLevel,
+                               edges: edges, environment: env)
     }
 }
 
@@ -367,10 +407,8 @@ public enum DiagramResolver {
 
         case .dopeEntity(let payload):
             if let scope, let model = entityCard(payload.entityCode, in: scope.tree) {
-                let rowCount = max(model.rows.count, 1)
                 let width = environment.cardWidth * scale
-                let height = (environment.cardHeaderHeight
-                              + Double(rowCount) * environment.cardRowHeight + 8) * scale
+                let height = environment.cardHeight(rowCount: model.rows.count) * scale
                 frame = CGRect(x: center.x - width / 2, y: center.y - height / 2,
                                width: width, height: height)
                 kind = .entityCard(model)
@@ -379,7 +417,7 @@ public enum DiagramResolver {
                 obstacles.append(DiagramEdgeRouter.Obstacle(frame: frame, scale: scale))
             } else {
                 let width = environment.cardWidth * scale
-                let height = (environment.cardHeaderHeight + environment.cardRowHeight + 8) * scale
+                let height = environment.cardHeight(rowCount: 1) * scale
                 frame = CGRect(x: center.x - width / 2, y: center.y - height / 2,
                                width: width, height: height)
                 kind = .absentEntity(code: payload.entityCode)
@@ -392,7 +430,8 @@ public enum DiagramResolver {
         return ResolvedElement(uuid: node.identity.uuid, code: node.base.code,
                                name: node.base.name, frame: frame,
                                elementZ: node.base.elementZ, kind: kind,
-                               children: children)
+                               children: children,
+                               accumulatedCenter: center, accumulatedScale: scale)
     }
 
     /// Card contents from the hydrated dope tree: the entity's own
@@ -515,8 +554,8 @@ public enum DiagramResolver {
                 // The edge leaves at the FK property ROW's y. rowIndex maps
                 // 1:1 to drawn rows: own properties render first, the
                 // composed-base union only appends after them.
-                let rowY = info.frame.minY + (environment.cardHeaderHeight
-                    + (Double(rowIndex) + 0.5) * environment.cardRowHeight) * info.scale
+                let rowY = rowCenterY(frameMinY: info.frame.minY, scale: info.scale,
+                                      rowIndex: rowIndex, environment: environment)
                 let (from, to) = anchorPoints(info.frame, target.frame)
                 seeds.append(EdgeSeed(
                     request: DiagramEdgeRouter.EdgeRequest(
@@ -549,6 +588,15 @@ public enum DiagramResolver {
                 toElementUuid: seed.toElementUuid,
                 propertyRef: seed.propertyRef)
         }
+    }
+
+    /// The single home of the FK-row y formula — `resolveEdges` anchors and
+    /// `ResolvedElement.rowCenterY` (the host's search field-jump) both call
+    /// this, so the two can never disagree.
+    static func rowCenterY(frameMinY: CGFloat, scale: Double, rowIndex: Int,
+                           environment: DiagramRenderEnvironment) -> CGFloat {
+        frameMinY + (environment.cardHeaderHeight
+            + (Double(rowIndex) + 0.5) * environment.cardRowHeight) * scale
     }
 
     /// Side-midpoint anchors: leave from the edge facing the target.

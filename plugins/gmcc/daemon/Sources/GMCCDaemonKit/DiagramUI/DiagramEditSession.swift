@@ -70,9 +70,18 @@ public final class DiagramEditSession {
 
     public func discard() {
         staged.removeAll()
+        // Invalidates any in-flight flush's committed-prefix bookkeeping:
+        // everything staged after this point is NEW and must survive that
+        // flush's completion (see the generation check in flush()).
+        discardGeneration += 1
     }
 
     private var inFlight = false
+    /// Bumped by discard(). A flush that started before a discard must NOT
+    /// removeFirst() its committed prefix afterwards — the prefix is already
+    /// gone and the removal would eat post-discard stages (or trap when
+    /// fewer remain than were committed).
+    private var discardGeneration = 0
 
     /// Gesture-end commit: everything staged at call time, one transaction,
     /// one revision. Mutations staged DURING the awaited commit stay staged
@@ -88,10 +97,15 @@ public final class DiagramEditSession {
         inFlight = true
         defer { inFlight = false }
         let mutations = staged
+        let generation = discardGeneration
         do {
             let revision = try await committer.commit(
                 mutations, expectedRevision: guarded ? baseRevision : nil)
-            staged.removeFirst(mutations.count)
+            if generation == discardGeneration {
+                staged.removeFirst(mutations.count)
+            }
+            // else: a discard landed during the await — the committed prefix
+            // is already gone and anything now staged is post-discard work.
             baseRevision = revision
             lastError = nil
             return revision

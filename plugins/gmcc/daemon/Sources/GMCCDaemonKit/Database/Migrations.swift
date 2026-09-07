@@ -951,8 +951,8 @@ public enum Migrations {
             )
         }
 
-        // m0007 — DOPED domain modeling (Domain Oriented Persistence Entity
-        // Diagram). Pure ADD: six new BaseEntity tables, no rebuild, no data
+        // m0007 — DOPED domain modeling (Domain Optimized Project Essence
+        // Driver — see DopeVocabulary). Pure ADD: six new BaseEntity tables, no rebuild, no data
         // motion, no existing row touched. No FTS5 mirrors this pass — dope
         // has no search entry point yet; mirrors attach later as a pure-ADD
         // migration exactly as m0003 did for m0002's tables.

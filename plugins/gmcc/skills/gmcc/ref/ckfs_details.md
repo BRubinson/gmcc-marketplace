@@ -41,20 +41,20 @@ content store.
 ~/gmcc_ckfs/                                                  # $GMCC_CKFS_ROOT — file artifacts only
 ├── README.md
 ├── _archive/cold_storage/                                    # universal archive bucket (structure-preserving)
-├── projects/                                                 # $GMCC_PROJECTS
-│   └── {project_name}/                                       # $GMCC_PROJECT_PATH
+├── projects/
+│   └── {project_name}/                                       # project ckfs_relative_storage_path (gm context get --json)
 │       └── instances/
-│           └── {project_name}_{hash4}/                       # $GMCC_INSTANCE_PATH
+│           └── {project_name}_{hash4}/                       # instance ckfs_relative_storage_path
 │               └── sessions/
-│                   └── {sanitized_branch}/                   # $GMCC_SESSION_PATH
+│                   └── {sanitized_branch}/                   # session's artifact home (ckfs_relative_storage_path from gm session get --json)
 │                       └── prompts/
 │                           └── {id}_{name}/                  # one folder per prompt
 │                               └── memory/                  # usually empty — every report
 │                                                             # is a db row
-└── kbites/                                                   # $GMCC_KBITE
+└── kbites/                                                   # kbite_root (gm paths --json)
     ├── {kbite_name}/KBITE_PURPOSE.md                         # identity-level
-    ├── digested/{kbite_name}/...                             # $GMCC_KBITE_DIGESTED — raw-source archive (text is db-canonical)
-    └── open/{kbite_name}/...                                 # $GMCC_KBITE_OPEN — in-progress maws
+    ├── digested/{kbite_name}/...                             # kbite_digested_root — raw-source archive (text is db-canonical)
+    └── open/{kbite_name}/...                                 # kbite_open_root — in-progress maws
 ```
 
 The db stores **pointers + captions** to the `memory/*.md` files
@@ -64,7 +64,8 @@ register each file with `gm artifact add`.
 
 ## Identity Resolution (How a path becomes a session)
 
-`scripts/detect_repo.sh` runs on every SessionStart. Given a git repository:
+Identity is derived daemon-side by `gm context ensure`
+(`GitContext`/`ContextBuilder` in Swift). Given a git repository:
 
 | Concept | Source | Derived value |
 |---------|--------|---------------|
@@ -78,13 +79,9 @@ register each file with `gm artifact add`.
 INSTANCE_CODE = "{basename($REPO_ROOT)}_{first 4 chars of md5($REPO_ROOT)}"
 ```
 
-- Deterministic from `$REPO_ROOT` (the hook can always re-derive it).
+- Deterministic from `$REPO_ROOT` (always re-derivable).
 - Collision-resistant: requires two repos with the same basename AND the same 4-char hash.
 - Machine-safe by construction: only `[a-z0-9\-_]` characters from the basename + hex hash.
-
-The `gm` CLI independently re-derives the same codes in Swift
-(`GitContext`/`ContextBuilder`) — the bash and Swift implementations MUST
-stay in lockstep.
 
 ### Branch Slugification Rules
 - Replace every `/` with `__` (literal two underscores).
@@ -96,15 +93,21 @@ A project corresponds to exactly one git repo (by basename). An instance is a un
 
 On every SessionStart, `detect_repo.sh`:
 
-1. Derives all `GMCC_*` paths (string logic only — no db round-trip) and
-   exports them to `$CLAUDE_ENV_FILE`.
-2. `mkdir -p "$GMCC_SESSION_PATH/prompts"` — the physical home for
-   prompt `memory/` folders.
-3. Calls `~/gmcc/bin/gm context ensure` (best-effort): idempotently
-   upserts the project → instance → session rows in the db, reusing
-   existing uuids and seeding kbite inheritance at create time. If the
-   daemon/binary is unavailable it warns and continues — env export is
-   never blocked.
+1. Confirms the git repo, locates the plugin root, and locates the right
+   `gm` binary (prod runtime, or the sandbox runtime named by a
+   `.gmcc_sandbox` marker). It computes nothing the daemon computes.
+2. Calls `gm context ensure` (best-effort): idempotently upserts the
+   project → instance → session rows in the db (reusing existing uuids,
+   seeding kbite inheritance at create time), creates the session's
+   artifact home (`{ckfs_relative_storage_path}/prompts/` under
+   `$GMCC_CKFS_ROOT` — the physical home for prompt `memory/` folders),
+   and runs the dope boot sync. If the daemon/binary is unavailable it
+   warns and continues.
+3. Emits the session env via `gm context env` into `$CLAUDE_ENV_FILE`:
+   `GMCC_BOOTED`, `GMCC_PLUGIN_ROOT`, `GMCC_CKFS_ROOT`, `PATH` (so bare
+   `gm` resolves to the correct prod/sandbox binary), plus `GMCC_ROOT`
+   when sandboxed. Per-level path vars are retired — roots come from
+   `gm paths` and per-row locations from `ckfs_relative_storage_path`.
 
 This means **commands can always assume the env + session dir exist**;
 db rows exist whenever the daemon was reachable at SessionStart (and

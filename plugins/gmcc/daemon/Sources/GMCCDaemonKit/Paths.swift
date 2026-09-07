@@ -6,11 +6,18 @@ import Foundation
 /// never committed to git. Distinct from `~/gmcc_ckfs/` — that tree holds the
 /// per-repo CKFS yamls; `~/gmcc/` holds binaries and daemon runtime state.
 public enum Paths {
-    /// `~/gmcc/`
-    public static var root: URL {
-        FileManager.default.homeDirectoryForCurrentUser
+    /// `~/gmcc/`, or `$GMCC_ROOT` when set — the sandbox escape hatch. Resolved
+    /// once per process: the daemon env is a posix_spawn snapshot, so a
+    /// per-request read would be stale by design. HOME overrides cannot work
+    /// here (homeDirectoryForCurrentUser resolves via getpwuid, not $HOME).
+    public static let root: URL = {
+        if let override = ProcessInfo.processInfo.environment["GMCC_ROOT"],
+           !override.isEmpty {
+            return URL(fileURLWithPath: override, isDirectory: true)
+        }
+        return FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("gmcc", isDirectory: true)
-    }
+    }()
 
     /// `~/gmcc/bin/`
     public static var bin: URL {

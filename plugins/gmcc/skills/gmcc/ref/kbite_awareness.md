@@ -7,8 +7,9 @@
 
 The KBite system provides persistent, indexed knowledge. Digested text,
 keywords, and search live in the daemon db (read via `gm kbite`); the
-filesystem keeps each kbite's identity (`$GMCC_KBITE/{name}/KBITE_PURPOSE.md`)
-and raw-source archive (`$GMCC_KBITE_DIGESTED/{name}/`).
+filesystem keeps each kbite's identity (`{kbite_root}/{name}/KBITE_PURPOSE.md`)
+and raw-source archive (`{kbite_digested_root}/{name}/`) — both roots from
+`gm paths --json`.
 
 KBites are **inherited, not trigger-matched**. The kbites relevant to the
 current work are seeded down the hierarchy — project → instance → session →
@@ -23,7 +24,7 @@ To use kbite knowledge:
    via `gm kbite list --scope project|instance|session|prompt`
    (`gm kbite list --all` for every kbite in the db).
 2. **Load on demand**: for a registered kbite, read
-   `$GMCC_KBITE/{name}/KBITE_PURPOSE.md`, then query the db:
+   `{kbite_root}/{name}/KBITE_PURPOSE.md`, then query the db:
    `gm kbite get --code {name} --json` (resources + file stubs + keywords),
    `gm kbite search "<query>" --json` (ranked stubs across kbites; scope with
    `--kbite-uuids`), and `gm kbite file-get --file-uuid U --json` (full file

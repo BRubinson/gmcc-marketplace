@@ -10,7 +10,7 @@ allowed-tools: Read, Write, Edit, Grep, Glob, Bash, Task, AskUserQuestion
 
 You are executing a lightweight development workflow entirely in the primary context.
 
-All persistence goes through the `gm` CLI (`~/gmcc/bin/gm`) — see `skills/gmcc_daemon/SKILL.md` for the subcommand reference and `skills/gmcc/ref/bot_workflows.md` for the canonical lifecycle. Never read or write ckfs yamls.
+All persistence goes through the `gm` CLI (bare `gm` — it is on the session PATH) — see `skills/gmcc_daemon/SKILL.md` for the subcommand reference and `skills/gmcc/ref/bot_workflows.md` for the canonical lifecycle. Never read or write ckfs yamls.
 
 The full gm verb surface is already in context: the SessionStart hook prints
 `gm cheatsheet` (exact signatures + invariants). Never run `gm ... --help`
@@ -30,9 +30,9 @@ To fix: Restart Claude Code from within a git repository.
 ```
 Exit without proceeding.
 
-The SessionStart hook exports env, `mkdir`s `$GMCC_SESSION_PATH/prompts/`, and runs `gm context ensure`.
+The SessionStart hook runs `gm context ensure`; the session env is emitted by `gm context env` (GMCC_BOOTED, GMCC_PLUGIN_ROOT, GMCC_CKFS_ROOT, PATH — plus GMCC_ROOT when sandboxed), and all paths come from `gm paths`.
 
-1. `~/gmcc/bin/gm session get --json` for current session state (session row + prompt stubs + change summary). If this exits 2 (daemon unreachable), self-heal: `bash $GMCC_PLUGIN_ROOT/scripts/build_daemon.sh`, then `gm context ensure`, then retry.
+1. `gm session get --json` for current session state (session row + prompt stubs + change summary). If this exits 2 (daemon unreachable), self-heal: `bash $GMCC_PLUGIN_ROOT/scripts/build_daemon.sh`, then `gm context ensure`, then retry.
 2. One call for the whole session's report state: `gm prompt list --with-reports --json`. Each stub carries its clarification/architecture status, refined goal, backstory note, summary version, and counts; a null report means that summary was never opened. For topic lookup across prompts use `gm search "<topic>" --json` — do NOT grep the ckfs and do NOT open memory files to find prior context. (`gm search` covers prompt/clarification/architecture/exploration/review text; the stubs also carry exploration/review state — findings, sub-100 counts, unranked resume signals, verdicts.)
 
 ---
@@ -98,7 +98,7 @@ Example: auth-refactor implement OAuth2 flow
 ## Prompt Creation (NEW mode)
 
 ```bash
-~/gmcc/bin/gm prompt create --name {name} \
+gm prompt create --name {name} \
   --detail "<the entire passed prompt, verbatim>" \
   --backstory "<session row's backstory, verbatim; omit if empty>" \
   --command /gm_bot --json
@@ -143,7 +143,8 @@ matching and no kbite picker.
    kbite on your own initiative.
 3. For each inherited/added kbite, load its context from the db (digested
    knowledge is db-canonical): read the purpose at the kbite root
-   (`$GMCC_KBITE/{name}/KBITE_PURPOSE.md`), then
+   (`{kbite_root}/{name}/KBITE_PURPOSE.md`, kbite_root from
+   `gm paths --json`), then
    `gm kbite get --code {name} --json` for the resource/file-stub/keyword
    overview, then `gm kbite search "<topic>" --json` (bm25 relevance-ordered;
    `--code {name}` scopes to one kbite). Read the `file_summary` brief on
@@ -153,6 +154,15 @@ matching and no kbite picker.
 
 If the inherited list is empty and the prompt names no kbite, load nothing
 and proceed to Phase 2.
+
+### Phase 1b: DOPE Dump
+
+`gm dope list --session-uuid U` — if the session carries a SESSION_BASE
+scope, `gm dope get --session-uuid U --json` and keep the tree in primary
+context through Phase 2 (this tier has no explore spawns, so primary
+context IS the injection). The dump is always the persistence layer's
+source of truth, boot-synced from `.gmcc/dope`. No scope → note it and
+move on. Full protocol: `skills/gmcc/ref/bot_workflows.md`.
 
 ---
 
@@ -264,7 +274,7 @@ the clarification/architecture/exploration/review rows and file-change trail.
 ```
 Bot Complete: prompt {seq} ({name})
 
-**Session**: {GMCC_SESSION_PATH relative to GMCC_PROJECTS}
+**Session**: {session ckfs_relative_storage_path from gm session get --json}
 **Files Modified**: {count from gm file-change list --prompt-uuid U}
 **Implementation state**: {from gm arch get: N/M rows touched, unplanned count}
 **Changes**: {brief summary}

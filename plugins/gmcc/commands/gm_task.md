@@ -41,7 +41,7 @@ Exit without proceeding.
 
 Load **session context** — this is the default scope. These are all reads.
 
-1. `~/gmcc/bin/gm session get --json` — session row (backstory, status),
+1. `gm session get --json` — session row (backstory, status),
    prompt stubs, change summary. (`gm context get --json` for the uuid
    triple + active kbite codes if needed.)
 2. `gm prompt list --with-reports --json` for every prompt's clarification,
@@ -53,7 +53,8 @@ Load **session context** — this is the default scope. These are all reads.
    against a prompt.
 
 **KBites on demand.** If a task clearly benefits from a kbite, load it from
-the db: read `$GMCC_KBITE/{name}/KBITE_PURPOSE.md`, then
+the db: read `{kbite_root}/{name}/KBITE_PURPOSE.md` (kbite_root from
+`gm paths --json`), then
 `gm kbite search "<topic>" --json` for ranked file stubs and
 `gm kbite file-get --file-uuid U --json` for the content that matters
 (`gm kbite get --code {name} --json` for the full overview). Prefer kbites
@@ -96,7 +97,7 @@ For each file you modified (run from inside the repo — git context is
 auto-detected):
 
 ```bash
-~/gmcc/bin/gm file-change add --path <repo-relative path> \
+gm file-change add --path <repo-relative path> \
   --kind edit|create|delete|rename [--range start:end]... \
   [--content "<short note>"] [--prompt-uuid U]
 ```
@@ -110,7 +111,7 @@ Capture the task after the fact as a prompt row (no clarify pipeline is run,
 so it lands as `draft`):
 
 ```bash
-~/gmcc/bin/gm prompt create --name {name} \
+gm prompt create --name {name} \
   --goal "<what the task aimed to achieve>" \
   --detail "<how it was done — the specifics>" \
   --command /gm_task --json

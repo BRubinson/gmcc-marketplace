@@ -33,9 +33,10 @@ To fix: Restart Claude Code from within a git repository.
 ```
 Exit without proceeding.
 
-1. Verify GM-CDE is initialized (`$GMCC_KBITE` is set)
+1. Resolve the kbite roots from `gm paths --json` (kbite_root,
+   kbite_digested_root)
 2. Verify both kbites exist: known to the db (`gm kbite list --all --json`)
-   or present at `$GMCC_KBITE/{name}/` (identity root)
+   or present at `{kbite_root}/{name}/` (identity root)
 3. Parse relationship description to determine type
 
 ### If Source KBite Missing
@@ -96,11 +97,11 @@ What type of relationship is this?
 
 Relationships live at the kbite root (identity-level, like KBITE_PURPOSE.md):
 ```
-$GMCC_KBITE/{kbite_from}/KBITE_RELATIONSHIPS.md
+{kbite_root}/{kbite_from}/KBITE_RELATIONSHIPS.md
 ```
 
 If it doesn't exist there but a legacy copy sits at
-`$GMCC_KBITE_DIGESTED/{kbite_from}/KBITE_RELATIONSHIPS.md`, move the legacy
+`{kbite_digested_root}/{kbite_from}/KBITE_RELATIONSHIPS.md`, move the legacy
 copy to the root first. If neither exists, create from template per
 **gmcc_kbite** skill.
 
@@ -116,7 +117,7 @@ Add or update entry in "Outgoing Relationships" table:
 
 ### Step 4: Update Target KBite Incoming Relationships
 
-Read `$GMCC_KBITE/{kbite_to}/KBITE_RELATIONSHIPS.md` (same legacy-move rule
+Read `{kbite_root}/{kbite_to}/KBITE_RELATIONSHIPS.md` (same legacy-move rule
 as Step 2)
 
 Add or update entry in "Incoming Relationships" table:
@@ -167,8 +168,8 @@ Relationship Created
 
 ## Updated Files
 
-- $GMCC_KBITE/{kbite_from}/KBITE_RELATIONSHIPS.md (outgoing)
-- $GMCC_KBITE/{kbite_to}/KBITE_RELATIONSHIPS.md (incoming)
+- {kbite_root}/{kbite_from}/KBITE_RELATIONSHIPS.md (outgoing)
+- {kbite_root}/{kbite_to}/KBITE_RELATIONSHIPS.md (incoming)
 
 ## Relationship Graph (for {kbite_from})
 
@@ -222,7 +223,7 @@ Continue?
 ```
 [GMB] Error: Failed to update KBITE_RELATIONSHIPS.md
 
-Check permissions on $GMCC_KBITE/{kbite_name}/
+Check permissions on {kbite_root}/{kbite_name}/
 ```
 
 ---

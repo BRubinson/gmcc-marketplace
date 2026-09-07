@@ -44,21 +44,17 @@ public struct DiagramCanvasView: View {
     }
 
     public var body: some View {
-        ZStack(alignment: .topLeading) {
-            // The background stays UN-offset — it paints the whole frame.
+        // The screenshot wrapper is DiagramSceneView's first customer: the
+        // background rides the underlay slot (UN-offset — it paints the whole
+        // frame), so the rendered tree keeps the pre-split single ZStack with
+        // the same children in the same order. Content-derived offset, fixed
+        // frame, and the forced colorScheme override are screenshot framing
+        // and live ONLY here — interactive hosts compose DiagramSceneView
+        // directly with their own stable offset and live appearance.
+        DiagramSceneView(resolved: resolved, offset: offset) {
             (resolved.environment.colorScheme == .dark
                 ? Color(red: 0.11, green: 0.11, blue: 0.13)
                 : Color(red: 0.97, green: 0.97, blue: 0.98))
-            // Depth-first painter order; siblings arrive pre-sorted by
-            // (elementZ, code) from the resolver.
-            ForEach(resolved.topLevel, id: \.uuid) { element in
-                ResolvedElementView(element: element,
-                                    environment: resolved.environment,
-                                    offset: offset)
-            }
-            DiagramEdgeCanvas(edges: resolved.edges,
-                              environment: resolved.environment,
-                              offset: offset)
         }
         .frame(width: totalSize.width, height: totalSize.height, alignment: .topLeading)
         .environment(\.colorScheme, resolved.environment.colorScheme == .dark ? .dark : .light)
@@ -223,6 +219,7 @@ public struct DopeScopeOutlineView: View {
     public let environment: DiagramRenderEnvironment
     public var ghostCode: String?
     public let offset: CGSize
+    @Environment(\.diagramSelection) private var selection
 
     public init(element: ResolvedElement, card: ResolvedScopeCard?,
                 environment: DiagramRenderEnvironment, ghostCode: String? = nil,
@@ -236,6 +233,15 @@ public struct DopeScopeOutlineView: View {
 
     public var body: some View {
         ZStack(alignment: .topLeading) {
+            // Selection accent: if-guarded so the unset default contributes
+            // nothing to the view tree (byte-identity at the frozen sites).
+            if selection.selectedElementUuid == element.uuid {
+                RoundedRectangle(cornerRadius: 10)
+                    .strokeBorder(Color.accentColor, lineWidth: 2.5)
+                    .frame(width: element.frame.width + 6, height: element.frame.height + 6)
+                    .position(x: element.frame.midX + offset.width,
+                              y: element.frame.midY + offset.height)
+            }
             RoundedRectangle(cornerRadius: 10)
                 .strokeBorder(style: StrokeStyle(lineWidth: 1.5,
                                                  dash: card == nil ? [6, 4] : []))
@@ -277,6 +283,7 @@ public struct DopeEntityCardView: View {
     public let environment: DiagramRenderEnvironment
     public let ghostCode: String?
     public let offset: CGSize
+    @Environment(\.diagramSelection) private var selection
 
     public init(element: ResolvedElement, model: EntityCardModel?,
                 environment: DiagramRenderEnvironment, ghostCode: String?,
@@ -335,6 +342,16 @@ public struct DopeEntityCardView: View {
         .overlay(RoundedRectangle(cornerRadius: 6)
             .strokeBorder(style: StrokeStyle(lineWidth: 1, dash: model == nil ? [4, 3] : []))
             .foregroundStyle(model == nil ? Color.secondary : Color.primary.opacity(0.25)))
+        // Selection/emphasis reads — if-guarded (and identity-op opacity) so
+        // the unset default renders byte-identically at the frozen sites.
+        .overlay {
+            if selection.selectedElementUuid == element.uuid {
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(Color.accentColor, lineWidth: 2)
+                    .padding(-2)
+            }
+        }
+        .opacity(selection.dimmedElementUuids.contains(element.uuid) ? 0.35 : 1)
         .frame(width: element.frame.width)
         .position(x: element.frame.midX + offset.width,
                   y: element.frame.midY + offset.height)
@@ -349,6 +366,7 @@ public struct DiagramEdgeCanvas: View {
     public let edges: [ResolvedEdge]
     public let environment: DiagramRenderEnvironment
     public let offset: CGSize
+    @Environment(\.diagramSelection) private var selection
 
     public init(edges: [ResolvedEdge], environment: DiagramRenderEnvironment,
                 offset: CGSize = .zero) {
@@ -358,8 +376,14 @@ public struct DiagramEdgeCanvas: View {
     }
 
     public var body: some View {
+        // Read the environment into a let BEFORE the Canvas closure —
+        // renderer closures are not tracked observation scopes.
+        let highlighted = selection.highlightedElementUuids
         Canvas { context, _ in
             context.translateBy(x: offset.width, y: offset.height)
+            // Pass 1: the base pass, iterating in exactly the pre-slot order
+            // with the pre-slot style — an empty highlight set leaves this
+            // canvas byte-identical to the frozen screenshot output.
             for edge in edges {
                 let path = edge.routed && edge.points.count >= 2
                     ? Self.roundedPolyline(edge.points)
@@ -369,6 +393,22 @@ public struct DiagramEdgeCanvas: View {
                 context.fill(Path(ellipseIn: CGRect(x: edge.to.x - 2.5, y: edge.to.y - 2.5,
                                                     width: 5, height: 5)),
                              with: .color(.secondary))
+            }
+            // Pass 2: accent restroke of edges incident to a highlighted
+            // element, drawn ABOVE every base edge. Empty set ⇒ zero
+            // iterations execute.
+            if !highlighted.isEmpty {
+                for edge in edges where highlighted.contains(edge.fromElementUuid)
+                    || highlighted.contains(edge.toElementUuid) {
+                    let path = edge.routed && edge.points.count >= 2
+                        ? Self.roundedPolyline(edge.points)
+                        : Self.legacyCubic(from: edge.from, to: edge.to)
+                    context.stroke(path, with: .color(.accentColor),
+                                   style: StrokeStyle(lineWidth: 2))
+                    context.fill(Path(ellipseIn: CGRect(x: edge.to.x - 3, y: edge.to.y - 3,
+                                                        width: 6, height: 6)),
+                                 with: .color(.accentColor))
+                }
             }
         }
         .allowsHitTesting(false)

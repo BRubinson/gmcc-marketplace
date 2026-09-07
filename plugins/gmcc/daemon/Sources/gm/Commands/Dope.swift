@@ -2,8 +2,9 @@ import ArgumentParser
 import Foundation
 import GMCCDaemonKit
 
-/// gm dope — DOPED domain modeling (Domain Oriented Persistence Entity
-/// Diagram). Granular db-native verbs take uuids + --expected-version; the
+/// gm dope — DOPED domain modeling (Domain Optimized Project Essence
+/// Driver — see DopeVocabulary). Granular db-native verbs take uuids +
+/// --expected-version; the
 /// whole-tree repo verbs move `.doped.json` files under
 /// {instance_root}/.gmcc/dope/ where every reference is a dot-path code.
 /// dope_scope.revision is the whole-tree content counter and IS the JSON
@@ -19,7 +20,7 @@ struct Dope: ParsableCommand {
             PropertyAdd.self, PropertyUpdate.self, PropertyDelete.self,
             EnumAdd.self, EnumUpdate.self, EnumDelete.self,
             OptionAdd.self, OptionUpdate.self, OptionDelete.self,
-            ReadRepo.self, WriteRepo.self, Ingest.self,
+            ReadRepo.self, WriteRepo.self, Ingest.self, Sync.self,
         ]
     )
 
@@ -561,16 +562,72 @@ struct Dope: ParsableCommand {
         @Option(name: .long) var scopeUuid: String
         @Option(name: .long, help: "Explicit instance root to read from; omitted = the scope's own.")
         var dirPath: String?
+        @Flag(name: .long, help: """
+            Files-are-authoritative (boot-sync only): accept any strictly \
+            FORWARD on-disk version, including seeding a virgin scope. \
+            DISCARDS db-only revisions in the gap. Never moves backward.
+            """)
+        var adopt = false
 
         func run() throws {
             let response = try withClient {
-                try $0.dopeIngest(DopeIngestRequest(scopeUuid: scopeUuid, dirPath: dirPath))
+                try $0.dopeIngest(DopeIngestRequest(
+                    scopeUuid: scopeUuid, dirPath: dirPath, adopt: adopt ? true : nil))
             }
             if output.json { printJSON(response) } else {
                 let c = response.counts
                 print("[gm] dope ingested revision \(response.scope.revision): "
                     + "\(c.domains) domains, \(c.entities) entities, \(c.properties) properties, "
                     + "\(c.enums) enums, \(c.options) options")
+                if let gap = response.gapCrossed, gap > 0 {
+                    print("  adopted across a gap of \(gap) db revision(s)")
+                }
+            }
+        }
+    }
+
+    struct Sync: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: """
+                Reconcile the session's SESSION_BASE scope with the repo's \
+                .gmcc/dope tree (files → db, forward only). Runs automatically \
+                at boot via gm context ensure; run manually after a mid-session \
+                branch change.
+                """)
+
+        @OptionGroup var output: OutputOptions
+        @Option(name: .long, help: "Session to sync; omitted = the current repo/branch session.")
+        var sessionUuid: String?
+
+        func run() throws {
+            let git = try GitContext.detect()
+            let outcome: DopeBootSync.Outcome = try withClient { client in
+                let uuid = try sessionUuid ?? ContextBuilder.resolveSessionUuid(client)
+                return DopeBootSync.run(client: client, sessionUuid: uuid,
+                                        instanceRoot: git.repoRoot)
+            }
+            if output.json {
+                struct SyncReport: Codable {
+                    let outcome: String
+                    let notice: String?
+                }
+                printJSON(SyncReport(outcome: label(outcome),
+                                     notice: DopeBootSync.notice(for: outcome)))
+            } else if let notice = DopeBootSync.notice(for: outcome) {
+                print(notice)
+            } else {
+                print("[gm] dope sync: \(label(outcome))")
+            }
+        }
+
+        private func label(_ outcome: DopeBootSync.Outcome) -> String {
+            switch outcome {
+            case .noRepoTree: return "no_repo_tree"
+            case .inSync: return "in_sync"
+            case .seeded: return "seeded"
+            case .readopted: return "readopted"
+            case .filesBehind: return "files_behind"
+            case .unreadable: return "unreadable"
             }
         }
     }

@@ -10,7 +10,7 @@ allowed-tools: Read, Write, Edit, Grep, Glob, Bash, Task, AskUserQuestion
 
 You are executing an enhanced development workflow that leverages GMCC subagents for Research, Planning, and Review phases. Same prompt-into-session model as `/gm_bot`, with subagents added to Phases 2, 4, and 6. Subagent reports are persisted to `prompts/{seq}_{name}/memory/` and registered in the daemon db.
 
-All persistence goes through the `gm` CLI (`~/gmcc/bin/gm`) — see `skills/gmcc_daemon/SKILL.md` for the full subcommand reference and `skills/gmcc/ref/bot_workflows.md` for the canonical lifecycle. Never read or write ckfs yamls.
+All persistence goes through the `gm` CLI (bare `gm` — it is on the session PATH) — see `skills/gmcc_daemon/SKILL.md` for the full subcommand reference and `skills/gmcc/ref/bot_workflows.md` for the canonical lifecycle. Never read or write ckfs yamls.
 
 The full gm verb surface is already in context: the SessionStart hook prints
 `gm cheatsheet` (exact signatures + invariants). Never run `gm ... --help`
@@ -19,7 +19,7 @@ roundtrips or guess flags — consult the sheet.
 **Cheatsheet mandate for subagents.** Subagents do not inherit SessionStart
 context. Every Task prompt in the phases below must additionally include a
 `## GM Cheatsheet` section containing the verbatim output of
-`~/gmcc/bin/gm cheatsheet`, so workers read gm data shapes and report against
+`gm cheatsheet`, so workers read gm data shapes and report against
 the real verb surface.
 
 ---
@@ -35,9 +35,9 @@ To fix: Restart Claude Code from within a git repository.
 ```
 Exit without proceeding.
 
-The SessionStart hook exports env, `mkdir`s `$GMCC_SESSION_PATH/prompts/`, and runs `gm context ensure`. Then:
+The SessionStart hook runs `gm context ensure`; the session env is emitted by `gm context env` (GMCC_BOOTED, GMCC_PLUGIN_ROOT, GMCC_CKFS_ROOT, PATH — plus GMCC_ROOT when sandboxed), and all paths come from `gm paths`. Then:
 
-1. `~/gmcc/bin/gm session get --json` for current session state (session row + prompt stubs + change summary). If this exits 2 (daemon unreachable), self-heal: `bash $GMCC_PLUGIN_ROOT/scripts/build_daemon.sh`, then `gm context ensure`, then retry.
+1. `gm session get --json` for current session state (session row + prompt stubs + change summary). If this exits 2 (daemon unreachable), self-heal: `bash $GMCC_PLUGIN_ROOT/scripts/build_daemon.sh`, then `gm context ensure`, then retry.
 2. One call for the whole session's report state: `gm prompt list --with-reports --json` (per-prompt clarification/architecture status, refined goal, backstory note, version, counts). A null report means that summary was never opened. Topic lookup across prompts is `gm search "<topic>" --json` — do NOT grep the ckfs or open memory files for context; all four reports are db rows and the stubs carry their state.
 
 ---
@@ -55,7 +55,7 @@ Identical to `/gm_bot`. See `${CLAUDE_PLUGIN_ROOT}/commands/gm_bot.md` for full 
 ## Prompt Creation (New Prompt)
 
 ```bash
-~/gmcc/bin/gm prompt create --name {name} \
+gm prompt create --name {name} \
   --detail "<the entire passed prompt, verbatim>" \
   --backstory "<session row's backstory, verbatim; omit if empty>" \
   --command /gm_bot_rpi --json
@@ -96,7 +96,8 @@ row's active list at create time. No trigger matching, no kbite picker.
    kbite, register it (`gm kbite add --code C --scope prompt --owner-uuid U`).
    Never add one on your own.
 3. For each inherited/added kbite: read the purpose at the kbite root
-   (`$GMCC_KBITE/{name}/KBITE_PURPOSE.md`), get the resource/file-stub/keyword
+   (`{kbite_root}/{name}/KBITE_PURPOSE.md`, kbite_root from
+   `gm paths --json`), get the resource/file-stub/keyword
    overview (`gm kbite get --code {name} --json`), rank relevant files
    (`gm kbite search "<topic>" --json` — bm25 relevance-ordered; `--code`
    scopes to one kbite), read the `file_summary` brief on every hit, pull the
@@ -104,6 +105,17 @@ row's active list at create time. No trigger matching, no kbite picker.
    fixed top-N cap (`gm kbite file-get --file-uuid U --json`) — and compile a
    **kbite context summary** (key learnings, takeaways, patterns).
 4. Keep the summary in primary context — it is passed to every subagent spawn.
+
+### Phase 1b: DOPE Dump
+
+`gm dope list --session-uuid U` — if the session carries a SESSION_BASE
+scope, `gm dope get --session-uuid U --json` and hold the tree in primary
+context: it is **force-injected into every explore spawn** as a
+`## Domain Model (DOPE)` block (explorers do not choose whether to load
+it); architects get the fetch command and load on demand. The dump is
+always the persistence layer's source of truth (boot-synced from
+`.gmcc/dope`). No scope → note it and move on. Full protocol:
+`skills/gmcc/ref/bot_workflows.md`.
 
 ---
 
@@ -121,10 +133,13 @@ Task tool:
     ## Task Context
     **Exploration Target**: {prompt row's goal + detail}
     **Repository**: Explore from the current working directory
-    **Branch**: $(basename $GMCC_SESSION_PATH)
+    **Branch**: {session code from gm session get}
 
     ## KBite Knowledge
     {kbite context summary}
+
+    ## Domain Model (DOPE)
+    {dope dump — the session's SESSION_BASE tree from gm dope get, force-injected; it IS the persistence layer. Omit the section only when the session has no dope scope, and say so.}
 
     ## Exploration Approach
     Apply all 4 methodologies sequentially:
@@ -210,6 +225,9 @@ Task tool:
 
     ## KBite Knowledge
     {kbite context summary}
+
+    ## Domain Model (DOPE)
+    The session's dope tree is the persistence layer's source of truth — load it on demand with `gm dope get --session-uuid {U} --json`. An architecture proposing new persistence is proposing dope changes.
 
     ## Architecture Approach
     Apply all 4 methodologies and synthesize the best elements.
@@ -308,7 +326,7 @@ status `done` plus the clarification/architecture/exploration/review rows and fi
 ```
 Bot RPI Complete: prompt {seq} ({name})
 
-**Session**: {GMCC_SESSION_PATH relative to GMCC_PROJECTS}
+**Session**: {session ckfs_relative_storage_path from gm session get --json}
 **Files Modified**: {count from gm file-change list --prompt-uuid U}
 **Review Status**: {pass / pass_with_issues}
 

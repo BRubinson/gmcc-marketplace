@@ -2464,20 +2464,35 @@ public struct DopeIngestRequest: Codable, Hashable, Sendable {
     public let scopeUuid: String
     /// Explicit instance root to read from; nil = the scope's own.
     public let dirPath: String?
+    /// Files-are-authoritative mode (boot sync only): permits any strictly
+    /// FORWARD move (on-disk version > db revision), including seeding a
+    /// virgin scope at revision 0 from a tree at any version. Never moves
+    /// backward. Additive optional — absent means the strict +1 gate.
+    public let adopt: Bool?
 
-    public init(scopeUuid: String, dirPath: String? = nil) {
+    public init(scopeUuid: String, dirPath: String? = nil, adopt: Bool? = nil) {
         self.scopeUuid = scopeUuid
         self.dirPath = dirPath
+        self.adopt = adopt
     }
 }
 
 public struct DopeIngestResponse: Codable, Hashable, Sendable {
     public let scope: DopeScopeRow
     public let counts: DopeTreeCounts
+    /// Revision the scope held before this ingest (additive optional).
+    public let previousRevision: Int64?
+    /// Revisions skipped beyond the strict +1 step (adopt only, additive).
+    public let gapCrossed: Int64?
 
-    public init(scope: DopeScopeRow, counts: DopeTreeCounts) {
+    public init(
+        scope: DopeScopeRow, counts: DopeTreeCounts,
+        previousRevision: Int64? = nil, gapCrossed: Int64? = nil
+    ) {
         self.scope = scope
         self.counts = counts
+        self.previousRevision = previousRevision
+        self.gapCrossed = gapCrossed
     }
 }
 

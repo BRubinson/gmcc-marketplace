@@ -38,22 +38,22 @@ Exit without proceeding.
 
 2. **Ensure the RUNNING daemon is the installed build**:
    - If step 1 rebuilt, the running daemon (if any) is definitionally
-     stale — run `~/gmcc/bin/gm daemon restart`.
+     stale — run `gm daemon restart`.
    - If step 1 no-oped, check what's serving the socket:
-     `~/gmcc/bin/gm daemon status` (never autostarts). If no daemon is
-     running, `~/gmcc/bin/gm daemon start`. If one is running, compare
-     `~/gmcc/bin/gm ping --json`'s build date against the installed
+     `gm daemon status` (never autostarts). If no daemon is
+     running, `gm daemon start`. If one is running, compare
+     `gm ping --json`'s build date against the installed
      binary's mtime (`stat -f %Sm -t %Y-%m-%dT%H:%M:%SZ ~/gmcc/bin/gmcc_daemon`
      is local time — convert or compare epochs); if the running build date
-     is older than the binary, run `~/gmcc/bin/gm daemon restart`.
+     is older than the binary, run `gm daemon restart`.
 
    Do NOT rely on the protocol handshake here: it only retires a stale
    daemon across a wire-version bump, not a same-version rebuild.
 
-3. **Verify** — run `~/gmcc/bin/gm ping` and `~/gmcc/bin/gm status`; the
+3. **Verify** — run `gm ping` and `gm status`; the
    ping build sha/date must now reflect the just-installed binaries.
 
-**Self-heal**: if any `gm` call fails because `~/gmcc/bin/gm` is missing,
+**Self-heal**: if any `gm` call fails because the gm binary is missing,
 run the build (step 1) and retry once.
 
 ---

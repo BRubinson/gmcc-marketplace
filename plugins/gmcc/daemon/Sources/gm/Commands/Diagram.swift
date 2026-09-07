@@ -17,7 +17,7 @@ struct Diagram: ParsableCommand {
         subcommands: [
             Init.self, List.self, Get.self, Update.self,
             ElementAdd.self, ElementUpdate.self, ElementDelete.self,
-            BatchApply.self, Screenshot.self,
+            BatchApply.self, Screenshot.self, FromDope.self,
         ]
     )
 

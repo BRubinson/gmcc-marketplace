@@ -163,8 +163,23 @@ extension Store {
             throw StoreError.badRequest(detail:
                 "main.doped.json names scope code '\(bundle.main.scope.code)' but the target scope is '\(scopeBefore.code)' — the code is identity and cannot be changed by ingest")
         }
+        // The gate is PARAMETERIZED, never weakened: the strict path binds
+        // `incoming - 1` (the lost-update detector); adopt binds the OBSERVED
+        // revision — the caller declared the files authoritative, but the
+        // guarded WHERE still makes a concurrent writer lose the race cleanly.
+        // Adopt keeps exactly one invariant: monotonicity. Backward is the
+        // one genuinely destructive direction (a stale checkout clobbering
+        // newer db work) and is refused outright.
+        let incoming = bundle.main.version
+        let adopt = req.adopt == true
+        if adopt {
+            guard incoming > scopeBefore.revision else {
+                throw StoreError.badRequest(detail:
+                    "adopt requires the on-disk version (\(incoming)) to be strictly ahead of db revision \(scopeBefore.revision) — ingest never moves backward; publish db edits with dope write-repo instead")
+            }
+        }
+        let expectedRevision = adopt ? scopeBefore.revision : incoming - 1
         return try dbQueue.write { db in
-            let incoming = bundle.main.version
             try db.execute(sql: """
                 UPDATE dope_scope
                    SET revision = ?,
@@ -178,7 +193,7 @@ extension Store {
                     incoming,
                     bundle.main.scope.name, bundle.main.scope.description,
                     bundle.main.scope.name, bundle.main.scope.description,
-                    Store.isoNow(), req.scopeUuid, incoming - 1,
+                    Store.isoNow(), req.scopeUuid, expectedRevision,
                 ])
             if db.changesCount == 0 {
                 guard let actual = try Int64.fetchOne(
@@ -188,7 +203,7 @@ extension Store {
                     throw StoreError.notFound(entity: "dope_scope", key: req.scopeUuid)
                 }
                 throw StoreError.revisionConflict(
-                    scopeUuid: req.scopeUuid, expected: incoming - 1, actual: actual)
+                    scopeUuid: req.scopeUuid, expected: expectedRevision, actual: actual)
             }
 
             try self.wipeDopeTree(db, scopeUuid: req.scopeUuid)
@@ -198,28 +213,35 @@ extension Store {
             guard let scope = try self.fetchDopeScope(db, uuid: req.scopeUuid) else {
                 throw StoreError.corruptState(entity: "dope_scope", detail: "vanished during ingest")
             }
+            let gap = adopt ? (incoming - scopeBefore.revision - 1) : 0
             try self.recordDopeIngestEvent(db, scope: scope, before: scopeBefore.revision,
-                                           counts: counts)
-            return DopeIngestResponse(scope: scope, counts: counts)
+                                           counts: counts, adopted: adopt)
+            return DopeIngestResponse(
+                scope: scope, counts: counts,
+                previousRevision: scopeBefore.revision,
+                gapCrossed: gap > 0 ? gap : nil)
         }
     }
 
     private func recordDopeIngestEvent(
-        _ db: Database, scope: DopeScopeRow, before: Int64, counts: DopeTreeCounts
+        _ db: Database, scope: DopeScopeRow, before: Int64, counts: DopeTreeCounts,
+        adopted: Bool
     ) throws {
+        var payload: [String: Any] = [
+            "action": adopted ? (before == 0 ? "boot_seed" : "boot_adopt") : "ingest",
+            "scope_uuid": scope.uuid,
+            "session_uuid": scope.sessionUuid,
+            "revision": Int(scope.revision),
+            "previous_revision": Int(before),
+            "domains": counts.domains,
+            "entities": counts.entities,
+            "properties": counts.properties,
+            "enums": counts.enums,
+            "options": counts.options,
+        ]
+        if adopted { payload["adopted"] = true }
         try appendEvent(db, kind: .dopeChange, subjectUuid: scope.uuid,
-                        payload: Store.jsonPayload([
-                            "action": "ingest",
-                            "scope_uuid": scope.uuid,
-                            "session_uuid": scope.sessionUuid,
-                            "revision": Int(scope.revision),
-                            "previous_revision": Int(before),
-                            "domains": counts.domains,
-                            "entities": counts.entities,
-                            "properties": counts.properties,
-                            "enums": counts.enums,
-                            "options": counts.options,
-                        ]))
+                        payload: Store.jsonPayload(payload))
         try touchSession(db, uuid: scope.sessionUuid)
     }
 }

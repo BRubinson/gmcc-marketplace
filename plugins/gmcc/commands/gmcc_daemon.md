@@ -1,6 +1,6 @@
 ---
 name: gmcc_daemon
-description: Build, install, and control the GMCC daemon (gmcc_daemon + gm CLI). Runs scripts/build_daemon.sh and drives ~/gmcc/bin/gm for status/restart. The daemon owns the SQLite db at ~/gmcc/gmcc.db; everything else is a socket client.
+description: Build, install, and control the GMCC daemon (gmcc_daemon + gm CLI). Runs scripts/build_daemon.sh and drives the gm CLI for status/restart. The daemon owns the SQLite db at ~/gmcc/gmcc.db; everything else is a socket client.
 argument-hint: "[build | status | restart | setup]"
 disable-model-invocation: true
 allowed-tools: Bash, Read, AskUserQuestion
@@ -34,15 +34,15 @@ for the complete protocol, then dispatch on the argument:
 - **`build`** (default when binaries are missing/stale): run
   `bash $GMCC_PLUGIN_ROOT/scripts/build_daemon.sh` and report the output.
   Append `--force` if the user asked for a clean rebuild.
-- **`status`**: run `~/gmcc/bin/gm status` and report daemon pid, schema
+- **`status`**: run `gm status` and report daemon pid, schema
   version, and table counts.
-- **`restart`**: run `~/gmcc/bin/gm daemon restart`.
-- **`setup`**: run `~/gmcc/bin/gm setup` (first-time init of `~/gmcc/` and the
+- **`restart`**: run `gm daemon restart`.
+- **`setup`**: run `gm setup` (first-time init of `~/gmcc/` and the
   db). Offer `--launchd` if the user wants the daemon started at login.
 - **No argument**: run the build (staleness-checked — it no-ops when binaries
   are current), then `gm status`.
 
-**Self-heal**: if any `gm` invocation fails because `~/gmcc/bin/gm` is
+**Self-heal**: if any `gm` invocation fails because the gm binary is
 missing, run the build first, then retry once.
 
 ---

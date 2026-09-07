@@ -11,7 +11,9 @@ allowed-tools: Read, Write, Bash, Glob, Grep
 Finalizes a kbite: one `gm kbite digest` call imports every chewed analysis
 into the daemon db (the canonical home for digested text, keywords, and
 search), then the raw source folders are archived under
-`$GMCC_KBITE_DIGESTED/{kbite_name}/` and the open maw is deleted.
+`{kbite_digested_root}/{kbite_name}/` and the open maw is deleted
+(kbite_root / kbite_open_root / kbite_digested_root come from
+`gm paths --json`).
 
 ---
 
@@ -26,10 +28,11 @@ To fix: Restart Claude Code from within a git repository.
 ```
 Exit without proceeding.
 
-1. Verify GM-CDE is initialized (`$GMCC_KBITE` is set)
-2. Verify maw exists at `$GMCC_KBITE_OPEN/{kbite_name}/`
+1. Resolve the kbite roots from `gm paths --json` (kbite_root,
+   kbite_open_root, kbite_digested_root)
+2. Verify maw exists at `{kbite_open_root}/{kbite_name}/`
 3. Read MAW_INDEX.md - verify status is "ready_to_digest" or has chewed resources
-4. Verify KBITE_PURPOSE.md exists at `$GMCC_KBITE/{kbite_name}/KBITE_PURPOSE.md`
+4. Verify KBITE_PURPOSE.md exists at `{kbite_root}/{kbite_name}/KBITE_PURPOSE.md`
 
 ### If Maw Missing
 ```
@@ -52,7 +55,7 @@ Exit without changes.
 [GMB] Error: KBITE_PURPOSE.md not found
 
 The kbite purpose file is required at:
-$GMCC_KBITE/{kbite_name}/KBITE_PURPOSE.md
+{kbite_root}/{kbite_name}/KBITE_PURPOSE.md
 
 Run /gm_crunch_open_maw {kbite_name} to create it.
 ```
@@ -66,7 +69,7 @@ Per the **gmcc_kbite** skill:
 
 **Source (open maw):**
 ```
-$GMCC_KBITE_OPEN/{kbite_name}/
+{kbite_open_root}/{kbite_name}/
 ├── MAW_INDEX.md
 ├── {axis1}/{axis2}/{resource_name}/           # raw source files
 └── {axis1}/{axis2}/{resource_name}_chewed.md  # analysis (digest input)
@@ -76,10 +79,10 @@ $GMCC_KBITE_OPEN/{kbite_name}/
 - **Daemon db** (canonical): resources, per-file summaries + inline text
   content, keywords, FTS5 search — written by `gm kbite digest`, read back
   via `gm kbite get / file-get / search`.
-- **`$GMCC_KBITE_DIGESTED/{kbite_name}/`** (raw-source archive): the raw
+- **`{kbite_digested_root}/{kbite_name}/`** (raw-source archive): the raw
   source folders, moved there client-side after the db import. No
   KBITE_INDEX.md is generated — `gm kbite get` is the index.
-- **`$GMCC_KBITE/{kbite_name}/`** (identity): KBITE_PURPOSE.md and, if
+- **`{kbite_root}/{kbite_name}/`** (identity): KBITE_PURPOSE.md and, if
   relationships exist, KBITE_RELATIONSHIPS.md (managed by `/gm_kbite_relate`).
 
 ---
@@ -100,7 +103,7 @@ keyword rows (full text inlined for text-type files), then deletes the
 chewed `.md` files after the transaction commits:
 
 ```bash
-~/gmcc/bin/gm kbite digest --code {kbite_name} --json
+gm kbite digest --code {kbite_name} --json
 ```
 
 The response reports `resource_count`, `file_count`, `keyword_count`, and
@@ -109,13 +112,14 @@ The response reports `resource_count`, `file_count`, `keyword_count`, and
 ### Step 3: Archive Raw Sources
 
 Move the raw source folders from the maw into the digested archive
-(client-side — the daemon never moves raw sources):
+(client-side — the daemon never moves raw sources; substitute the
+kbite_open_root / kbite_digested_root values from `gm paths --json`):
 
 ```bash
 for axis1 in primary secondary; do
   for axis2 in documentation example_project api_reference blogs all_others; do
-    src="$GMCC_KBITE_OPEN/{kbite_name}/$axis1/$axis2"
-    dst="$GMCC_KBITE_DIGESTED/{kbite_name}/$axis1/$axis2"
+    src="{kbite_open_root}/{kbite_name}/$axis1/$axis2"
+    dst="{kbite_digested_root}/{kbite_name}/$axis1/$axis2"
     if [ -d "$src" ] && [ -n "$(ls -A "$src" 2>/dev/null)" ]; then
       mkdir -p "$dst"
       mv "$src"/* "$dst"/
@@ -127,13 +131,13 @@ done
 ### Step 4: Delete Open Maw
 
 ```bash
-rm -rf "$GMCC_KBITE_OPEN/{kbite_name}"
+rm -rf "{kbite_open_root}/{kbite_name}"
 ```
 
 ### Step 5: Verify
 
 ```bash
-~/gmcc/bin/gm kbite get --code {kbite_name} --json
+gm kbite get --code {kbite_name} --json
 ```
 
 Confirm the resource/file/keyword counts match Step 2's response.
@@ -146,7 +150,7 @@ Confirm the resource/file/keyword counts match Step 2's response.
 Digest Complete: {kbite_name}
 
 **Canonical knowledge**: daemon db (gm kbite get/search/file-get)
-**Raw-source archive**: $GMCC_KBITE_DIGESTED/{kbite_name}/
+**Raw-source archive**: {kbite_digested_root}/{kbite_name}/
 
 ## Digest Summary
 
@@ -159,7 +163,7 @@ Digest Complete: {kbite_name}
 
 ## Maw Cleanup
 
-The open maw at `$GMCC_KBITE_OPEN/{kbite_name}/` has been deleted.
+The open maw at `{kbite_open_root}/{kbite_name}/` has been deleted.
 
 ## Next Steps
 

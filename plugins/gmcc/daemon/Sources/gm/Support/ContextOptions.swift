@@ -16,10 +16,10 @@ struct GitContext {
     let branch: String
 
     /// {repo}_{first 4 hex of md5(abs path)} — matches detect_repo.sh's hash4.
+    /// Single Swift home of the convention: InstanceIdentity in the kit
+    /// (shared with SandboxRetarget).
     var instanceCode: String {
-        let digest = Insecure.MD5.hash(data: Data(repoRoot.utf8))
-        let hex = digest.map { String(format: "%02x", $0) }.joined()
-        return "\(repoName)_\(hex.prefix(4))"
+        InstanceIdentity.code(repoName: repoName, absolutePath: repoRoot)
     }
 
     /// Branch with / slugified to __ — matches detect_repo.sh.
@@ -67,10 +67,17 @@ struct GitContext {
 }
 
 enum CkfsYaml {
-    static var root: URL {
-        FileManager.default.homeDirectoryForCurrentUser
+    /// `~/gmcc_ckfs/`, or `$GMCC_CKFS_ROOT` when set — same env name the
+    /// SessionStart hook already exports, so sandbox sessions redirect the
+    /// CLI's yaml reads without a second variable.
+    static let root: URL = {
+        if let override = ProcessInfo.processInfo.environment["GMCC_CKFS_ROOT"],
+           !override.isEmpty {
+            return URL(fileURLWithPath: override, isDirectory: true)
+        }
+        return FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("gmcc_ckfs", isDirectory: true)
-    }
+    }()
 
     /// Extract the first top-level `uuid:` from a ckfs data yaml, if present.
     static func uuid(_ relativePath: String) -> String? {
@@ -155,10 +162,17 @@ enum ContextBuilder {
 /// gm resolves absolute paths here and passes them in payloads.
 enum KbitePaths {
     static func openMaw(name: String) throws -> URL {
-        guard let root = ProcessInfo.processInfo.environment["GMCC_KBITE_OPEN"], !root.isEmpty else {
-            throw ValidationError("GMCC_KBITE_OPEN is not set — pass an explicit path or boot GMCC")
+        // Env-first keeps sandbox launchers (which set it explicitly)
+        // working unchanged; the db fallback is what makes dropping the
+        // session export safe — $GMCC_KBITE_OPEN is no longer emitted by
+        // gm context env, the db owns the roots.
+        if let root = ProcessInfo.processInfo.environment["GMCC_KBITE_OPEN"], !root.isEmpty {
+            return URL(fileURLWithPath: root, isDirectory: true)
+                .appendingPathComponent(name, isDirectory: true)
         }
-        return URL(fileURLWithPath: root, isDirectory: true).appendingPathComponent(name, isDirectory: true)
+        let paths = try withClient { try $0.pathsGet() }
+        return URL(fileURLWithPath: paths.kbiteOpenRoot, isDirectory: true)
+            .appendingPathComponent(name, isDirectory: true)
     }
 }
 

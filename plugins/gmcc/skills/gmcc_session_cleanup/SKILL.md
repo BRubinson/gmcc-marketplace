@@ -8,8 +8,9 @@ allowed-tools: Read, Write, Bash, Glob, AskUserQuestion
 
 # GMCC Session Cleanup Skill
 
-Audits the **current session** — the artifact tree at `$GMCC_SESSION_PATH`
-cross-checked against the daemon db rows (`gm session get`, `gm prompt
+Audits the **current session** — the artifact tree at the session's
+artifact home (`$GMCC_CKFS_ROOT/{ckfs_relative_storage_path}`, the relative
+path from `gm session get --json`) cross-checked against the daemon db rows (`gm session get`, `gm prompt
 list/get`, `gm artifact list`, `gm file-change list`) — and interactively
 resolves each finding.
 
@@ -32,7 +33,7 @@ broader `$GMCC_CKFS_ROOT`.
 
 ## Scope (hard boundary)
 
-**Walk ONLY `$GMCC_SESSION_PATH` + this session's db rows.** Never recurse
+**Walk ONLY the session's artifact home + this session's db rows.** Never recurse
 into `$GMCC_CKFS_ROOT` broadly, never inspect sibling sessions, never touch
 `_archive/`. All db access is read via `gm`; repairs are `gm` calls or
 filesystem moves within the session.
@@ -137,5 +138,5 @@ are reported in chat only.
 - **Never auto-fix** — every action requires user confirmation via AskUserQuestion.
 - **Never delete** — the destructive option is archive to cold storage (move, not delete).
 - **Never write the db directly** — all db repairs go through `gm`.
-- **Stay in scope** — never act on anything outside `$GMCC_SESSION_PATH` (plus this session's db rows via `gm`).
+- **Stay in scope** — never act on anything outside the session's artifact home (plus this session's db rows via `gm`).
 - **--dry-run** — when invoked with `--dry-run`, walk and report only; skip the resolution loop entirely.

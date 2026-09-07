@@ -9,7 +9,7 @@
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 GMCC_PLUGIN_DIR="$(dirname "$SCRIPT_DIR")"
 DAEMON_PKG="$GMCC_PLUGIN_DIR/daemon"
-GMCC_BIN="$HOME/gmcc/bin"
+GMCC_BIN="${GMCC_ROOT:-$HOME/gmcc}/bin"
 
 # No daemon package in this plugin build — nothing to check.
 [ -f "$DAEMON_PKG/Package.swift" ] || exit 0

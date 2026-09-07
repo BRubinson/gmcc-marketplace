@@ -23,10 +23,11 @@ To fix: Restart Claude Code from within a git repository.
 ```
 Exit without proceeding.
 
-1. Verify GM-CDE is initialized (`$GMCC_KBITE` is set)
-2. Verify maw exists at `$GMCC_KBITE_OPEN/{kbite_name}/`
+1. Resolve the kbite roots from `gm paths --json` (kbite_root,
+   kbite_open_root)
+2. Verify maw exists at `{kbite_open_root}/{kbite_name}/`
 3. Read MAW_INDEX.md for current state
-4. Read `$GMCC_KBITE/{kbite_name}/KBITE_PURPOSE.md` (if exists) for context
+4. Read `{kbite_root}/{kbite_name}/KBITE_PURPOSE.md` (if exists) for context
 
 ### If Maw Missing
 ```
@@ -57,7 +58,7 @@ Scan all axis1/axis2 directories for new crunchable folders:
 # Find all directories that could be crunchables
 for axis1 in primary secondary; do
     for axis2 in documentation example_project api_reference blogs all_others; do
-        path="$GMCC_KBITE_OPEN/{kbite_name}/$axis1/$axis2"
+        path="{kbite_open_root}/{kbite_name}/$axis1/$axis2"
         if [ -d "$path" ]; then
             # List directories (crunchables) in this path
             for dir in "$path"/*/; do
@@ -102,8 +103,8 @@ Task tool:
     **Crunchable**: {crunchable_name}
     **Axis1**: {primary|secondary}
     **Axis2**: {documentation|example_project|api_reference|blogs|all_others}
-    **Location**: $GMCC_KBITE_OPEN/{kbite_name}/{axis1}/{axis2}/{crunchable_name}/
-    **Output**: $GMCC_KBITE_OPEN/{kbite_name}/{axis1}/{axis2}/{crunchable_name}_chewed.md
+    **Location**: {kbite_open_root}/{kbite_name}/{axis1}/{axis2}/{crunchable_name}/
+    **Output**: {kbite_open_root}/{kbite_name}/{axis1}/{axis2}/{crunchable_name}_chewed.md
 
     **KBite Purpose** (if available):
     {Contents of KBITE_PURPOSE.md}
@@ -119,7 +120,7 @@ Task tool:
 Each agent returns the chewed content. Write to the correct location:
 
 ```
-$GMCC_KBITE_OPEN/{kbite_name}/{axis1}/{axis2}/{crunchable_name}_chewed.md
+{kbite_open_root}/{kbite_name}/{axis1}/{axis2}/{crunchable_name}_chewed.md
 ```
 
 ### Step 6: Update MAW_INDEX
@@ -157,7 +158,7 @@ Per the **gmcc_kbite** skill:
 ```
 Chew Complete: {kbite_name}
 
-**Maw Location**: $GMCC_KBITE_OPEN/{kbite_name}/
+**Maw Location**: {kbite_open_root}/{kbite_name}/
 
 ## Processing Summary
 

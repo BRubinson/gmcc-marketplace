@@ -25,7 +25,7 @@ exists as a **standalone, manually-invocable** path for when:
 ## When to Use
 
 - Manually, when the db has no rows for the active session (`gm context get` returns nulls).
-- To recreate a deleted `$GMCC_SESSION_PATH/prompts/` directory.
+- To recreate a deleted session artifact home (the `prompts/` directory under the session's `ckfs_relative_storage_path`).
 - As the repair target invoked by `/gmcc_session_cleanup`.
 
 ---
@@ -50,33 +50,38 @@ To fix: Restart Claude Code from within a git repository.
 ```
 Exit without proceeding.
 
-Verify `$GMCC_SESSION_PATH` is set. If unset, the environment never resolved
-a session — instruct the user to restart Claude Code from inside a git repo
-and exit.
+Verify `$GMCC_CKFS_ROOT` is set. If unset, the environment never booted —
+instruct the user to restart Claude Code from inside a git repo and exit.
 
 ---
 
 ## Execution
 
-### 1. Physical artifact home
+### 1. Db rows (+ artifact home)
 
 ```bash
-mkdir -p "$GMCC_SESSION_PATH/prompts"
+gm context ensure --json
 ```
 
-### 2. Db rows
-
-```bash
-~/gmcc/bin/gm context ensure --json
-```
-
-Run from inside the repo (git context is auto-detected). If this exits 2
+Run from inside the repo (git context is auto-detected). This upserts the
+db rows and creates the session's artifact home. If this exits 2
 (daemon unreachable), self-heal first:
 
 ```bash
 bash "$GMCC_PLUGIN_ROOT/scripts/build_daemon.sh"
-~/gmcc/bin/gm context ensure --json
+gm context ensure --json
 ```
+
+### 2. Physical artifact home
+
+Resolve the session's `ckfs_relative_storage_path` from
+`gm session get --json`, then:
+
+```bash
+mkdir -p "$GMCC_CKFS_ROOT/{ckfs_relative_storage_path}/prompts"
+```
+
+(a no-op when `gm context ensure` already created it).
 
 The response reports `project_uuid` / `instance_uuid` / `session_uuid` and
 `created_*` booleans telling you which rows were newly created vs. already
@@ -93,7 +98,7 @@ GMCC Session Creation: {session code}
 - instance row        {created | already present}
 - session row         {created | already present}
 
-Session ready: $GMCC_SESSION_PATH (artifacts) + ~/gmcc/gmcc.db (data)
+Session ready: {artifact home} (artifacts) + ~/gmcc/gmcc.db (data)
 ```
 
 ---

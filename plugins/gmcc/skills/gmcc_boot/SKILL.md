@@ -14,11 +14,10 @@ The GMCC boot system runs automatically on SessionStart via the `detect_repo.sh`
 When Claude Code starts a session:
 
 1. **SessionStart hooks fire** (defined in `hooks.json`): `detect_repo.sh` then `check_daemon_stale.sh` (which warns when the daemon binaries are missing/stale).
-2. **detect_repo.sh executes**
-   - Detects if in a git repository
+2. **detect_repo.sh executes** — three jobs only: confirm we're in a git repository, find the plugin root, and find the right `gm` binary (prod runtime, or the sandbox runtime named by a `.gmcc_sandbox` marker at the repo root). Everything else is owned by the `gm` binary.
    - If not in git repo: exits silently (no GMCC vars set)
-   - If in git repo: resolves project / instance / session for the current repo + branch, `mkdir -p`s `$GMCC_SESSION_PATH/prompts/` (the artifact home), best-effort calls `~/gmcc/bin/gm context ensure` to upsert the db rows (warns and continues if the daemon is unavailable), and sets all GMCC environment variables (including the boot signal `GMCC_BOOTED=1`)
-3. **Environment variables written to `$CLAUDE_ENV_FILE`** — `detect_repo.sh` is the single source of truth for the full set. Read `${CLAUDE_PLUGIN_ROOT}/scripts/detect_repo.sh` directly for the authoritative export list. The diagnostics in this skill echo whatever is actually set at runtime.
+   - If in git repo: best-effort calls `gm context ensure` (upserts project / instance / session db rows for the current repo + branch, creates the session's artifact home, and runs the dope boot sync; warns and continues if the daemon is unavailable), then prints `gm cheatsheet` into context
+3. **`gm context env` writes the environment to `$CLAUDE_ENV_FILE`** — the daemon binary, not the script, owns the env contract. The surviving set is: `GMCC_BOOTED=1` (the boot signal), `GMCC_PLUGIN_ROOT`, `GMCC_CKFS_ROOT`, `PATH` (prepended so bare `gm` resolves to the correct prod/sandbox binary), plus `GMCC_ROOT` when sandboxed. Session/project/kbite paths are NOT env vars anymore — get roots from `gm paths --json` and per-row locations from the `ckfs_relative_storage_path` fields of `gm context get --json` / `gm session get --json`. The diagnostics in this skill echo whatever is actually set at runtime.
 
 ## Boot Validation for Commands
 
@@ -85,16 +84,15 @@ echo ""
 ```bash
 echo "Prerequisites:"
 echo "  Git repository: $(git rev-parse --git-dir > /dev/null 2>&1 && echo 'YES' || echo 'NO')"
-echo "  Ckfs root: $([ -d "$HOME/gmcc_ckfs" ] && echo 'YES' || echo 'NO — run /gm_init')"
-echo "  gm binary: $([ -x "$HOME/gmcc/bin/gm" ] && echo 'YES' || echo 'NO — run build_daemon.sh')"
-echo "  Session artifact home: $([ -d "$GMCC_SESSION_PATH/prompts" ] && echo 'YES - '$GMCC_SESSION_PATH || echo 'NO')"
+echo "  Ckfs root: $([ -d "${GMCC_CKFS_ROOT:-$HOME/gmcc_ckfs}" ] && echo 'YES' || echo 'NO — run /gm_init')"
+echo "  gm on PATH: $(command -v gm > /dev/null 2>&1 && echo "YES - $(command -v gm)" || echo 'NO — run build_daemon.sh')"
 echo ""
 echo "Daemon / DB:"
-"$HOME/gmcc/bin/gm" ping 2>&1 | sed 's/^/  /'
-"$HOME/gmcc/bin/gm" status 2>&1 | sed 's/^/  /'
+gm ping 2>&1 | sed 's/^/  /'
+gm status 2>&1 | sed 's/^/  /'
 echo ""
-echo "Context rows (null uuids => rows not ensured):"
-"$HOME/gmcc/bin/gm" context get --json 2>&1 | sed 's/^/  /'
+echo "Context rows (null uuids => rows not ensured; each row's ckfs_relative_storage_path locates its artifact home under \$GMCC_CKFS_ROOT):"
+gm context get --json 2>&1 | sed 's/^/  /'
 ```
 
 ### Step 3: Provide Guidance
@@ -126,7 +124,7 @@ Then: ~/gmcc/bin/gm setup && ~/gmcc/bin/gm context ensure
 ```
 Issue: db rows not ensured for this repo/branch.
 
-Run: ~/gmcc/bin/gm context ensure
+Run: gm context ensure
 ```
 
 **If all checks pass**:
@@ -169,5 +167,5 @@ This usually means the SessionStart hook ran but there was a problem:
 
 The env can boot fine while the daemon system is missing or stale:
 1. Heed the `check_daemon_stale.sh` SessionStart warning — run `bash $GMCC_PLUGIN_ROOT/scripts/build_daemon.sh`
-2. `~/gmcc/bin/gm setup` creates `~/gmcc/` runtime dirs; `gm daemon status` / `/gmcc_daemon` for lifecycle
+2. `gm setup` creates the `~/gmcc/` runtime dirs; `gm daemon status` / `/gmcc_daemon` for lifecycle
 3. `gm context ensure` (idempotent) recreates missing db rows for the current repo/branch

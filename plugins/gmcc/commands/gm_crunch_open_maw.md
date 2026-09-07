@@ -23,7 +23,8 @@ To fix: Restart Claude Code from within a git repository.
 ```
 Exit without proceeding.
 
-1. Verify GM-CDE is initialized (`$GMCC_KBITE` is set)
+1. Resolve the kbite roots from `gm paths --json` (kbite_root,
+   kbite_open_root, kbite_digested_root)
 2. Parse `{kbite_name}` argument
 
 ---
@@ -33,7 +34,7 @@ Exit without proceeding.
 Per the **gmcc_kbite** skill, the open maw structure is:
 
 ```
-$GMCC_KBITE_OPEN/{kbite_name}/
+{kbite_open_root}/{kbite_name}/
 ├── MAW_INDEX.md
 ├── primary/
 │   ├── documentation/
@@ -56,7 +57,7 @@ $GMCC_KBITE_OPEN/{kbite_name}/
 ### Step 1: Check for Existing Maw
 
 ```bash
-if [ -d "$GMCC_KBITE_OPEN/{kbite_name}" ]; then
+if [ -d "{kbite_open_root}/{kbite_name}" ]; then
     echo "Maw already exists for {kbite_name}"
 fi
 ```
@@ -68,10 +69,10 @@ If maw exists, ask user:
 
 ### Step 2: Check for Parent KBite Purpose
 
-Check if the target kbite already has a purpose file at `$GMCC_KBITE/{kbite_name}/KBITE_PURPOSE.md`:
+Check if the target kbite already has a purpose file at `{kbite_root}/{kbite_name}/KBITE_PURPOSE.md`:
 
 ```bash
-if [ ! -f "$GMCC_KBITE/{kbite_name}/KBITE_PURPOSE.md" ]; then
+if [ ! -f "{kbite_root}/{kbite_name}/KBITE_PURPOSE.md" ]; then
     # New kbite — need to create KBITE_PURPOSE
 fi
 ```
@@ -79,11 +80,11 @@ fi
 ### Step 3: Create the Maw Skeleton
 
 One call — the daemon creates the two-axis directory tree and `MAW_INDEX.md`
-(per the **gmcc_kbite** skill format) at `$GMCC_KBITE_OPEN/{kbite_name}/`.
+(per the **gmcc_kbite** skill format) at `{kbite_open_root}/{kbite_name}/`.
 No db rows are written; maws are filesystem-only until digest:
 
 ```bash
-~/gmcc/bin/gm kbite maw-open --name {kbite_name} --json
+gm kbite maw-open --name {kbite_name} --json
 ```
 
 The response reports `created_dirs` and `created_index` — both empty/false
@@ -91,10 +92,10 @@ when the maw already existed (idempotent).
 
 ### Step 4: Create KBITE_PURPOSE.md (If New KBite)
 
-If the target kbite doesn't yet have a purpose file at `$GMCC_KBITE/{kbite_name}/KBITE_PURPOSE.md`, create it at the kbite root (above the digested/open lifecycle split):
+If the target kbite doesn't yet have a purpose file at `{kbite_root}/{kbite_name}/KBITE_PURPOSE.md`, create it at the kbite root (above the digested/open lifecycle split):
 
 ```bash
-mkdir -p "$GMCC_KBITE/{kbite_name}"
+mkdir -p "{kbite_root}/{kbite_name}"
 ```
 
 Per the **gmcc_kbite** skill KBITE_PURPOSE format, use AskUserQuestion to gather:
@@ -102,7 +103,7 @@ Per the **gmcc_kbite** skill KBITE_PURPOSE format, use AskUserQuestion to gather
 - What's in scope / out of scope
 - Target use cases
 
-Then create `$GMCC_KBITE/{kbite_name}/KBITE_PURPOSE.md`:
+Then create `{kbite_root}/{kbite_name}/KBITE_PURPOSE.md`:
 
 ```markdown
 # KBite Purpose: {kbite_name}
@@ -136,9 +137,9 @@ Then create `$GMCC_KBITE/{kbite_name}/KBITE_PURPOSE.md`:
 ```
 Maw Opened: {kbite_name}
 
-**Location**: $GMCC_KBITE_OPEN/{kbite_name}/
-**KBite Root** (purpose): $GMCC_KBITE/{kbite_name}/
-**Raw-Source Archive** (populated on first digest): $GMCC_KBITE_DIGESTED/{kbite_name}/
+**Location**: {kbite_open_root}/{kbite_name}/
+**KBite Root** (purpose): {kbite_root}/{kbite_name}/
+**Raw-Source Archive** (populated on first digest): {kbite_digested_root}/{kbite_name}/
 
 ## Directory Structure Created
 
@@ -155,7 +156,7 @@ Maw Opened: {kbite_name}
     └── (same structure)
 ```
 
-{If KBITE_PURPOSE created: "Created $GMCC_KBITE/{kbite_name}/KBITE_PURPOSE.md for new kbite"}
+{If KBITE_PURPOSE created: "Created {kbite_root}/{kbite_name}/KBITE_PURPOSE.md for new kbite"}
 
 ## Next Steps
 
@@ -185,5 +186,5 @@ Kbite names must be lowercase with underscores only (e.g., "claude_code_sdk").
 ```
 [GMB] Error: Cannot create maw directory
 
-Check permissions on $GMCC_KBITE_OPEN/{kbite_name}
+Check permissions on {kbite_open_root}/{kbite_name}
 ```
