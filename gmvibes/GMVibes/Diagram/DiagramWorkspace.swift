@@ -186,7 +186,7 @@ final class DiagramWorkspace {
         let domains = tree.domains.map { domain in
             domainFilter.contains(domain.body.code)
                 ? domain
-                : DopeDomainNode(identity: domain.identity, body: domain.body,
+                : DopePersistenceNode(identity: domain.identity, body: domain.body,
                                  entities: [], enums: domain.enums)
         }
         return DopeScopeTree(identity: tree.identity, body: tree.body,

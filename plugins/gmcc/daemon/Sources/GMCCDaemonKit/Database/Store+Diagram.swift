@@ -401,13 +401,13 @@ extension Store {
                 if let sessionUuid = diagram.sessionUuid {
                     if let promptUuid = diagram.promptUuid {
                         scope = try self.dopeScopeCandidates(
-                            db, sessionUuid: sessionUuid, scopeType: .prompt,
+                            db, sessionUuid: sessionUuid, scopeType: .sessionInstanceItem,
                             promptUuid: promptUuid, code: payload.dopeScopeCode).first
                         if scope != nil { resolvedVia = "prompt" }
                     }
                     if scope == nil {
                         scope = try self.dopeScopeCandidates(
-                            db, sessionUuid: sessionUuid, scopeType: .sessionBase,
+                            db, sessionUuid: sessionUuid, scopeType: .sessionInstance,
                             code: payload.dopeScopeCode).first
                         if scope != nil { resolvedVia = "session_base" }
                     }

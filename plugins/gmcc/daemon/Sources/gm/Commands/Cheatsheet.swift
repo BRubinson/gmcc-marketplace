@@ -3,7 +3,7 @@ import GMCCDaemonKit
 
 // gm cheatsheet — a compact, full-surface reference compiled into the binary
 // so it can never drift from installed capabilities. Pure client-side: no
-// daemon socket, works with the daemon down. detect_repo.sh prints it into
+// daemon socket, works with the daemon down. gmcc_session_startup.sh prints it into
 // SessionStart hook stdout; subagent tiers paste it into worker prompts.
 // CheatsheetTests walks the GM command tree and refuses to ship a verb
 // without a sheet line.
@@ -28,6 +28,7 @@ struct Cheatsheet: ParsableCommand {
       gm context env --plugin-root P [--no-check]   (SessionStart env contract owner: stdout = KEY=VALUE lines for CLAUDE_ENV_FILE, stderr = warnings, ALWAYS exit 0)
       gm context get
       gm project list
+      gm project update --project-uuid U --expected-version V [--primary-project-branch B]   (the only project-level mutation; primary_project_branch is BASE_DOPED_BRANCH, default 'main')
       gm instance list [--project-uuid U]
       gm instance current-session --instance-uuid U
       gm session list [--instance-uuid U]
@@ -81,11 +82,11 @@ struct Cheatsheet: ParsableCommand {
       gm dope list --session-uuid U [--prompt-uuid U]   (scope rows for a picker; SESSION_BASE scopes, or ONLY that prompt's PROMPT scopes with --prompt-uuid — never a union; empty list is normal, unknown uuid is NOT_FOUND)
       gm dope get --session-uuid U [--prompt-uuid U] [--code C]   (PROMPT scope preferred, SESSION_BASE fallback; --code disambiguates)
       gm dope scope-update --uuid U --expected-version V [--code C] [--name N] [--description D]
-      gm dope domain-add · gm dope entity-add · gm dope enum-add · gm dope option-add --parent-uuid U --code C --name N [--description D] [--sort-order N] (entity also: [--entity-type MODEL|JUNCTION|BASE_COMPOSABLE] [--base-composable-uuid U]; entity/enum also: [--repo-representative-file P])
+      gm dope persistence-add · gm dope entity-add · gm dope enum-add · gm dope option-add --parent-uuid U --code C --name N [--description D] [--sort-order N] (entity also: [--entity-type MODEL|JUNCTION|BASE_COMPOSABLE] [--base-composable-uuid U]; entity/enum also: [--repo-representative-file P])
       gm dope property-add --parent-uuid U --code C --name N --data-type enum|relationship|boolean|uuid|int|long|decimal|text|datetime [--nullable|--no-nullable] [--is-unique|--no-is-unique] [--auto-increment|--no-auto-increment] [--text-char-limit N] [--enum-uuid U] [--related-property-uuid U] [--base-origin-uuid U] [--description D] [--sort-order N]
-      gm dope domain-update · gm dope entity-update · gm dope enum-update · gm dope option-update --uuid U --expected-version V [--code C] [--name N] [--description D] [--sort-order N] (entity also: [--entity-type T] [--base-composable-uuid U] [--clear-base-composable]; entity/enum also: [--repo-representative-file P] [--clear-repo-representative-file])
+      gm dope persistence-update · gm dope entity-update · gm dope enum-update · gm dope option-update --uuid U --expected-version V [--code C] [--name N] [--description D] [--sort-order N] (entity also: [--entity-type T] [--base-composable-uuid U] [--clear-base-composable]; entity/enum also: [--repo-representative-file P] [--clear-repo-representative-file])
       gm dope property-update --uuid U --expected-version V [--code C] [--name N] [--description D] [--sort-order N] [--data-type T] [--nullable|--no-nullable] [--is-unique|--no-is-unique] [--auto-increment|--no-auto-increment] [--text-char-limit N] [--enum-uuid U] [--related-property-uuid U] [--base-origin-uuid U] [--clear-enum] [--clear-related-property] [--clear-auto-increment] [--clear-text-char-limit] [--clear-base-origin]
-      gm dope domain-delete · gm dope entity-delete · gm dope property-delete · gm dope enum-delete · gm dope option-delete --uuid U --expected-version V   (subtree cascades; still-referenced targets refused naming the referrer; scope delete not offered yet)
+      gm dope persistence-delete · gm dope entity-delete · gm dope property-delete · gm dope enum-delete · gm dope option-delete --uuid U --expected-version V   (subtree cascades; still-referenced targets refused naming the referrer; scope delete not offered yet)
       gm dope read-repo (--scope-uuid U | --dir-path P)   (parse + validate {instance_root}/.gmcc/dope; never writes; reports drift)
       gm dope write-repo --scope-uuid U [--force]   (db -> files, atomic whole-tree swap; refuses when files are AHEAD of the db unless --force)
       gm dope ingest --scope-uuid U [--dir-path P] [--adopt]   (files -> db whole-tree overwrite, no smart diff, child uuids change; on-disk version must be EXACTLY db revision + 1. --adopt is boot-sync-only: accepts any strictly FORWARD version, discards db-only gap revisions, never moves backward)

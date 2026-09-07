@@ -26,9 +26,9 @@ final class DopeSandboxTests: XCTestCase {
                     ($0, DopeMainDocument.expectedFile(forDomainCode: $0))
                 })),
             domainFiles: domains.map {
-                DopeDomainFileDocument(
+                DopePersistenceFileDocument(
                     version: version,
-                    body: DopeDomainBody(code: $0, name: $0.capitalized,
+                    body: DopePersistenceBody(code: $0, name: $0.capitalized,
                                          description: "", sortOrder: 0),
                     entities: [], enums: [])
             })
@@ -131,9 +131,9 @@ final class DopeSandboxTests: XCTestCase {
         // AFTER main has been staged — the old tree must be untouched.
         let bad = DopeDocumentBundle(
             main: makeBundle(version: 2).main,
-            domainFiles: [DopeDomainFileDocument(
+            domainFiles: [DopePersistenceFileDocument(
                 version: 2,
-                body: DopeDomainBody(code: "Bad-Code", name: "x", description: "", sortOrder: 0),
+                body: DopePersistenceBody(code: "Bad-Code", name: "x", description: "", sortOrder: 0),
                 entities: [], enums: [])])
         XCTAssertThrowsError(try sandbox.writeAtomically(bad))
 

@@ -58,9 +58,9 @@ private func dopeFixture() -> DopeScopeTree {
                              description: "", sortOrder: 0,
                              repoRepresentativeFile: nil, baseComposableRef: nil),
         properties: [property("id")])
-    let core = DopeDomainNode(
+    let core = DopePersistenceNode(
         identity: identity("dom-core"),
-        body: DopeDomainBody(code: "core", name: "Core", description: "", sortOrder: 0),
+        body: DopePersistenceBody(code: "core", name: "Core", description: "", sortOrder: 0),
         entities: [user, profile], enums: [])
     return DopeScopeTree(identity: identity("scope-1"),
                          body: DopeScopeBody(code: "gmcc", name: "GMCC", description: ""),

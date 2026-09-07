@@ -7,7 +7,7 @@ import Foundation
 /// rejected — the daemon stays up (an old pinned-Kit GMVibes must never be
 /// able to kill-loop a fresh daemon).
 public enum GMCCWireProtocol {
-    public static let version = 15
+    public static let version = 16
 }
 
 /// Discriminator for every NDJSON message on the socket. One case per spec
@@ -25,6 +25,8 @@ public enum MessageType: String, Codable, Hashable, CaseIterable, Sendable {
     case contextGet = "CONTEXT_GET"
     // Listing (enumeration — the Landing browse surface)
     case projectList = "PROJECT_LIST"
+    // v16 — the first project-level mutation (m0011's primary_project_branch).
+    case projectUpdate = "PROJECT_UPDATE"
     case instanceList = "INSTANCE_LIST"
     case sessionList = "SESSION_LIST"
     // Session

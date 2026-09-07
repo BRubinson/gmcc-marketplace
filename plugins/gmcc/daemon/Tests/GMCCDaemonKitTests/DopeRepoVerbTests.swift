@@ -51,7 +51,7 @@ final class DopeRepoVerbTests: XCTestCase {
         let scope = try store.dopeInit(DopeInitRequest(
             sessionUuid: "sess-1", code: "gmcc", name: "GMCC")).scope
         let domain = try store.dopeNodeAdd(DopeNodeAddRequest(
-            level: .domain, parentUuid: scope.uuid,
+            level: .persistence, parentUuid: scope.uuid,
             fields: DopeNodeFields(code: "core", name: "Core")))
         let entity = try store.dopeNodeAdd(DopeNodeAddRequest(
             level: .entity, parentUuid: domain.uuid,
@@ -99,7 +99,7 @@ final class DopeRepoVerbTests: XCTestCase {
                                    scope: read.bundle.main.scope,
                                    domains: read.bundle.main.domains),
             domainFiles: read.bundle.domainFiles.map {
-                DopeDomainFileDocument(version: 8, body: $0.body,
+                DopePersistenceFileDocument(version: 8, body: $0.body,
                                        entities: $0.entities, enums: $0.enums)
             })
         _ = try sandbox.writeAtomically(bumped)
@@ -138,7 +138,7 @@ final class DopeRepoVerbTests: XCTestCase {
                 main: DopeMainDocument(version: version, scopeType: read.main.scopeType,
                                        scope: read.main.scope, domains: read.main.domains),
                 domainFiles: read.domainFiles.map {
-                    DopeDomainFileDocument(version: version, body: $0.body,
+                    DopePersistenceFileDocument(version: version, body: $0.body,
                                            entities: $0.entities, enums: $0.enums)
                 })
         }
@@ -161,7 +161,7 @@ final class DopeRepoVerbTests: XCTestCase {
             main: DopeMainDocument(version: 99, scopeType: read.main.scopeType,
                                    scope: read.main.scope, domains: read.main.domains),
             domainFiles: read.domainFiles.map {
-                DopeDomainFileDocument(version: 99, body: $0.body,
+                DopePersistenceFileDocument(version: 99, body: $0.body,
                                        entities: $0.entities, enums: $0.enums)
             }))
 
@@ -197,7 +197,7 @@ final class DopeRepoVerbTests: XCTestCase {
             sessionUuid: "sess-1", code: "gmcc", name: "GMCC")).scope
         // Late-sorting domain holds the enum + target property…
         let zzz = try store.dopeNodeAdd(DopeNodeAddRequest(
-            level: .domain, parentUuid: scope.uuid,
+            level: .persistence, parentUuid: scope.uuid,
             fields: DopeNodeFields(code: "zzz_shared", name: "Shared")))
         let sharedEntity = try store.dopeNodeAdd(DopeNodeAddRequest(
             level: .entity, parentUuid: zzz.uuid,
@@ -210,7 +210,7 @@ final class DopeRepoVerbTests: XCTestCase {
             fields: DopeNodeFields(code: "kind", name: "Kind")))
         // …and the early-sorting domain references both across.
         let aaa = try store.dopeNodeAdd(DopeNodeAddRequest(
-            level: .domain, parentUuid: scope.uuid,
+            level: .persistence, parentUuid: scope.uuid,
             fields: DopeNodeFields(code: "aaa_core", name: "Core")))
         let entity = try store.dopeNodeAdd(DopeNodeAddRequest(
             level: .entity, parentUuid: aaa.uuid,
@@ -232,7 +232,7 @@ final class DopeRepoVerbTests: XCTestCase {
             main: DopeMainDocument(version: next, scopeType: read.main.scopeType,
                                    scope: read.main.scope, domains: read.main.domains),
             domainFiles: read.domainFiles.map {
-                DopeDomainFileDocument(version: next, body: $0.body,
+                DopePersistenceFileDocument(version: next, body: $0.body,
                                        entities: $0.entities, enums: $0.enums)
             }))
         let ingested = try store.dopeIngest(DopeIngestRequest(scopeUuid: scope.uuid))
@@ -255,14 +255,14 @@ final class DopeRepoVerbTests: XCTestCase {
         let scope = try store.dopeInit(DopeInitRequest(
             sessionUuid: "sess-1", code: "gmcc", name: "GMCC")).scope
         let zzz = try store.dopeNodeAdd(DopeNodeAddRequest(
-            level: .domain, parentUuid: scope.uuid,
+            level: .persistence, parentUuid: scope.uuid,
             fields: DopeNodeFields(code: "zzz_base", name: "Base")))
         let base = try store.dopeNodeAdd(DopeNodeAddRequest(
             level: .entity, parentUuid: zzz.uuid,
             fields: DopeNodeFields(code: "base_entity", name: "Base Entity",
                                    entityType: .baseComposable)))
         let aaa = try store.dopeNodeAdd(DopeNodeAddRequest(
-            level: .domain, parentUuid: scope.uuid,
+            level: .persistence, parentUuid: scope.uuid,
             fields: DopeNodeFields(code: "aaa_core", name: "Core")))
         _ = try store.dopeNodeAdd(DopeNodeAddRequest(
             level: .entity, parentUuid: aaa.uuid,
@@ -277,7 +277,7 @@ final class DopeRepoVerbTests: XCTestCase {
             main: DopeMainDocument(version: next, scopeType: read.main.scopeType,
                                    scope: read.main.scope, domains: read.main.domains),
             domainFiles: read.domainFiles.map {
-                DopeDomainFileDocument(version: next, body: $0.body,
+                DopePersistenceFileDocument(version: next, body: $0.body,
                                        entities: $0.entities, enums: $0.enums)
             }))
         let ingested = try store.dopeIngest(DopeIngestRequest(scopeUuid: scope.uuid))
@@ -303,7 +303,7 @@ final class DopeRepoVerbTests: XCTestCase {
         let scope = try store.dopeInit(DopeInitRequest(
             sessionUuid: "sess-1", code: "gmcc", name: "GMCC")).scope
         let zzz = try store.dopeNodeAdd(DopeNodeAddRequest(
-            level: .domain, parentUuid: scope.uuid,
+            level: .persistence, parentUuid: scope.uuid,
             fields: DopeNodeFields(code: "zzz_base", name: "Base")))
         let base = try store.dopeNodeAdd(DopeNodeAddRequest(
             level: .entity, parentUuid: zzz.uuid,
@@ -314,7 +314,7 @@ final class DopeRepoVerbTests: XCTestCase {
             fields: DopeNodeFields(code: "uuid", name: "Uuid", dataType: .uuid,
                                    nullable: false, isUnique: true)))
         let aaa = try store.dopeNodeAdd(DopeNodeAddRequest(
-            level: .domain, parentUuid: scope.uuid,
+            level: .persistence, parentUuid: scope.uuid,
             fields: DopeNodeFields(code: "aaa_core", name: "Core")))
         let user = try store.dopeNodeAdd(DopeNodeAddRequest(
             level: .entity, parentUuid: aaa.uuid,
@@ -342,7 +342,7 @@ final class DopeRepoVerbTests: XCTestCase {
                 main: DopeMainDocument(version: next, scopeType: read.main.scopeType,
                                        scope: read.main.scope, domains: read.main.domains),
                 domainFiles: read.domainFiles.map {
-                    DopeDomainFileDocument(version: next, body: $0.body,
+                    DopePersistenceFileDocument(version: next, body: $0.body,
                                            entities: $0.entities, enums: $0.enums)
                 }))
             _ = try store.dopeIngest(DopeIngestRequest(scopeUuid: scope.uuid))
@@ -366,13 +366,13 @@ final class DopeRepoVerbTests: XCTestCase {
             // The origin resolved to the base's actual row.
             let pair = try Row.fetchOne(db, sql: """
                 SELECT p.uuid AS tagged, p.base_origin_property_uuid AS origin
-                FROM dope_domain_entity_property p
-                JOIN dope_domain_entity e ON e.uuid = p.dope_domain_entity_uuid
+                FROM dope_persistence_entity_property p
+                JOIN dope_persistence_entity e ON e.uuid = p.dope_persistence_entity_uuid
                 WHERE e.code = 'user' AND p.code = 'uuid'
                 """)
             let baseRow = try String.fetchOne(db, sql: """
-                SELECT p.uuid FROM dope_domain_entity_property p
-                JOIN dope_domain_entity e ON e.uuid = p.dope_domain_entity_uuid
+                SELECT p.uuid FROM dope_persistence_entity_property p
+                JOIN dope_persistence_entity e ON e.uuid = p.dope_persistence_entity_uuid
                 WHERE e.code = 'base_entity' AND p.code = 'uuid'
                 """)
             XCTAssertEqual(pair?["origin"] as String?, baseRow)
@@ -393,7 +393,7 @@ final class DopeRepoVerbTests: XCTestCase {
                 main: DopeMainDocument(version: version, scopeType: read.main.scopeType,
                                        scope: scopeBody, domains: read.main.domains),
                 domainFiles: read.domainFiles.map {
-                    DopeDomainFileDocument(version: version, body: $0.body,
+                    DopePersistenceFileDocument(version: version, body: $0.body,
                                            entities: $0.entities, enums: $0.enums)
                 })
         }

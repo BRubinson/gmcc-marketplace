@@ -380,7 +380,7 @@ struct DopeTreeView: View {
         var id: String { ref }
     }
 
-    private var visibleDomains: [DopeDomainNode] {
+    private var visibleDomains: [DopePersistenceNode] {
         guard !query.isEmpty else { return tree.domains }
         return tree.domains.filter { domain in
             dopeMatches(query, domain.body.name, domain.body.code)
@@ -393,7 +393,7 @@ struct DopeTreeView: View {
     /// hidden unless the toggle is on. The toggle is authoritative: the search
     /// filter runs within each partition and never force-reveals base content,
     /// so `renderedDomains` — not `visibleDomains` — drives the empty state.
-    private var renderedDomains: [(domain: DopeDomainNode, isBase: Bool)] {
+    private var renderedDomains: [(domain: DopePersistenceNode, isBase: Bool)] {
         let base = showBaseDomains
             ? visibleDomains.filter(DopeBaseCatalog.isBaseDomain) : []
         let model = visibleDomains.filter { !DopeBaseCatalog.isBaseDomain($0) }
@@ -441,7 +441,7 @@ struct DopeTreeView: View {
 }
 
 private struct DomainCard: View {
-    let domain: DopeDomainNode
+    let domain: DopePersistenceNode
     let isBase: Bool
     let query: String
     let expansion: DopeExpansion

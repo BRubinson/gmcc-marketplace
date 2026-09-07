@@ -15,7 +15,7 @@ struct Dope: ParsableCommand {
         abstract: "DOPED domain modeling: init, get, granular node edits, and whole-tree repo JSON I/O.",
         subcommands: [
             Init.self, List.self, Get.self, ScopeUpdate.self,
-            DomainAdd.self, DomainUpdate.self, DomainDelete.self,
+            PersistenceAdd.self, PersistenceUpdate.self, PersistenceDelete.self,
             EntityAdd.self, EntityUpdate.self, EntityDelete.self,
             PropertyAdd.self, PropertyUpdate.self, PropertyDelete.self,
             EnumAdd.self, EnumUpdate.self, EnumDelete.self,
@@ -260,32 +260,42 @@ struct Dope: ParsableCommand {
         }
     }
 
-    // MARK: - Domain
+    // MARK: - Persistence (the level formerly spelled "domain")
+    //
+    // `persistence-*` is the primary spelling; `domain-*` is retained as an
+    // ArgumentParser alias so every skill doc, saved prompt, and muscle-memory
+    // invocation keeps working after the vocabulary rename. The ON-DISK
+    // .doped.json grammar still says "domains" too — see DopeMainDocument.
 
-    struct DomainAdd: ParsableCommand {
+    struct PersistenceAdd: ParsableCommand {
         static let configuration = CommandConfiguration(
-            commandName: "domain-add", abstract: "Add a domain under a scope.")
+            commandName: "persistence-add",
+            abstract: "Add a persistence domain under a scope.",
+            aliases: ["domain-add"])
         @OptionGroup var output: OutputOptions
         @OptionGroup var common: AddCommonOptions
-        func run() throws { try Dope.runAdd(.domain, common, output) }
+        func run() throws { try Dope.runAdd(.persistence, common, output) }
     }
 
-    struct DomainUpdate: ParsableCommand {
+    struct PersistenceUpdate: ParsableCommand {
         static let configuration = CommandConfiguration(
-            commandName: "domain-update", abstract: "Update a domain (guarded).")
+            commandName: "persistence-update",
+            abstract: "Update a persistence domain (guarded).",
+            aliases: ["domain-update"])
         @OptionGroup var output: OutputOptions
         @OptionGroup var target: MutationTarget
         @OptionGroup var common: UpdateCommonOptions
-        func run() throws { try Dope.runUpdate(.domain, target, common, output) }
+        func run() throws { try Dope.runUpdate(.persistence, target, common, output) }
     }
 
-    struct DomainDelete: ParsableCommand {
+    struct PersistenceDelete: ParsableCommand {
         static let configuration = CommandConfiguration(
-            commandName: "domain-delete",
-            abstract: "Delete a domain and its subtree (cross-domain referrers are pre-checked and refused loudly).")
+            commandName: "persistence-delete",
+            abstract: "Delete a persistence domain and its subtree (cross-domain referrers are pre-checked and refused loudly).",
+            aliases: ["domain-delete"])
         @OptionGroup var output: OutputOptions
         @OptionGroup var target: MutationTarget
-        func run() throws { try Dope.runDelete(.domain, target, output) }
+        func run() throws { try Dope.runDelete(.persistence, target, output) }
     }
 
     // MARK: - Entity

@@ -16,7 +16,7 @@ extension Store {
     // the schema CHECKs are the backstop)
 
     private static let dopeDescriptionLimits: [DopeLevel: Int] = [
-        .scope: 512, .domain: 512, .entity: 512,
+        .scope: 512, .persistence: 512, .entity: 512,
         .enumeration: 256, .option: 128, .property: 128,
     ]
 
@@ -30,9 +30,11 @@ extension Store {
     private static func dopeScopeRow(_ row: Row) -> DopeScopeRow {
         DopeScopeRow(
             uuid: row["uuid"], version: row["version"],
+            projectUuid: row["project_uuid"], instanceUuid: row["instance_uuid"],
             sessionUuid: row["session_uuid"], promptUuid: row["prompt_uuid"],
             scopeType: row["scope_type"], code: row["code"], name: row["name"],
             description: row["description"], revision: row["revision"],
+            deletedOn: row["deleted_on"],
             createdAt: row["created_at"], updatedAt: row["updated_at"])
     }
 
@@ -69,35 +71,35 @@ extension Store {
         switch level {
         case .scope:
             sql = "SELECT s.* FROM dope_scope s WHERE s.uuid = ?"
-        case .domain:
+        case .persistence:
             sql = """
-                SELECT s.* FROM dope_domain d
+                SELECT s.* FROM dope_persistence d
                 JOIN dope_scope s ON s.uuid = d.dope_scope_uuid WHERE d.uuid = ?
                 """
         case .entity:
             sql = """
-                SELECT s.* FROM dope_domain_entity e
-                JOIN dope_domain d ON d.uuid = e.dope_domain_uuid
+                SELECT s.* FROM dope_persistence_entity e
+                JOIN dope_persistence d ON d.uuid = e.dope_persistence_uuid
                 JOIN dope_scope s ON s.uuid = d.dope_scope_uuid WHERE e.uuid = ?
                 """
         case .property:
             sql = """
-                SELECT s.* FROM dope_domain_entity_property p
-                JOIN dope_domain_entity e ON e.uuid = p.dope_domain_entity_uuid
-                JOIN dope_domain d ON d.uuid = e.dope_domain_uuid
+                SELECT s.* FROM dope_persistence_entity_property p
+                JOIN dope_persistence_entity e ON e.uuid = p.dope_persistence_entity_uuid
+                JOIN dope_persistence d ON d.uuid = e.dope_persistence_uuid
                 JOIN dope_scope s ON s.uuid = d.dope_scope_uuid WHERE p.uuid = ?
                 """
         case .enumeration:
             sql = """
-                SELECT s.* FROM dope_domain_enum n
-                JOIN dope_domain d ON d.uuid = n.dope_domain_uuid
+                SELECT s.* FROM dope_persistence_enum n
+                JOIN dope_persistence d ON d.uuid = n.dope_persistence_uuid
                 JOIN dope_scope s ON s.uuid = d.dope_scope_uuid WHERE n.uuid = ?
                 """
         case .option:
             sql = """
-                SELECT s.* FROM dope_domain_enum_option o
-                JOIN dope_domain_enum n ON n.uuid = o.dope_domain_enum_uuid
-                JOIN dope_domain d ON d.uuid = n.dope_domain_uuid
+                SELECT s.* FROM dope_persistence_enum_option o
+                JOIN dope_persistence_enum n ON n.uuid = o.dope_persistence_enum_uuid
+                JOIN dope_persistence d ON d.uuid = n.dope_persistence_uuid
                 JOIN dope_scope s ON s.uuid = d.dope_scope_uuid WHERE o.uuid = ?
                 """
         }
@@ -115,7 +117,7 @@ extension Store {
         var payload: [String: Any] = [
             "action": action,
             "scope_uuid": scope.uuid,
-            "session_uuid": scope.sessionUuid,
+            "session_uuid": try scope.requireSessionUuid(),
             "scope_type": scope.scopeType,
             "revision": Int(revision),
         ]
@@ -124,7 +126,7 @@ extension Store {
         if let promptUuid = scope.promptUuid { payload["prompt_uuid"] = promptUuid }
         try appendEvent(db, kind: .dopeChange, subjectUuid: scope.uuid,
                         payload: Store.jsonPayload(payload))
-        try touchSession(db, uuid: scope.sessionUuid)
+        try touchSession(db, uuid: scope.requireSessionUuid())
     }
 
     // MARK: - Init
@@ -154,10 +156,10 @@ extension Store {
                 }
             }
 
-            let scopeType: DopeScopeType = req.promptUuid == nil ? .sessionBase : .prompt
+            let scopeType: DopeScopeType = req.promptUuid == nil ? .sessionInstance : .sessionInstanceItem
             let existingSql = req.promptUuid == nil
-                ? "SELECT * FROM dope_scope WHERE session_uuid = ? AND scope_type = 'SESSION_BASE' AND code = ?"
-                : "SELECT * FROM dope_scope WHERE session_uuid = ? AND prompt_uuid = ? AND scope_type = 'PROMPT' AND code = ?"
+                ? "SELECT * FROM dope_scope WHERE session_uuid = ? AND scope_type = 'SESSION_INSTANCE' AND code = ?"
+                : "SELECT * FROM dope_scope WHERE session_uuid = ? AND prompt_uuid = ? AND scope_type = 'SESSION_INSTANCE_ITEM' AND code = ?"
             let existingArgs: StatementArguments = req.promptUuid == nil
                 ? [req.sessionUuid, req.code]
                 : [req.sessionUuid, req.promptUuid, req.code]
@@ -165,7 +167,22 @@ extension Store {
                 return DopeScopeResponse(scope: Self.dopeScopeRow(row), created: false)
             }
 
+            // The chain-non-null tier ladder: a session-tier scope fills its
+            // own FK and every ancestor uuid, so list/get by any ancestor stays
+            // a plain indexed WHERE (m0010 grammar, ported by m0013).
+            guard let lineage = try Row.fetchOne(
+                db,
+                sql: "SELECT i.project_uuid AS p, s.instance_uuid AS i FROM session s "
+                    + "JOIN instance i ON i.uuid = s.instance_uuid WHERE s.uuid = ?",
+                arguments: [req.sessionUuid]
+            ) else {
+                throw StoreError.corruptState(
+                    entity: "session",
+                    detail: "session \(req.sessionUuid) has no instance->project lineage")
+            }
             let uuid = try self.insertBase(db, table: "dope_scope", extra: [
+                "project_uuid": lineage["p"] as String,
+                "instance_uuid": lineage["i"] as String,
                 "session_uuid": req.sessionUuid,
                 "prompt_uuid": req.promptUuid,
                 "scope_type": scopeType.rawValue,
@@ -182,10 +199,10 @@ extension Store {
                 }
                 guard let baseRow = try Row.fetchOne(db, sql: """
                     SELECT * FROM dope_scope
-                    WHERE session_uuid = ? AND scope_type = 'SESSION_BASE' AND code = ?
+                    WHERE session_uuid = ? AND scope_type = 'SESSION_INSTANCE' AND code = ?
                     """, arguments: [req.sessionUuid, req.code]) else {
                     throw StoreError.badRequest(
-                        detail: "no SESSION_BASE scope with code '\(req.code)' to clone from")
+                        detail: "no SESSION_INSTANCE scope with code '\(req.code)' to clone from")
                 }
                 let baseTree = try self.fetchDopeTree(db, scope: Self.dopeScopeRow(baseRow))
                 let bundle = DopeProjection.documents(from: baseTree)
@@ -235,7 +252,7 @@ extension Store {
     ) throws -> [DopeScopeRow] {
         var sql = "SELECT * FROM dope_scope WHERE session_uuid = ? AND scope_type = ?"
         var args: [(any DatabaseValueConvertible)?] = [sessionUuid, scopeType.rawValue]
-        if scopeType == .prompt {
+        if scopeType == .sessionInstanceItem {
             sql += " AND prompt_uuid = ?"
             args.append(promptUuid)
         }
@@ -257,11 +274,11 @@ extension Store {
             let scopes: [DopeScopeRow]
             if let promptUuid = req.promptUuid {
                 scopes = try self.dopeScopeCandidates(
-                    db, sessionUuid: req.sessionUuid, scopeType: .prompt,
+                    db, sessionUuid: req.sessionUuid, scopeType: .sessionInstanceItem,
                     promptUuid: promptUuid)
             } else {
                 scopes = try self.dopeScopeCandidates(
-                    db, sessionUuid: req.sessionUuid, scopeType: .sessionBase)
+                    db, sessionUuid: req.sessionUuid, scopeType: .sessionInstance)
             }
             return DopeListResponse(scopes: scopes)
         }
@@ -287,13 +304,13 @@ extension Store {
             var scope: DopeScopeRow?
             if let promptUuid = req.promptUuid {
                 scope = try pick(try self.dopeScopeCandidates(
-                    db, sessionUuid: req.sessionUuid, scopeType: .prompt,
+                    db, sessionUuid: req.sessionUuid, scopeType: .sessionInstanceItem,
                     promptUuid: promptUuid, code: req.code))
                 if scope != nil { resolvedVia = "prompt" }
             }
             if scope == nil {
                 scope = try pick(try self.dopeScopeCandidates(
-                    db, sessionUuid: req.sessionUuid, scopeType: .sessionBase,
+                    db, sessionUuid: req.sessionUuid, scopeType: .sessionInstance,
                     code: req.code))
             }
             guard let scope else {
@@ -312,29 +329,29 @@ extension Store {
 
     func fetchDopeTree(_ db: Database, scope: DopeScopeRow) throws -> DopeScopeTree {
         let domainRows = try Row.fetchAll(db, sql: """
-            SELECT * FROM dope_domain WHERE dope_scope_uuid = ?
+            SELECT * FROM dope_persistence WHERE dope_scope_uuid = ?
             ORDER BY sort_order, code
             """, arguments: [scope.uuid])
         let entityRows = try Row.fetchAll(db, sql: """
-            SELECT e.* FROM dope_domain_entity e
-            JOIN dope_domain d ON d.uuid = e.dope_domain_uuid
+            SELECT e.* FROM dope_persistence_entity e
+            JOIN dope_persistence d ON d.uuid = e.dope_persistence_uuid
             WHERE d.dope_scope_uuid = ? ORDER BY e.sort_order, e.code
             """, arguments: [scope.uuid])
         let enumRows = try Row.fetchAll(db, sql: """
-            SELECT n.* FROM dope_domain_enum n
-            JOIN dope_domain d ON d.uuid = n.dope_domain_uuid
+            SELECT n.* FROM dope_persistence_enum n
+            JOIN dope_persistence d ON d.uuid = n.dope_persistence_uuid
             WHERE d.dope_scope_uuid = ? ORDER BY n.sort_order, n.code
             """, arguments: [scope.uuid])
         let optionRows = try Row.fetchAll(db, sql: """
-            SELECT o.* FROM dope_domain_enum_option o
-            JOIN dope_domain_enum n ON n.uuid = o.dope_domain_enum_uuid
-            JOIN dope_domain d ON d.uuid = n.dope_domain_uuid
+            SELECT o.* FROM dope_persistence_enum_option o
+            JOIN dope_persistence_enum n ON n.uuid = o.dope_persistence_enum_uuid
+            JOIN dope_persistence d ON d.uuid = n.dope_persistence_uuid
             WHERE d.dope_scope_uuid = ? ORDER BY o.sort_order, o.code
             """, arguments: [scope.uuid])
         let propertyRows = try Row.fetchAll(db, sql: """
-            SELECT p.* FROM dope_domain_entity_property p
-            JOIN dope_domain_entity e ON e.uuid = p.dope_domain_entity_uuid
-            JOIN dope_domain d ON d.uuid = e.dope_domain_uuid
+            SELECT p.* FROM dope_persistence_entity_property p
+            JOIN dope_persistence_entity e ON e.uuid = p.dope_persistence_entity_uuid
+            JOIN dope_persistence d ON d.uuid = e.dope_persistence_uuid
             WHERE d.dope_scope_uuid = ? ORDER BY p.sort_order, p.code
             """, arguments: [scope.uuid])
 
@@ -344,19 +361,19 @@ extension Store {
         var entityInfo = [String: (domain: String, code: String)]()
         var entityRef = [String: String]()
         for row in entityRows {
-            let domain = domainCode[row["dope_domain_uuid"]] ?? "?"
+            let domain = domainCode[row["dope_persistence_uuid"]] ?? "?"
             entityInfo[row["uuid"]] = (domain, row["code"])
             entityRef[row["uuid"]] = DopeCode.formatEntityRef(
                 domain: domain, entity: row["code"])
         }
         var enumRef = [String: String]()
         for row in enumRows {
-            let domain = domainCode[row["dope_domain_uuid"]] ?? "?"
+            let domain = domainCode[row["dope_persistence_uuid"]] ?? "?"
             enumRef[row["uuid"]] = DopeCode.formatEnumRef(domain: domain, enumCode: row["code"])
         }
         var propertyRef = [String: String]()
         for row in propertyRows {
-            let info = entityInfo[row["dope_domain_entity_uuid"]] ?? (domain: "?", code: "?")
+            let info = entityInfo[row["dope_persistence_entity_uuid"]] ?? (domain: "?", code: "?")
             propertyRef[row["uuid"]] = DopeCode.formatPropertyRef(
                 domain: info.domain, entity: info.code, property: row["code"])
         }
@@ -377,16 +394,16 @@ extension Store {
                     isUnique: (row["is_unique"] as Int64) != 0,
                     autoIncrement: (row["auto_increment"] as Int64?).map { $0 != 0 },
                     textCharLimit: row["text_char_limit"],
-                    enumRef: (row["dope_domain_enum_uuid"] as String?).flatMap { enumRef[$0] },
+                    enumRef: (row["dope_persistence_enum_uuid"] as String?).flatMap { enumRef[$0] },
                     relatedPropertyRef: (row["related_property_uuid"] as String?)
                         .flatMap { propertyRef[$0] },
                     baseOriginRef: (row["base_origin_property_uuid"] as String?)
                         .flatMap { propertyRef[$0] }))
-            propertiesByEntity[row["dope_domain_entity_uuid"], default: []].append(node)
+            propertiesByEntity[row["dope_persistence_entity_uuid"], default: []].append(node)
         }
         var optionsByEnum = [String: [DopeOptionNode]]()
         for row in optionRows {
-            optionsByEnum[row["dope_domain_enum_uuid"], default: []].append(
+            optionsByEnum[row["dope_persistence_enum_uuid"], default: []].append(
                 DopeOptionNode(identity: identity(row),
                                body: DopeOptionBody(code: row["code"], name: row["name"],
                                                     description: row["description"],
@@ -394,7 +411,7 @@ extension Store {
         }
         var entitiesByDomain = [String: [DopeEntityNode]]()
         for row in entityRows {
-            entitiesByDomain[row["dope_domain_uuid"], default: []].append(
+            entitiesByDomain[row["dope_persistence_uuid"], default: []].append(
                 DopeEntityNode(identity: identity(row),
                                body: DopeEntityBody(
                                     code: row["code"], name: row["name"],
@@ -408,7 +425,7 @@ extension Store {
         }
         var enumsByDomain = [String: [DopeEnumNode]]()
         for row in enumRows {
-            enumsByDomain[row["dope_domain_uuid"], default: []].append(
+            enumsByDomain[row["dope_persistence_uuid"], default: []].append(
                 DopeEnumNode(identity: identity(row),
                              body: DopeEnumBody(
                                 code: row["code"], name: row["name"],
@@ -417,8 +434,8 @@ extension Store {
                              options: optionsByEnum[row["uuid"]] ?? []))
         }
         let domains = domainRows.map { row in
-            DopeDomainNode(identity: identity(row),
-                           body: DopeDomainBody(code: row["code"], name: row["name"],
+            DopePersistenceNode(identity: identity(row),
+                           body: DopePersistenceBody(code: row["code"], name: row["name"],
                                                 description: row["description"],
                                                 sortOrder: row["sort_order"]),
                            entities: entitiesByDomain[row["uuid"]] ?? [],
@@ -440,7 +457,7 @@ extension Store {
 
     @discardableResult
     func insertDopeTree(
-        _ db: Database, scopeUuid: String, domainFiles: [DopeDomainFileDocument]
+        _ db: Database, scopeUuid: String, domainFiles: [DopePersistenceFileDocument]
     ) throws -> DopeTreeCounts {
         var counts = (domains: 0, entities: 0, properties: 0, enums: 0, options: 0)
         var domainUuidByCode = [String: String]()
@@ -458,7 +475,7 @@ extension Store {
         // per-domain forward pass would miss a ref into a later domain and
         // write NULL into a CHECK-coupled column.
         for file in domainFiles {
-            let domainUuid = try insertBase(db, table: "dope_domain", extra: [
+            let domainUuid = try insertBase(db, table: "dope_persistence", extra: [
                 "dope_scope_uuid": scopeUuid,
                 "code": file.body.code, "name": file.body.name,
                 "description": file.body.description, "sort_order": file.body.sortOrder,
@@ -469,8 +486,8 @@ extension Store {
         for file in domainFiles {
             let domainUuid = domainUuidByCode[file.body.code]!
             for en in file.enums {
-                let enumUuid = try insertBase(db, table: "dope_domain_enum", extra: [
-                    "dope_domain_uuid": domainUuid,
+                let enumUuid = try insertBase(db, table: "dope_persistence_enum", extra: [
+                    "dope_persistence_uuid": domainUuid,
                     "code": en.body.code, "name": en.body.name,
                     "description": en.body.description, "sort_order": en.body.sortOrder,
                     "repo_representative_file": en.body.repoRepresentativeFile,
@@ -479,8 +496,8 @@ extension Store {
                 enumUuidByRef[DopeCode.formatEnumRef(
                     domain: file.body.code, enumCode: en.body.code)] = enumUuid
                 for option in en.options {
-                    _ = try insertBase(db, table: "dope_domain_enum_option", extra: [
-                        "dope_domain_enum_uuid": enumUuid,
+                    _ = try insertBase(db, table: "dope_persistence_enum_option", extra: [
+                        "dope_persistence_enum_uuid": enumUuid,
                         "code": option.body.code, "name": option.body.name,
                         "description": option.body.description,
                         "sort_order": option.body.sortOrder,
@@ -495,8 +512,8 @@ extension Store {
         for file in domainFiles {
             let domainUuid = domainUuidByCode[file.body.code]!
             for entity in file.entities {
-                let entityUuid = try insertBase(db, table: "dope_domain_entity", extra: [
-                    "dope_domain_uuid": domainUuid,
+                let entityUuid = try insertBase(db, table: "dope_persistence_entity", extra: [
+                    "dope_persistence_uuid": domainUuid,
                     "code": entity.body.code, "name": entity.body.name,
                     "entity_type": entity.body.entityType,
                     "description": entity.body.description,
@@ -525,8 +542,8 @@ extension Store {
                         }
                         enumUuid = resolved
                     }
-                    let uuid = try insertBase(db, table: "dope_domain_entity_property", extra: [
-                        "dope_domain_entity_uuid": entityUuid,
+                    let uuid = try insertBase(db, table: "dope_persistence_entity_property", extra: [
+                        "dope_persistence_entity_uuid": entityUuid,
                         "code": body.code, "name": body.name,
                         "description": body.description, "sort_order": body.sortOrder,
                         "data_type": body.dataType,
@@ -534,7 +551,7 @@ extension Store {
                         "is_unique": body.isUnique ? 1 : 0,
                         "auto_increment": body.autoIncrement.map { $0 ? 1 : 0 },
                         "text_char_limit": body.textCharLimit,
-                        "dope_domain_enum_uuid": enumUuid,
+                        "dope_persistence_enum_uuid": enumUuid,
                         "related_property_uuid": nil,
                     ])
                     counts.properties += 1
@@ -558,7 +575,7 @@ extension Store {
                     detail: "entity base_composable_ref '\(pending.ref)' did not resolve during insert")
             }
             try db.execute(
-                sql: "UPDATE dope_domain_entity SET base_composable_uuid = ? WHERE uuid = ?",
+                sql: "UPDATE dope_persistence_entity SET base_composable_uuid = ? WHERE uuid = ?",
                 arguments: [target, pending.entityUuid])
         }
         // Relationship properties last: the validator bans chain refs, so
@@ -570,8 +587,8 @@ extension Store {
                 throw StoreError.badRequest(
                     detail: "relationship property '\(body.code)' target '\(body.relatedPropertyRef ?? "nil")' did not resolve during insert")
             }
-            let uuid = try insertBase(db, table: "dope_domain_entity_property", extra: [
-                "dope_domain_entity_uuid": pending.entityUuid,
+            let uuid = try insertBase(db, table: "dope_persistence_entity_property", extra: [
+                "dope_persistence_entity_uuid": pending.entityUuid,
                 "code": body.code, "name": body.name,
                 "description": body.description, "sort_order": body.sortOrder,
                 "data_type": body.dataType,
@@ -579,7 +596,7 @@ extension Store {
                 "is_unique": body.isUnique ? 1 : 0,
                 "auto_increment": nil,
                 "text_char_limit": nil,
-                "dope_domain_enum_uuid": nil,
+                "dope_persistence_enum_uuid": nil,
                 "related_property_uuid": target,
             ])
             counts.properties += 1
@@ -600,7 +617,7 @@ extension Store {
                     detail: "property base_origin_ref '\(pending.ref)' did not resolve during insert")
             }
             try db.execute(sql: """
-                UPDATE dope_domain_entity_property SET base_origin_property_uuid = ? WHERE uuid = ?
+                UPDATE dope_persistence_entity_property SET base_origin_property_uuid = ? WHERE uuid = ?
                 """, arguments: [target, pending.propertyUuid])
         }
         return DopeTreeCounts(domains: counts.domains, entities: counts.entities,
@@ -618,39 +635,39 @@ extension Store {
         // mid-statement. Rows about to be deleted; version deliberately
         // untouched.
         try db.execute(sql: """
-            UPDATE dope_domain_entity SET base_composable_uuid = NULL
+            UPDATE dope_persistence_entity SET base_composable_uuid = NULL
              WHERE base_composable_uuid IS NOT NULL
-               AND dope_domain_uuid IN (
-                SELECT uuid FROM dope_domain WHERE dope_scope_uuid = ?)
+               AND dope_persistence_uuid IN (
+                SELECT uuid FROM dope_persistence WHERE dope_scope_uuid = ?)
             """, arguments: [scopeUuid])
         // base_origin is data_type-INDEPENDENT, so the relationship-first
         // DELETE split below cannot separate origin referrers from their
         // targets — NULL every tag before either property DELETE runs.
         try db.execute(sql: """
-            UPDATE dope_domain_entity_property SET base_origin_property_uuid = NULL
+            UPDATE dope_persistence_entity_property SET base_origin_property_uuid = NULL
              WHERE base_origin_property_uuid IS NOT NULL
-               AND dope_domain_entity_uuid IN (
-                SELECT e.uuid FROM dope_domain_entity e
-                  JOIN dope_domain d ON d.uuid = e.dope_domain_uuid
+               AND dope_persistence_entity_uuid IN (
+                SELECT e.uuid FROM dope_persistence_entity e
+                  JOIN dope_persistence d ON d.uuid = e.dope_persistence_uuid
                  WHERE d.dope_scope_uuid = ?)
             """, arguments: [scopeUuid])
         try db.execute(sql: """
-            DELETE FROM dope_domain_entity_property
+            DELETE FROM dope_persistence_entity_property
              WHERE data_type = 'relationship'
-               AND dope_domain_entity_uuid IN (
-                SELECT e.uuid FROM dope_domain_entity e
-                  JOIN dope_domain d ON d.uuid = e.dope_domain_uuid
+               AND dope_persistence_entity_uuid IN (
+                SELECT e.uuid FROM dope_persistence_entity e
+                  JOIN dope_persistence d ON d.uuid = e.dope_persistence_uuid
                  WHERE d.dope_scope_uuid = ?)
             """, arguments: [scopeUuid])
         try db.execute(sql: """
-            DELETE FROM dope_domain_entity_property
-             WHERE dope_domain_entity_uuid IN (
-                SELECT e.uuid FROM dope_domain_entity e
-                  JOIN dope_domain d ON d.uuid = e.dope_domain_uuid
+            DELETE FROM dope_persistence_entity_property
+             WHERE dope_persistence_entity_uuid IN (
+                SELECT e.uuid FROM dope_persistence_entity e
+                  JOIN dope_persistence d ON d.uuid = e.dope_persistence_uuid
                  WHERE d.dope_scope_uuid = ?)
             """, arguments: [scopeUuid])
         try db.execute(
-            sql: "DELETE FROM dope_domain WHERE dope_scope_uuid = ?",
+            sql: "DELETE FROM dope_persistence WHERE dope_scope_uuid = ?",
             arguments: [scopeUuid])
     }
 
@@ -741,7 +758,7 @@ extension Store {
                     detail: "target property \(relatedPropertyUuid) belongs to a different dope scope")
             }
             let targetType = try String.fetchOne(
-                db, sql: "SELECT data_type FROM dope_domain_entity_property WHERE uuid = ?",
+                db, sql: "SELECT data_type FROM dope_persistence_entity_property WHERE uuid = ?",
                 arguments: [relatedPropertyUuid])
             if targetType == DopePropertyDataType.relationship.rawValue {
                 throw StoreError.badRequest(
@@ -764,13 +781,13 @@ extension Store {
                 SELECT p.data_type AS data_type,
                        e.uuid AS entity_uuid,
                        e.entity_type AS entity_type
-                  FROM dope_domain_entity_property p
-                  JOIN dope_domain_entity e ON e.uuid = p.dope_domain_entity_uuid
+                  FROM dope_persistence_entity_property p
+                  JOIN dope_persistence_entity e ON e.uuid = p.dope_persistence_entity_uuid
                  WHERE p.uuid = ?
                 """, arguments: [origin])
             else {
                 throw StoreError.corruptState(
-                    entity: "dope_domain_entity_property",
+                    entity: "dope_persistence_entity_property",
                     detail: "base origin \(origin) vanished")
             }
             let originEntity: String = row["entity_uuid"]
@@ -799,13 +816,13 @@ extension Store {
     ) throws {
         var seen: Set<String> = []
         var node: String? = try String.fetchOne(
-            db, sql: "SELECT base_composable_uuid FROM dope_domain_entity WHERE uuid = ?",
+            db, sql: "SELECT base_composable_uuid FROM dope_persistence_entity WHERE uuid = ?",
             arguments: [entityUuid]) ?? nil
         while let current = node {
             if current == targetUuid { return }
             guard seen.insert(current).inserted else { break }
             node = try String.fetchOne(
-                db, sql: "SELECT base_composable_uuid FROM dope_domain_entity WHERE uuid = ?",
+                db, sql: "SELECT base_composable_uuid FROM dope_persistence_entity WHERE uuid = ?",
                 arguments: [current]) ?? nil
         }
         throw StoreError.badRequest(detail:
@@ -830,7 +847,7 @@ extension Store {
             // dopeOwningScope proves existence + scope; the TYPE needs its
             // own read.
             let targetType = try String.fetchOne(
-                db, sql: "SELECT entity_type FROM dope_domain_entity WHERE uuid = ?",
+                db, sql: "SELECT entity_type FROM dope_persistence_entity WHERE uuid = ?",
                 arguments: [target])
             guard targetType == DopeEntityType.baseComposable.rawValue else {
                 throw StoreError.badRequest(detail:
@@ -860,10 +877,10 @@ extension Store {
         if let entityUuid {
             let tagged = try Row.fetchAll(db, sql: """
                 SELECT p.code AS code, oe.uuid AS origin_entity
-                  FROM dope_domain_entity_property p
-                  JOIN dope_domain_entity_property op ON op.uuid = p.base_origin_property_uuid
-                  JOIN dope_domain_entity oe ON oe.uuid = op.dope_domain_entity_uuid
-                 WHERE p.dope_domain_entity_uuid = ?
+                  FROM dope_persistence_entity_property p
+                  JOIN dope_persistence_entity_property op ON op.uuid = p.base_origin_property_uuid
+                  JOIN dope_persistence_entity oe ON oe.uuid = op.dope_persistence_entity_uuid
+                 WHERE p.dope_persistence_entity_uuid = ?
                    AND p.base_origin_property_uuid IS NOT NULL
                 """, arguments: [entityUuid])
             if !tagged.isEmpty {
@@ -871,7 +888,7 @@ extension Store {
                 var node = baseComposableUuid
                 while let current = node, reachable.insert(current).inserted {
                     node = try String.fetchOne(
-                        db, sql: "SELECT base_composable_uuid FROM dope_domain_entity WHERE uuid = ?",
+                        db, sql: "SELECT base_composable_uuid FROM dope_persistence_entity WHERE uuid = ?",
                         arguments: [current]) ?? nil
                 }
                 let stranded = tagged.filter { !reachable.contains($0["origin_entity"] as String) }
@@ -905,7 +922,7 @@ extension Store {
                 return  // corruption below us; not this mutation's cycle
             }
             node = try String.fetchOne(
-                db, sql: "SELECT base_composable_uuid FROM dope_domain_entity WHERE uuid = ?",
+                db, sql: "SELECT base_composable_uuid FROM dope_persistence_entity WHERE uuid = ?",
                 arguments: [current]) ?? nil
         }
     }
@@ -917,8 +934,8 @@ extension Store {
     ) throws -> [String] {
         try String.fetchAll(db, sql: """
             SELECT d.code || '.' || e.code
-            FROM dope_domain_entity e
-            JOIN dope_domain d ON d.uuid = e.dope_domain_uuid
+            FROM dope_persistence_entity e
+            JOIN dope_persistence d ON d.uuid = e.dope_persistence_uuid
             WHERE e.base_composable_uuid = ? LIMIT 5
             """, arguments: [entityUuid])
     }
@@ -990,7 +1007,7 @@ extension Store {
                 extra["is_unique"] = (req.fields.isUnique ?? false) ? 1 : 0
                 extra["auto_increment"] = req.fields.autoIncrement.map { $0 ? 1 : 0 }
                 extra["text_char_limit"] = req.fields.textCharLimit
-                extra["dope_domain_enum_uuid"] = req.fields.enumUuid
+                extra["dope_persistence_enum_uuid"] = req.fields.enumUuid
                 extra["related_property_uuid"] = req.fields.relatedPropertyUuid
                 extra["base_origin_property_uuid"] = req.fields.baseOriginPropertyUuid
             default:
@@ -1041,7 +1058,7 @@ extension Store {
 
             if req.level == .entity {
                 guard let current = try Row.fetchOne(
-                    db, sql: "SELECT * FROM dope_domain_entity WHERE uuid = ?",
+                    db, sql: "SELECT * FROM dope_persistence_entity WHERE uuid = ?",
                     arguments: [req.nodeUuid]
                 ) else {
                     throw StoreError.notFound(entity: spec.table, key: req.nodeUuid)
@@ -1069,14 +1086,14 @@ extension Store {
 
             if req.level == .property {
                 guard let current = try Row.fetchOne(
-                    db, sql: "SELECT * FROM dope_domain_entity_property WHERE uuid = ?",
+                    db, sql: "SELECT * FROM dope_persistence_entity_property WHERE uuid = ?",
                     arguments: [req.nodeUuid]
                 ) else {
                     throw StoreError.notFound(entity: spec.table, key: req.nodeUuid)
                 }
                 let finalDataType: String = req.fields.dataType?.rawValue
                     ?? (current["data_type"] as String)
-                var finalEnum: String? = current["dope_domain_enum_uuid"]
+                var finalEnum: String? = current["dope_persistence_enum_uuid"]
                 if let enumUuid = req.fields.enumUuid { finalEnum = enumUuid }
                 if req.fields.clearEnum == true { finalEnum = nil }
                 var finalRelated: String? = current["related_property_uuid"]
@@ -1094,7 +1111,7 @@ extension Store {
 
                 try self.validatePropertyShape(
                     db, scope: scope, propertyUuid: req.nodeUuid,
-                    entityUuid: current["dope_domain_entity_uuid"],
+                    entityUuid: current["dope_persistence_entity_uuid"],
                     dataType: finalDataType,
                     enumUuid: finalEnum, relatedPropertyUuid: finalRelated,
                     baseOriginPropertyUuid: finalBaseOrigin,
@@ -1115,7 +1132,7 @@ extension Store {
                     set.updateValue(finalCharLimit, forKey: "text_char_limit")
                 }
                 if req.fields.enumUuid != nil || req.fields.clearEnum == true {
-                    set.updateValue(finalEnum, forKey: "dope_domain_enum_uuid")
+                    set.updateValue(finalEnum, forKey: "dope_persistence_enum_uuid")
                 }
                 if req.fields.relatedPropertyUuid != nil || req.fields.clearRelatedProperty == true {
                     set.updateValue(finalRelated, forKey: "related_property_uuid")
@@ -1161,51 +1178,51 @@ extension Store {
             // node's own relationship properties (referrers) go first, then
             // the remaining properties under it, then the guarded row.
             switch req.level {
-            case .domain:
+            case .persistence:
                 // Entities inside this domain may compose one another under
                 // an ON DELETE RESTRICT self-FK; the CASCADE below would trip
                 // it. External composers were already refused by the guard.
                 try db.execute(sql: """
-                    UPDATE dope_domain_entity SET base_composable_uuid = NULL
-                     WHERE dope_domain_uuid = ? AND base_composable_uuid IS NOT NULL
+                    UPDATE dope_persistence_entity SET base_composable_uuid = NULL
+                     WHERE dope_persistence_uuid = ? AND base_composable_uuid IS NOT NULL
                     """, arguments: [req.nodeUuid])
                 // Origin tags are data_type-independent — NULL them before
                 // BOTH property DELETEs, or a tagged origin that is itself a
                 // relationship property trips the RESTRICT mid-statement.
                 try db.execute(sql: """
-                    UPDATE dope_domain_entity_property SET base_origin_property_uuid = NULL
+                    UPDATE dope_persistence_entity_property SET base_origin_property_uuid = NULL
                      WHERE base_origin_property_uuid IS NOT NULL
-                       AND dope_domain_entity_uuid IN (
-                        SELECT uuid FROM dope_domain_entity WHERE dope_domain_uuid = ?)
+                       AND dope_persistence_entity_uuid IN (
+                        SELECT uuid FROM dope_persistence_entity WHERE dope_persistence_uuid = ?)
                     """, arguments: [req.nodeUuid])
                 try db.execute(sql: """
-                    DELETE FROM dope_domain_entity_property
+                    DELETE FROM dope_persistence_entity_property
                      WHERE data_type = 'relationship'
-                       AND dope_domain_entity_uuid IN (
-                        SELECT uuid FROM dope_domain_entity WHERE dope_domain_uuid = ?)
+                       AND dope_persistence_entity_uuid IN (
+                        SELECT uuid FROM dope_persistence_entity WHERE dope_persistence_uuid = ?)
                     """, arguments: [req.nodeUuid])
                 try db.execute(sql: """
-                    DELETE FROM dope_domain_entity_property
-                     WHERE dope_domain_entity_uuid IN (
-                        SELECT uuid FROM dope_domain_entity WHERE dope_domain_uuid = ?)
+                    DELETE FROM dope_persistence_entity_property
+                     WHERE dope_persistence_entity_uuid IN (
+                        SELECT uuid FROM dope_persistence_entity WHERE dope_persistence_uuid = ?)
                     """, arguments: [req.nodeUuid])
             case .entity:
                 // Same relationship-first split as the domain case: a bulk
                 // delete can scan a same-entity relationship TARGET before
                 // its referencer and trip the RESTRICT FK mid-statement.
                 try db.execute(sql: """
-                    UPDATE dope_domain_entity_property SET base_origin_property_uuid = NULL
+                    UPDATE dope_persistence_entity_property SET base_origin_property_uuid = NULL
                      WHERE base_origin_property_uuid IS NOT NULL
-                       AND dope_domain_entity_uuid = ?
+                       AND dope_persistence_entity_uuid = ?
                     """, arguments: [req.nodeUuid])
                 try db.execute(sql: """
-                    DELETE FROM dope_domain_entity_property
+                    DELETE FROM dope_persistence_entity_property
                      WHERE data_type = 'relationship'
-                       AND dope_domain_entity_uuid = ?
+                       AND dope_persistence_entity_uuid = ?
                     """, arguments: [req.nodeUuid])
                 try db.execute(sql: """
-                    DELETE FROM dope_domain_entity_property
-                     WHERE dope_domain_entity_uuid = ?
+                    DELETE FROM dope_persistence_entity_property
+                     WHERE dope_persistence_entity_uuid = ?
                     """, arguments: [req.nodeUuid])
             default:
                 break
@@ -1227,93 +1244,93 @@ extension Store {
         _ db: Database, level: DopeLevel, nodeUuid: String
     ) throws {
         // A list, not one statement: the base-composable referrer queries
-        // select FROM dope_domain_entity while the property-ref queries
-        // select FROM dope_domain_entity_property, so they cannot share an
+        // select FROM dope_persistence_entity while the property-ref queries
+        // select FROM dope_persistence_entity_property, so they cannot share an
         // OR clause.
         var queries: [(sql: String, args: StatementArguments)] = []
         switch level {
         case .enumeration:
             queries.append(("""
                 SELECT d.code || '.' || e.code || '.' || p.code
-                FROM dope_domain_entity_property p
-                JOIN dope_domain_entity e ON e.uuid = p.dope_domain_entity_uuid
-                JOIN dope_domain d ON d.uuid = e.dope_domain_uuid
-                WHERE p.dope_domain_enum_uuid = ? LIMIT 5
+                FROM dope_persistence_entity_property p
+                JOIN dope_persistence_entity e ON e.uuid = p.dope_persistence_entity_uuid
+                JOIN dope_persistence d ON d.uuid = e.dope_persistence_uuid
+                WHERE p.dope_persistence_enum_uuid = ? LIMIT 5
                 """, [nodeUuid]))
         case .property:
             queries.append(("""
                 SELECT d.code || '.' || e.code || '.' || p.code
-                FROM dope_domain_entity_property p
-                JOIN dope_domain_entity e ON e.uuid = p.dope_domain_entity_uuid
-                JOIN dope_domain d ON d.uuid = e.dope_domain_uuid
+                FROM dope_persistence_entity_property p
+                JOIN dope_persistence_entity e ON e.uuid = p.dope_persistence_entity_uuid
+                JOIN dope_persistence d ON d.uuid = e.dope_persistence_uuid
                 WHERE p.related_property_uuid = ? LIMIT 5
                 """, [nodeUuid]))
             queries.append(("""
                 SELECT d.code || '.' || e.code || '.' || p.code
-                FROM dope_domain_entity_property p
-                JOIN dope_domain_entity e ON e.uuid = p.dope_domain_entity_uuid
-                JOIN dope_domain d ON d.uuid = e.dope_domain_uuid
+                FROM dope_persistence_entity_property p
+                JOIN dope_persistence_entity e ON e.uuid = p.dope_persistence_entity_uuid
+                JOIN dope_persistence d ON d.uuid = e.dope_persistence_uuid
                 WHERE p.base_origin_property_uuid = ? LIMIT 5
                 """, [nodeUuid]))
         case .entity:
             queries.append(("""
                 SELECT d.code || '.' || e.code || '.' || p.code
-                FROM dope_domain_entity_property p
-                JOIN dope_domain_entity e ON e.uuid = p.dope_domain_entity_uuid
-                JOIN dope_domain d ON d.uuid = e.dope_domain_uuid
-                JOIN dope_domain_entity_property tp ON tp.uuid = p.related_property_uuid
-                WHERE tp.dope_domain_entity_uuid = ?
-                  AND p.dope_domain_entity_uuid != ? LIMIT 5
+                FROM dope_persistence_entity_property p
+                JOIN dope_persistence_entity e ON e.uuid = p.dope_persistence_entity_uuid
+                JOIN dope_persistence d ON d.uuid = e.dope_persistence_uuid
+                JOIN dope_persistence_entity_property tp ON tp.uuid = p.related_property_uuid
+                WHERE tp.dope_persistence_entity_uuid = ?
+                  AND p.dope_persistence_entity_uuid != ? LIMIT 5
                 """, [nodeUuid, nodeUuid]))
             queries.append(("""
                 SELECT d.code || '.' || e.code
-                FROM dope_domain_entity e
-                JOIN dope_domain d ON d.uuid = e.dope_domain_uuid
+                FROM dope_persistence_entity e
+                JOIN dope_persistence d ON d.uuid = e.dope_persistence_uuid
                 WHERE e.base_composable_uuid = ? LIMIT 5
                 """, [nodeUuid]))
             queries.append(("""
                 SELECT d.code || '.' || e.code || '.' || p.code
-                FROM dope_domain_entity_property p
-                JOIN dope_domain_entity e ON e.uuid = p.dope_domain_entity_uuid
-                JOIN dope_domain d ON d.uuid = e.dope_domain_uuid
-                JOIN dope_domain_entity_property op ON op.uuid = p.base_origin_property_uuid
-                WHERE op.dope_domain_entity_uuid = ?
-                  AND p.dope_domain_entity_uuid != ? LIMIT 5
+                FROM dope_persistence_entity_property p
+                JOIN dope_persistence_entity e ON e.uuid = p.dope_persistence_entity_uuid
+                JOIN dope_persistence d ON d.uuid = e.dope_persistence_uuid
+                JOIN dope_persistence_entity_property op ON op.uuid = p.base_origin_property_uuid
+                WHERE op.dope_persistence_entity_uuid = ?
+                  AND p.dope_persistence_entity_uuid != ? LIMIT 5
                 """, [nodeUuid, nodeUuid]))
-        case .domain:
+        case .persistence:
             queries.append(("""
                 SELECT d.code || '.' || e.code || '.' || p.code
-                FROM dope_domain_entity_property p
-                JOIN dope_domain_entity e ON e.uuid = p.dope_domain_entity_uuid
-                JOIN dope_domain d ON d.uuid = e.dope_domain_uuid
+                FROM dope_persistence_entity_property p
+                JOIN dope_persistence_entity e ON e.uuid = p.dope_persistence_entity_uuid
+                JOIN dope_persistence d ON d.uuid = e.dope_persistence_uuid
                 WHERE d.uuid != ?
-                  AND (p.dope_domain_enum_uuid IN
-                        (SELECT uuid FROM dope_domain_enum WHERE dope_domain_uuid = ?)
+                  AND (p.dope_persistence_enum_uuid IN
+                        (SELECT uuid FROM dope_persistence_enum WHERE dope_persistence_uuid = ?)
                     OR p.related_property_uuid IN
-                        (SELECT pp.uuid FROM dope_domain_entity_property pp
-                          JOIN dope_domain_entity ee ON ee.uuid = pp.dope_domain_entity_uuid
-                         WHERE ee.dope_domain_uuid = ?))
+                        (SELECT pp.uuid FROM dope_persistence_entity_property pp
+                          JOIN dope_persistence_entity ee ON ee.uuid = pp.dope_persistence_entity_uuid
+                         WHERE ee.dope_persistence_uuid = ?))
                 LIMIT 5
                 """, [nodeUuid, nodeUuid, nodeUuid]))
             queries.append(("""
                 SELECT d.code || '.' || e.code
-                FROM dope_domain_entity e
-                JOIN dope_domain d ON d.uuid = e.dope_domain_uuid
+                FROM dope_persistence_entity e
+                JOIN dope_persistence d ON d.uuid = e.dope_persistence_uuid
                 WHERE d.uuid != ?
                   AND e.base_composable_uuid IN
-                      (SELECT uuid FROM dope_domain_entity WHERE dope_domain_uuid = ?)
+                      (SELECT uuid FROM dope_persistence_entity WHERE dope_persistence_uuid = ?)
                 LIMIT 5
                 """, [nodeUuid, nodeUuid]))
             queries.append(("""
                 SELECT d.code || '.' || e.code || '.' || p.code
-                FROM dope_domain_entity_property p
-                JOIN dope_domain_entity e ON e.uuid = p.dope_domain_entity_uuid
-                JOIN dope_domain d ON d.uuid = e.dope_domain_uuid
+                FROM dope_persistence_entity_property p
+                JOIN dope_persistence_entity e ON e.uuid = p.dope_persistence_entity_uuid
+                JOIN dope_persistence d ON d.uuid = e.dope_persistence_uuid
                 WHERE d.uuid != ?
                   AND p.base_origin_property_uuid IN
-                      (SELECT pp.uuid FROM dope_domain_entity_property pp
-                        JOIN dope_domain_entity ee ON ee.uuid = pp.dope_domain_entity_uuid
-                       WHERE ee.dope_domain_uuid = ?)
+                      (SELECT pp.uuid FROM dope_persistence_entity_property pp
+                        JOIN dope_persistence_entity ee ON ee.uuid = pp.dope_persistence_entity_uuid
+                       WHERE ee.dope_persistence_uuid = ?)
                 LIMIT 5
                 """, [nodeUuid, nodeUuid]))
         case .scope, .option:
@@ -1335,30 +1352,30 @@ extension Store {
             try Int.fetchOne(db, sql: sql, arguments: args) ?? 0
         }
         switch level {
-        case .domain:
+        case .persistence:
             let entities = try count(
-                "SELECT COUNT(*) FROM dope_domain_entity WHERE dope_domain_uuid = ?", [nodeUuid])
+                "SELECT COUNT(*) FROM dope_persistence_entity WHERE dope_persistence_uuid = ?", [nodeUuid])
             let enums = try count(
-                "SELECT COUNT(*) FROM dope_domain_enum WHERE dope_domain_uuid = ?", [nodeUuid])
+                "SELECT COUNT(*) FROM dope_persistence_enum WHERE dope_persistence_uuid = ?", [nodeUuid])
             let options = try count("""
-                SELECT COUNT(*) FROM dope_domain_enum_option WHERE dope_domain_enum_uuid IN
-                    (SELECT uuid FROM dope_domain_enum WHERE dope_domain_uuid = ?)
+                SELECT COUNT(*) FROM dope_persistence_enum_option WHERE dope_persistence_enum_uuid IN
+                    (SELECT uuid FROM dope_persistence_enum WHERE dope_persistence_uuid = ?)
                 """, [nodeUuid])
             let properties = try count("""
-                SELECT COUNT(*) FROM dope_domain_entity_property WHERE dope_domain_entity_uuid IN
-                    (SELECT uuid FROM dope_domain_entity WHERE dope_domain_uuid = ?)
+                SELECT COUNT(*) FROM dope_persistence_entity_property WHERE dope_persistence_entity_uuid IN
+                    (SELECT uuid FROM dope_persistence_entity WHERE dope_persistence_uuid = ?)
                 """, [nodeUuid])
             return DopeTreeCounts(domains: 1, entities: entities, properties: properties,
                                   enums: enums, options: options)
         case .entity:
             let properties = try count(
-                "SELECT COUNT(*) FROM dope_domain_entity_property WHERE dope_domain_entity_uuid = ?",
+                "SELECT COUNT(*) FROM dope_persistence_entity_property WHERE dope_persistence_entity_uuid = ?",
                 [nodeUuid])
             return DopeTreeCounts(domains: 0, entities: 1, properties: properties,
                                   enums: 0, options: 0)
         case .enumeration:
             let options = try count(
-                "SELECT COUNT(*) FROM dope_domain_enum_option WHERE dope_domain_enum_uuid = ?",
+                "SELECT COUNT(*) FROM dope_persistence_enum_option WHERE dope_persistence_enum_uuid = ?",
                 [nodeUuid])
             return DopeTreeCounts(domains: 0, entities: 0, properties: 0,
                                   enums: 1, options: options)

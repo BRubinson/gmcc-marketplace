@@ -35,7 +35,7 @@ struct DopeBaseCatalog: Equatable {
 
     /// Base domain = holds at least one BASE_COMPOSABLE entity. Mixed domains
     /// count as base (user-confirmed rule).
-    static func isBaseDomain(_ domain: DopeDomainNode) -> Bool {
+    static func isBaseDomain(_ domain: DopePersistenceNode) -> Bool {
         domain.entities.contains {
             $0.body.entityType == DopeEntityType.baseComposable.rawValue
         }

@@ -115,7 +115,7 @@ public struct DopeRepoSandbox: Sendable {
         }
 
         var warnings: [String] = []
-        var files: [DopeDomainFileDocument] = []
+        var files: [DopePersistenceFileDocument] = []
         for (code, mapped) in main.domains.sorted(by: { $0.key < $1.key }) {
             let expected = DopeMainDocument.expectedFile(forDomainCode: code)
             guard mapped == expected else {
@@ -129,7 +129,7 @@ public struct DopeRepoSandbox: Sendable {
             do {
                 let data = try Data(contentsOf: url)
                 let file = try DopeDocumentCodec.decoder.decode(
-                    DopeDomainFileDocument.self, from: data)
+                    DopePersistenceFileDocument.self, from: data)
                 if file.body.code != code {
                     throw SandboxError(
                         "domain file \(expected) declares code '\(file.body.code)' — file name and code must agree")

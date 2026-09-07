@@ -1,15 +1,27 @@
 import Foundation
 
-/// The six DOPED tree levels. `enumeration`'s raw-value rename is wire-safe:
-/// the CodingKeys hazard documented in Envelope.swift applies to property
-/// keys under the snake_case strategies, not to enum raw values.
+/// The six DOPED tree levels. `enumeration`'s and `persistence`'s raw-value
+/// renames are wire-safe: the CodingKeys hazard documented in Envelope.swift
+/// applies to property keys under the snake_case strategies, not to enum raw
+/// values.
 public enum DopeLevel: String, Codable, Hashable, CaseIterable, Sendable {
     case scope
-    case domain
+    /// Renamed from `domain` when the Dope*Domain* vocabulary became
+    /// Dope*Persistence* down to the SQL. The ON-DISK .doped.json grammar
+    /// deliberately still says "domains" — see DopeMainDocument.
+    case persistence
     case entity
     case property
     case enumeration = "enum"
     case option
+
+    /// Accepts the retired "domain" spelling so a stale peer, a scripted
+    /// call, or a queued request still resolves. Decoding is tolerant;
+    /// encoding always emits the current raw value.
+    public init?(fromWire raw: String) {
+        if raw == "domain" { self = .persistence; return }
+        self.init(rawValue: raw)
+    }
 }
 
 /// Field identifiers a granular node mutation may carry. Which subset is
@@ -39,24 +51,24 @@ public struct DopeLevelSpec: Sendable {
             DopeLevelSpec(level: .scope, table: "dope_scope",
                           parentLevel: nil, parentColumn: nil,
                           ownedFields: [.code, .name, .description]),
-            DopeLevelSpec(level: .domain, table: "dope_domain",
+            DopeLevelSpec(level: .persistence, table: "dope_persistence",
                           parentLevel: .scope, parentColumn: "dope_scope_uuid",
                           ownedFields: common),
-            DopeLevelSpec(level: .entity, table: "dope_domain_entity",
-                          parentLevel: .domain, parentColumn: "dope_domain_uuid",
+            DopeLevelSpec(level: .entity, table: "dope_persistence_entity",
+                          parentLevel: .persistence, parentColumn: "dope_persistence_uuid",
                           ownedFields: common.union([.entityType, .repoRepresentativeFile,
                                                      .baseComposableUuid])),
-            DopeLevelSpec(level: .property, table: "dope_domain_entity_property",
-                          parentLevel: .entity, parentColumn: "dope_domain_entity_uuid",
+            DopeLevelSpec(level: .property, table: "dope_persistence_entity_property",
+                          parentLevel: .entity, parentColumn: "dope_persistence_entity_uuid",
                           ownedFields: common.union([.dataType, .nullable, .isUnique,
                                                      .autoIncrement, .textCharLimit,
                                                      .enumUuid, .relatedPropertyUuid,
                                                      .baseOriginPropertyUuid])),
-            DopeLevelSpec(level: .enumeration, table: "dope_domain_enum",
-                          parentLevel: .domain, parentColumn: "dope_domain_uuid",
+            DopeLevelSpec(level: .enumeration, table: "dope_persistence_enum",
+                          parentLevel: .persistence, parentColumn: "dope_persistence_uuid",
                           ownedFields: common.union([.repoRepresentativeFile])),
-            DopeLevelSpec(level: .option, table: "dope_domain_enum_option",
-                          parentLevel: .enumeration, parentColumn: "dope_domain_enum_uuid",
+            DopeLevelSpec(level: .option, table: "dope_persistence_enum_option",
+                          parentLevel: .enumeration, parentColumn: "dope_persistence_enum_uuid",
                           ownedFields: common),
         ]
         return Dictionary(uniqueKeysWithValues: specs.map { ($0.level, $0) })
@@ -68,13 +80,57 @@ public struct DopeLevelSpec: Sendable {
     }
 }
 
-/// DopeScope.scope_type values.
+/// DopeScope.scope_type values — the four-tier ladder (m0013).
+///
+/// The two retired spellings map one-to-one onto the session tiers, which is
+/// what made the widening drop-in: SESSION_BASE became SESSION_INSTANCE and
+/// PROMPT became SESSION_INSTANCE_ITEM, a pure value rename.
 public enum DopeScopeType: String, Codable, Hashable, CaseIterable, Sendable {
-    case sessionBase = "SESSION_BASE"
-    case prompt = "PROMPT"
+    /// Project-wide shared truth, promoted from the primary branch's
+    /// SESSION_INSTANCE scope. Always fully hydrated.
+    case baseProject = "BASE_PROJECT"
+    /// Personal, db-only overlay masking BASE_PROJECT by dot-path position.
+    case projectItem = "PROJECT_ITEM"
+    /// One session+instance's tree — what .gmcc/dope actually carries, and
+    /// what boot sync reconciles against.
+    case sessionInstance = "SESSION_INSTANCE"
+    /// Personal, db-only overlay masking SESSION_INSTANCE.
+    case sessionInstanceItem = "SESSION_INSTANCE_ITEM"
+
+    /// Accepts the retired on-disk/wire spellings. Every committed
+    /// main.doped.json says "SESSION_BASE"; the file self-updates on its next
+    /// write-repo. Decoding is tolerant, encoding always emits the current
+    /// raw value.
+    public init?(fromWire raw: String) {
+        switch raw {
+        case "SESSION_BASE": self = .sessionInstance
+        case "PROMPT":       self = .sessionInstanceItem
+        default:             self.init(rawValue: raw)
+        }
+    }
+
+    /// True for the two personal masking tiers. Expressed ONCE so
+    /// overlay-vs-base logic is never re-derived from `promptUuid == nil`,
+    /// which would compile and be silently wrong for a PROJECT_ITEM.
+    public var isOverlay: Bool { self == .projectItem || self == .sessionInstanceItem }
+
+    /// The tier this one masks, or nil for a base tier.
+    public var masks: DopeScopeType? {
+        switch self {
+        case .projectItem: return .baseProject
+        case .sessionInstanceItem: return .sessionInstance
+        case .baseProject, .sessionInstance: return nil
+        }
+    }
+
+    /// Session-owned tiers carry session_uuid (and instance_uuid); the
+    /// project tiers carry neither.
+    public var isSessionOwned: Bool {
+        self == .sessionInstance || self == .sessionInstanceItem
+    }
 }
 
-/// DopeDomainEntity.entity_type values.
+/// DopePersistenceEntity.entity_type values.
 public enum DopeEntityType: String, Codable, Hashable, CaseIterable, Sendable {
     case model = "MODEL"
     case junction = "JUNCTION"
@@ -84,7 +140,7 @@ public enum DopeEntityType: String, Codable, Hashable, CaseIterable, Sendable {
     case baseComposable = "BASE_COMPOSABLE"
 }
 
-/// DopeDomainEntityProperty.data_type values — the prompt's enum verbatim.
+/// DopePersistenceEntityProperty.data_type values — the prompt's enum verbatim.
 public enum DopePropertyDataType: String, Codable, Hashable, CaseIterable, Sendable {
     case enumeration = "enum"
     case relationship

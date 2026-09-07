@@ -32,7 +32,7 @@ public struct DopeScopeBody: Codable, Hashable, Sendable {
     }
 }
 
-public struct DopeDomainBody: Codable, Hashable, Sendable {
+public struct DopePersistenceBody: Codable, Hashable, Sendable {
     public let code: String
     public let name: String
     public let description: String
@@ -260,16 +260,16 @@ public struct DopeEntityNode: Codable, Hashable, Sendable {
     }
 }
 
-public struct DopeDomainNode: Codable, Hashable, Sendable {
+public struct DopePersistenceNode: Codable, Hashable, Sendable {
     public let identity: DopeNodeIdentity
-    public let body: DopeDomainBody
+    public let body: DopePersistenceBody
     public let entities: [DopeEntityNode]
     public let enums: [DopeEnumNode]
 
     private enum CodingKeys: String, CodingKey { case entities, enums }
 
     public init(
-        identity: DopeNodeIdentity, body: DopeDomainBody,
+        identity: DopeNodeIdentity, body: DopePersistenceBody,
         entities: [DopeEntityNode], enums: [DopeEnumNode]
     ) {
         self.identity = identity
@@ -280,7 +280,7 @@ public struct DopeDomainNode: Codable, Hashable, Sendable {
 
     public init(from decoder: Decoder) throws {
         identity = try DopeNodeIdentity(from: decoder)
-        body = try DopeDomainBody(from: decoder)
+        body = try DopePersistenceBody(from: decoder)
         let c = try decoder.container(keyedBy: CodingKeys.self)
         entities = try c.decode([DopeEntityNode].self, forKey: .entities)
         enums = try c.decode([DopeEnumNode].self, forKey: .enums)
@@ -299,20 +299,22 @@ public struct DopeDomainNode: Codable, Hashable, Sendable {
 public struct DopeScopeTree: Codable, Hashable, Sendable {
     public let identity: DopeNodeIdentity
     public let body: DopeScopeBody
-    public let sessionUuid: String
+    /// nil for the two project tiers (m0013). A project-tier tree has no
+    /// session, and the repo/boot axis is session-only by construction.
+    public let sessionUuid: String?
     public let promptUuid: String?
     public let scopeType: String
     public let revision: Int64
-    public let domains: [DopeDomainNode]
+    public let domains: [DopePersistenceNode]
 
     private enum CodingKeys: String, CodingKey {
         case sessionUuid, promptUuid, scopeType, revision, domains
     }
 
     public init(
-        identity: DopeNodeIdentity, body: DopeScopeBody, sessionUuid: String,
+        identity: DopeNodeIdentity, body: DopeScopeBody, sessionUuid: String?,
         promptUuid: String?, scopeType: String, revision: Int64,
-        domains: [DopeDomainNode]
+        domains: [DopePersistenceNode]
     ) {
         self.identity = identity
         self.body = body
@@ -327,18 +329,18 @@ public struct DopeScopeTree: Codable, Hashable, Sendable {
         identity = try DopeNodeIdentity(from: decoder)
         body = try DopeScopeBody(from: decoder)
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        sessionUuid = try c.decode(String.self, forKey: .sessionUuid)
+        sessionUuid = try c.decodeIfPresent(String.self, forKey: .sessionUuid)
         promptUuid = try c.decodeIfPresent(String.self, forKey: .promptUuid)
         scopeType = try c.decode(String.self, forKey: .scopeType)
         revision = try c.decode(Int64.self, forKey: .revision)
-        domains = try c.decode([DopeDomainNode].self, forKey: .domains)
+        domains = try c.decode([DopePersistenceNode].self, forKey: .domains)
     }
 
     public func encode(to encoder: Encoder) throws {
         try identity.encode(to: encoder)
         try body.encode(to: encoder)
         var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(sessionUuid, forKey: .sessionUuid)
+        try c.encodeIfPresent(sessionUuid, forKey: .sessionUuid)
         try c.encodeIfPresent(promptUuid, forKey: .promptUuid)
         try c.encode(scopeType, forKey: .scopeType)
         try c.encode(revision, forKey: .revision)

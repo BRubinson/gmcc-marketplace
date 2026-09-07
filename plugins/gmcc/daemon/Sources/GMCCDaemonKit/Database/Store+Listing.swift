@@ -11,7 +11,8 @@ extension Store {
         try dbQueue.read { db in
             let rows = try Row.fetchAll(db, sql: """
                 SELECT uuid, version, git_repo_name, code, name,
-                       ckfs_relative_storage_path, created_at, updated_at
+                       ckfs_relative_storage_path, primary_project_branch,
+                       created_at, updated_at
                 FROM project ORDER BY code
                 """)
             return ProjectListResponse(projects: rows.map { row in
@@ -22,6 +23,7 @@ extension Store {
                     code: row["code"],
                     name: row["name"],
                     ckfsRelativeStoragePath: row["ckfs_relative_storage_path"],
+                    primaryProjectBranch: row["primary_project_branch"],
                     createdAt: row["created_at"],
                     updatedAt: row["updated_at"]
                 )

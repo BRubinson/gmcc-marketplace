@@ -12,6 +12,14 @@ public struct ProjectRow: Codable, Hashable, Sendable {
     public let code: String
     public let name: String
     public let ckfsRelativeStoragePath: String
+    /// BASE_DOPED_BRANCH — the branch whose SESSION_INSTANCE dope scope may
+    /// promote into this project's BASE_PROJECT scope. Defaults to "main"
+    /// (m0011 backfills every existing row); user-configured through
+    /// `gm project update` or GMVibes' project view.
+    ///
+    /// Defaulted rather than Optional so a stale peer that omits the key
+    /// still decodes — the additive-OPTIONAL wire convention.
+    public let primaryProjectBranch: String
     public let createdAt: String
     public let updatedAt: String
 
@@ -22,6 +30,7 @@ public struct ProjectRow: Codable, Hashable, Sendable {
         code: String,
         name: String,
         ckfsRelativeStoragePath: String,
+        primaryProjectBranch: String = "main",
         createdAt: String,
         updatedAt: String
     ) {
@@ -31,8 +40,27 @@ public struct ProjectRow: Codable, Hashable, Sendable {
         self.code = code
         self.name = name
         self.ckfsRelativeStoragePath = ckfsRelativeStoragePath
+        self.primaryProjectBranch = primaryProjectBranch
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+    }
+
+    /// Hand-rolled so an absent `primary_project_branch` decodes to "main"
+    /// instead of throwing: GMVibes and any pinned Kit may still be sending
+    /// the pre-m0011 shape.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.uuid = try c.decode(String.self, forKey: .uuid)
+        self.version = try c.decode(Int64.self, forKey: .version)
+        self.gitRepoName = try c.decode(String.self, forKey: .gitRepoName)
+        self.code = try c.decode(String.self, forKey: .code)
+        self.name = try c.decode(String.self, forKey: .name)
+        self.ckfsRelativeStoragePath =
+            try c.decode(String.self, forKey: .ckfsRelativeStoragePath)
+        self.primaryProjectBranch =
+            try c.decodeIfPresent(String.self, forKey: .primaryProjectBranch) ?? "main"
+        self.createdAt = try c.decode(String.self, forKey: .createdAt)
+        self.updatedAt = try c.decode(String.self, forKey: .updatedAt)
     }
 }
 
@@ -1078,9 +1106,21 @@ public struct ReviewFindingStub: Codable, Hashable, Sendable {
 public struct DopeScopeRow: Codable, Hashable, Sendable {
     public let uuid: String
     public let version: Int64
-    public let sessionUuid: String
+    /// m0013's chain-non-null tier ladder (mirrors DiagramRow): every tier
+    /// fills its own FK and every ancestor's. project_uuid is ALWAYS present;
+    /// the project tiers (BASE_PROJECT / PROJECT_ITEM) carry nothing below it.
+    ///
+    /// Defaulted in the memberwise init and decoded with decodeIfPresent so a
+    /// pre-m0013 peer still decodes — the additive-OPTIONAL wire convention.
+    public let projectUuid: String
+    public let instanceUuid: String?
+    /// nil for the two project tiers. Use `requireSessionUuid()` wherever a
+    /// session is structurally required (the repo verbs, touchSession).
+    public let sessionUuid: String?
     public let promptUuid: String?
     public let scopeType: String
+    /// Soft delete (m0012/m0013). Reads deliberately do NOT filter on it.
+    public let deletedOn: String?
     public let code: String
     public let name: String
     public let description: String
@@ -1092,18 +1132,23 @@ public struct DopeScopeRow: Codable, Hashable, Sendable {
     public init(
         uuid: String,
         version: Int64,
-        sessionUuid: String,
+        projectUuid: String = "",
+        instanceUuid: String? = nil,
+        sessionUuid: String?,
         promptUuid: String?,
         scopeType: String,
         code: String,
         name: String,
         description: String,
         revision: Int64,
+        deletedOn: String? = nil,
         createdAt: String,
         updatedAt: String
     ) {
         self.uuid = uuid
         self.version = version
+        self.projectUuid = projectUuid
+        self.instanceUuid = instanceUuid
         self.sessionUuid = sessionUuid
         self.promptUuid = promptUuid
         self.scopeType = scopeType
@@ -1111,8 +1156,43 @@ public struct DopeScopeRow: Codable, Hashable, Sendable {
         self.name = name
         self.description = description
         self.revision = revision
+        self.deletedOn = deletedOn
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+    }
+
+    /// Tolerant decode: a pre-m0013 peer omits the ladder columns entirely.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.uuid = try c.decode(String.self, forKey: .uuid)
+        self.version = try c.decode(Int64.self, forKey: .version)
+        self.projectUuid = try c.decodeIfPresent(String.self, forKey: .projectUuid) ?? ""
+        self.instanceUuid = try c.decodeIfPresent(String.self, forKey: .instanceUuid)
+        self.sessionUuid = try c.decodeIfPresent(String.self, forKey: .sessionUuid)
+        self.promptUuid = try c.decodeIfPresent(String.self, forKey: .promptUuid)
+        self.scopeType = try c.decode(String.self, forKey: .scopeType)
+        self.code = try c.decode(String.self, forKey: .code)
+        self.name = try c.decode(String.self, forKey: .name)
+        self.description = try c.decode(String.self, forKey: .description)
+        self.revision = try c.decode(Int64.self, forKey: .revision)
+        self.deletedOn = try c.decodeIfPresent(String.self, forKey: .deletedOn)
+        self.createdAt = try c.decode(String.self, forKey: .createdAt)
+        self.updatedAt = try c.decode(String.self, forKey: .updatedAt)
+    }
+
+    /// The typed tier, tolerant of the retired SESSION_BASE/PROMPT spellings.
+    public var tier: DopeScopeType? { DopeScopeType(fromWire: scopeType) }
+
+    /// Session-owned tiers always carry a session. The repo verbs, boot sync
+    /// and touchSession are structurally session-only, so they assert here
+    /// rather than silently no-op on a project-tier scope.
+    public func requireSessionUuid() throws -> String {
+        guard let sessionUuid else {
+            throw StoreError.badRequest(
+                detail: "scope \(uuid) is tier \(scopeType), which has no session; "
+                      + "this operation is session-tier only")
+        }
+        return sessionUuid
     }
 }
 

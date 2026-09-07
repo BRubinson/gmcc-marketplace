@@ -59,7 +59,7 @@ final class DopeBootSyncTests: XCTestCase {
         let scope = try store.dopeInit(DopeInitRequest(
             sessionUuid: "sess-1", code: "gmcc", name: "GMCC")).scope
         let domain = try store.dopeNodeAdd(DopeNodeAddRequest(
-            level: .domain, parentUuid: scope.uuid,
+            level: .persistence, parentUuid: scope.uuid,
             fields: DopeNodeFields(code: "core", name: "Core")))
         let entity = try store.dopeNodeAdd(DopeNodeAddRequest(
             level: .entity, parentUuid: domain.uuid,
@@ -85,7 +85,7 @@ final class DopeBootSyncTests: XCTestCase {
             main: DopeMainDocument(version: version, scopeType: read.main.scopeType,
                                    scope: read.main.scope, domains: read.main.domains),
             domainFiles: read.domainFiles.map {
-                DopeDomainFileDocument(version: version, body: $0.body,
+                DopePersistenceFileDocument(version: version, body: $0.body,
                                        entities: $0.entities, enums: $0.enums)
             })
         _ = try sandbox.writeAtomically(bumped)

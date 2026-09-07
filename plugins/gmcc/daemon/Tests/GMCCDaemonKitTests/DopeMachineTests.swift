@@ -59,7 +59,7 @@ final class DopeMachineTests: XCTestCase {
 
     private func buildSmallTree(scopeUuid: String) throws -> (domain: String, entity: String,
                                                               enumUuid: String, property: String) {
-        let domain = try addNode(.domain, parent: scopeUuid,
+        let domain = try addNode(.persistence, parent: scopeUuid,
                                  DopeNodeFields(code: "core", name: "Core"))
         let entity = try addNode(.entity, parent: domain.uuid,
                                  DopeNodeFields(code: "user", name: "User"))
@@ -78,7 +78,7 @@ final class DopeMachineTests: XCTestCase {
     func testInitIsIdempotentAndDerivesScopeType() throws {
         let first = try initScope()
         XCTAssertTrue(first.created)
-        XCTAssertEqual(first.scope.scopeType, "SESSION_BASE")
+        XCTAssertEqual(first.scope.scopeType, "SESSION_INSTANCE")
         XCTAssertEqual(first.scope.revision, 0)
 
         let again = try initScope()
@@ -87,7 +87,7 @@ final class DopeMachineTests: XCTestCase {
 
         let promptScope = try initScope(prompt: "prompt-a")
         XCTAssertTrue(promptScope.created)
-        XCTAssertEqual(promptScope.scope.scopeType, "PROMPT")
+        XCTAssertEqual(promptScope.scope.scopeType, "SESSION_INSTANCE_ITEM")
     }
 
     func testCloneFromSessionBaseCopiesTheTree() throws {
@@ -138,7 +138,7 @@ final class DopeMachineTests: XCTestCase {
 
         let scopes = try store.dopeList(DopeListRequest(sessionUuid: "sess-1")).scopes
         XCTAssertEqual(scopes.map(\.code), ["alpha", "gmcc"], "ORDER BY code")
-        XCTAssertTrue(scopes.allSatisfy { $0.scopeType == "SESSION_BASE" })
+        XCTAssertTrue(scopes.allSatisfy { $0.scopeType == "SESSION_INSTANCE" })
     }
 
     func testListWithPromptReturnsPromptScopesOnlyNoUnion() throws {
@@ -148,7 +148,7 @@ final class DopeMachineTests: XCTestCase {
         let scopes = try store.dopeList(
             DopeListRequest(sessionUuid: "sess-1", promptUuid: "prompt-a")).scopes
         XCTAssertEqual(scopes.map(\.uuid), [promptScope.uuid])
-        XCTAssertEqual(scopes.first?.scopeType, "PROMPT")
+        XCTAssertEqual(scopes.first?.scopeType, "SESSION_INSTANCE_ITEM")
     }
 
     func testListOfAnUninitializedTargetIsAnEmptyListNotAnError() throws {
@@ -222,7 +222,7 @@ final class DopeMachineTests: XCTestCase {
 
     func testFieldOwnershipMatrix() throws {
         let scope = try initScope().scope
-        XCTAssertThrowsError(try addNode(.domain, parent: scope.uuid,
+        XCTAssertThrowsError(try addNode(.persistence, parent: scope.uuid,
                                          DopeNodeFields(code: "x", name: "X",
                                                         dataType: .text))) { error in
             guard case StoreError.badRequest(let detail) = error else {
@@ -231,7 +231,7 @@ final class DopeMachineTests: XCTestCase {
             XCTAssertTrue(detail.contains("has no field"), detail)
         }
         // entity code 'enums' is reserved.
-        let domain = try addNode(.domain, parent: scope.uuid,
+        let domain = try addNode(.persistence, parent: scope.uuid,
                                  DopeNodeFields(code: "core", name: "Core"))
         XCTAssertThrowsError(try addNode(.entity, parent: domain.uuid,
                                          DopeNodeFields(code: "enums", name: "Enums")))
@@ -267,7 +267,7 @@ final class DopeMachineTests: XCTestCase {
         let base = try initScope().scope
         let baseIds = try buildSmallTree(scopeUuid: base.uuid)
         let promptScope = try initScope(prompt: "prompt-a").scope
-        let domain = try addNode(.domain, parent: promptScope.uuid,
+        let domain = try addNode(.persistence, parent: promptScope.uuid,
                                  DopeNodeFields(code: "core", name: "Core"))
         let entity = try addNode(.entity, parent: domain.uuid,
                                  DopeNodeFields(code: "user", name: "User"))
@@ -317,11 +317,11 @@ final class DopeMachineTests: XCTestCase {
                         DopeNodeFields(code: "state", name: "State", dataType: .enumeration,
                                        enumUuid: ids.enumUuid))
         let deleted = try store.dopeNodeDelete(DopeNodeDeleteRequest(
-            level: .domain, nodeUuid: ids.domain, expectedVersion: 0))
+            level: .persistence, nodeUuid: ids.domain, expectedVersion: 0))
         XCTAssertEqual(deleted.cascaded.properties, 3)
         try store.dbQueue.read { db in
-            for table in ["dope_domain", "dope_domain_entity", "dope_domain_enum",
-                          "dope_domain_enum_option", "dope_domain_entity_property"] {
+            for table in ["dope_persistence", "dope_persistence_entity", "dope_persistence_enum",
+                          "dope_persistence_enum_option", "dope_persistence_entity_property"] {
                 XCTAssertEqual(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM \(table)"), 0)
             }
         }
@@ -341,7 +341,7 @@ final class DopeMachineTests: XCTestCase {
         XCTAssertEqual(deleted.cascaded.properties, 2)
         try store.dbQueue.read { db in
             XCTAssertEqual(try Int.fetchOne(
-                db, sql: "SELECT COUNT(*) FROM dope_domain_entity_property"), 0)
+                db, sql: "SELECT COUNT(*) FROM dope_persistence_entity_property"), 0)
         }
     }
 
@@ -353,10 +353,10 @@ final class DopeMachineTests: XCTestCase {
 
     func testDeleteVersionGuard() throws {
         let scope = try initScope().scope
-        let domain = try addNode(.domain, parent: scope.uuid,
+        let domain = try addNode(.persistence, parent: scope.uuid,
                                  DopeNodeFields(code: "core", name: "Core"))
         XCTAssertThrowsError(try store.dopeNodeDelete(DopeNodeDeleteRequest(
-            level: .domain, nodeUuid: domain.uuid, expectedVersion: 7))) { error in
+            level: .persistence, nodeUuid: domain.uuid, expectedVersion: 7))) { error in
             guard case StoreError.versionConflict = error else {
                 return XCTFail("wrong error: \(error)")
             }
@@ -367,7 +367,7 @@ final class DopeMachineTests: XCTestCase {
 
     func testDopeChangeEventsAreDurable() throws {
         let scope = try initScope().scope
-        _ = try addNode(.domain, parent: scope.uuid, DopeNodeFields(code: "core", name: "Core"))
+        _ = try addNode(.persistence, parent: scope.uuid, DopeNodeFields(code: "core", name: "Core"))
         let kinds = try store.dbQueue.read { db in
             try String.fetchAll(
                 db, sql: "SELECT kind FROM daemon_event WHERE subject_uuid = ?",
@@ -387,12 +387,12 @@ final class DopeMachineTests: XCTestCase {
 
     func testBaseComposableSameScopeEnforced() throws {
         let base = try initScope().scope
-        let baseDomain = try addNode(.domain, parent: base.uuid,
+        let baseDomain = try addNode(.persistence, parent: base.uuid,
                                      DopeNodeFields(code: "core", name: "Core"))
         let baseEntity = try addBase("base_entity", domain: baseDomain.uuid)
 
         let promptScope = try initScope(prompt: "prompt-a").scope
-        let domain = try addNode(.domain, parent: promptScope.uuid,
+        let domain = try addNode(.persistence, parent: promptScope.uuid,
                                  DopeNodeFields(code: "core", name: "Core"))
         XCTAssertThrowsError(try addNode(
             .entity, parent: domain.uuid,
@@ -421,7 +421,7 @@ final class DopeMachineTests: XCTestCase {
 
     func testBaseComposableChainingAllowedButCycleRefused() throws {
         let scope = try initScope().scope
-        let domain = try addNode(.domain, parent: scope.uuid,
+        let domain = try addNode(.persistence, parent: scope.uuid,
                                  DopeNodeFields(code: "core", name: "Core"))
         let a = try addBase("b_one", domain: domain.uuid)
         let b = try addBase("b_two", domain: domain.uuid)
@@ -468,7 +468,7 @@ final class DopeMachineTests: XCTestCase {
 
     func testDemotingAComposedBaseIsRefused() throws {
         let scope = try initScope().scope
-        let domain = try addNode(.domain, parent: scope.uuid,
+        let domain = try addNode(.persistence, parent: scope.uuid,
                                  DopeNodeFields(code: "core", name: "Core"))
         let base = try addBase("base_entity", domain: domain.uuid)
         _ = try addNode(.entity, parent: domain.uuid,
@@ -486,9 +486,9 @@ final class DopeMachineTests: XCTestCase {
 
     func testDeleteBaseRefusedWhileComposedThenAllowed() throws {
         let scope = try initScope().scope
-        let coreDomain = try addNode(.domain, parent: scope.uuid,
+        let coreDomain = try addNode(.persistence, parent: scope.uuid,
                                      DopeNodeFields(code: "core", name: "Core"))
-        let baseDomain = try addNode(.domain, parent: scope.uuid,
+        let baseDomain = try addNode(.persistence, parent: scope.uuid,
                                      DopeNodeFields(code: "base", name: "Base"))
         let base = try addBase("base_entity", domain: baseDomain.uuid)
         let user = try addNode(.entity, parent: coreDomain.uuid,
@@ -497,7 +497,7 @@ final class DopeMachineTests: XCTestCase {
 
         // Deleting the composed base — or the domain holding it — is refused
         // naming the cross-domain composer.
-        for (level, uuid) in [(DopeLevel.entity, base.uuid), (.domain, baseDomain.uuid)] {
+        for (level, uuid) in [(DopeLevel.entity, base.uuid), (.persistence, baseDomain.uuid)] {
             XCTAssertThrowsError(try store.dopeNodeDelete(DopeNodeDeleteRequest(
                 level: level, nodeUuid: uuid, expectedVersion: 0))) { error in
                 guard case StoreError.badRequest(let detail) = error else {
@@ -518,17 +518,17 @@ final class DopeMachineTests: XCTestCase {
     /// domain delete's CASCADE (the NULL-out pre-step).
     func testDomainDeleteWithInternalBasePair() throws {
         let scope = try initScope().scope
-        let domain = try addNode(.domain, parent: scope.uuid,
+        let domain = try addNode(.persistence, parent: scope.uuid,
                                  DopeNodeFields(code: "core", name: "Core"))
         let base = try addBase("base_entity", domain: domain.uuid)
         _ = try addNode(.entity, parent: domain.uuid,
                         DopeNodeFields(code: "user", name: "User",
                                        baseComposableUuid: base.uuid))
         let deleted = try store.dopeNodeDelete(DopeNodeDeleteRequest(
-            level: .domain, nodeUuid: domain.uuid, expectedVersion: 0))
+            level: .persistence, nodeUuid: domain.uuid, expectedVersion: 0))
         XCTAssertEqual(deleted.cascaded.entities, 2)
         try store.dbQueue.read { db in
-            XCTAssertEqual(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM dope_domain_entity"), 0)
+            XCTAssertEqual(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM dope_persistence_entity"), 0)
         }
     }
 
@@ -550,7 +550,7 @@ final class DopeMachineTests: XCTestCase {
     private func makeBaseWithProperty(
         scopeUuid: String
     ) throws -> (domain: String, base: String, originProp: String, model: String) {
-        let domain = try addNode(.domain, parent: scopeUuid,
+        let domain = try addNode(.persistence, parent: scopeUuid,
                                  DopeNodeFields(code: "core", name: "Core"))
         let base = try addBase("base_entity", domain: domain.uuid)
         let origin = try addNode(.property, parent: base.uuid,
@@ -582,7 +582,7 @@ final class DopeMachineTests: XCTestCase {
 
     func testBaseOriginResolvesThroughAChain() throws {
         let scope = try initScope().scope
-        let domain = try addNode(.domain, parent: scope.uuid,
+        let domain = try addNode(.persistence, parent: scope.uuid,
                                  DopeNodeFields(code: "core", name: "Core"))
         let b2 = try addBase("b_two", domain: domain.uuid)
         let stamp = try addNode(.property, parent: b2.uuid,
@@ -675,13 +675,13 @@ final class DopeMachineTests: XCTestCase {
 
     func testDomainDeleteRefusedWhileACrossDomainTagPointsIn() throws {
         let scope = try initScope().scope
-        let baseDomain = try addNode(.domain, parent: scope.uuid,
+        let baseDomain = try addNode(.persistence, parent: scope.uuid,
                                      DopeNodeFields(code: "base", name: "Base"))
         let base = try addBase("base_entity", domain: baseDomain.uuid)
         let origin = try addNode(.property, parent: base.uuid,
                                  DopeNodeFields(code: "stamp", name: "Stamp",
                                                 dataType: .datetime))
-        let coreDomain = try addNode(.domain, parent: scope.uuid,
+        let coreDomain = try addNode(.persistence, parent: scope.uuid,
                                      DopeNodeFields(code: "core", name: "Core"))
         let user = try addNode(.entity, parent: coreDomain.uuid,
                                DopeNodeFields(code: "user", name: "User",
@@ -691,7 +691,7 @@ final class DopeMachineTests: XCTestCase {
                                        baseOriginPropertyUuid: origin.uuid))
         expectBadRequest("core.user.stamp") {
             _ = try self.store.dopeNodeDelete(DopeNodeDeleteRequest(
-                level: .domain, nodeUuid: baseDomain.uuid, expectedVersion: 0))
+                level: .persistence, nodeUuid: baseDomain.uuid, expectedVersion: 0))
         }
     }
 
@@ -705,11 +705,11 @@ final class DopeMachineTests: XCTestCase {
                                        dataType: .datetime,
                                        baseOriginPropertyUuid: ids.originProp))
         let deleted = try store.dopeNodeDelete(DopeNodeDeleteRequest(
-            level: .domain, nodeUuid: ids.domain, expectedVersion: 0))
+            level: .persistence, nodeUuid: ids.domain, expectedVersion: 0))
         XCTAssertEqual(deleted.cascaded.properties, 2)
         try store.dbQueue.read { db in
             XCTAssertEqual(try Int.fetchOne(
-                db, sql: "SELECT COUNT(*) FROM dope_domain_entity_property"), 0)
+                db, sql: "SELECT COUNT(*) FROM dope_persistence_entity_property"), 0)
         }
     }
 
@@ -739,7 +739,7 @@ final class DopeMachineTests: XCTestCase {
     /// throw emptyUpdate and combined calls silently skip the clear.
     func testClearFlagsPersistNulls() throws {
         let scope = try initScope().scope
-        let domain = try addNode(.domain, parent: scope.uuid,
+        let domain = try addNode(.persistence, parent: scope.uuid,
                                  DopeNodeFields(code: "core", name: "Core"))
         let entity = try addNode(.entity, parent: domain.uuid,
                                  DopeNodeFields(code: "user", name: "User",
@@ -777,19 +777,19 @@ final class DopeMachineTests: XCTestCase {
 
         try store.dbQueue.read { db in
             XCTAssertNil(try String.fetchOne(db, sql:
-                "SELECT repo_representative_file FROM dope_domain_entity WHERE uuid = ?",
+                "SELECT repo_representative_file FROM dope_persistence_entity WHERE uuid = ?",
                 arguments: [entity.uuid]) ?? nil)
             XCTAssertNil(try Int64.fetchOne(db, sql:
-                "SELECT auto_increment FROM dope_domain_entity_property WHERE uuid = ?",
+                "SELECT auto_increment FROM dope_persistence_entity_property WHERE uuid = ?",
                 arguments: [counter.uuid]) ?? nil)
             XCTAssertNil(try Int64.fetchOne(db, sql:
-                "SELECT text_char_limit FROM dope_domain_entity_property WHERE uuid = ?",
+                "SELECT text_char_limit FROM dope_persistence_entity_property WHERE uuid = ?",
                 arguments: [note.uuid]) ?? nil)
             let stateRow = try Row.fetchOne(db, sql:
-                "SELECT data_type, dope_domain_enum_uuid FROM dope_domain_entity_property WHERE uuid = ?",
+                "SELECT data_type, dope_persistence_enum_uuid FROM dope_persistence_entity_property WHERE uuid = ?",
                 arguments: [state.uuid])
             XCTAssertEqual(stateRow?["data_type"] as String?, "text")
-            XCTAssertNil(stateRow?["dope_domain_enum_uuid"] as String?)
+            XCTAssertNil(stateRow?["dope_persistence_enum_uuid"] as String?)
         }
     }
 }

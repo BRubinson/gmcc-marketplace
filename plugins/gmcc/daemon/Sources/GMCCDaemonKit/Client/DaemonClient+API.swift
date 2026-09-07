@@ -39,6 +39,10 @@ extension DaemonClient {
         try request(type: .projectList, payload: ProjectListRequest(), responseType: ProjectListResponse.self)
     }
 
+    public func updateProject(_ req: ProjectUpdateRequest) throws -> ProjectResponse {
+        try request(type: .projectUpdate, payload: req, responseType: ProjectResponse.self)
+    }
+
     public func listInstances(_ req: InstanceListRequest) throws -> InstanceListResponse {
         try request(type: .instanceList, payload: req, responseType: InstanceListResponse.self)
     }

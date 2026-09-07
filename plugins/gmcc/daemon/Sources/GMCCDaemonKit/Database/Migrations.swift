@@ -14,7 +14,7 @@ public enum Migrations {
     /// skips a changed body on an existing db, so any schema change lands as a
     /// new registerMigration and existing databases upgrade in place. Never
     /// instruct anyone to wipe ~/gmcc/gmcc.db* again.
-    public static let currentSchemaVersion = 10
+    public static let currentSchemaVersion = 13
 
     /// The five BaseEntity columns wrapped into every domain table.
     /// `id` is the internal rowid; `uuid` is the external join key — all FKs
@@ -426,7 +426,7 @@ public enum Migrations {
                 """)
 
             // Step 3 — seed daemon_config with the layout defaults ($HOME
-            // conventions, matching detect_repo.sh). CONFIG_SET is the write
+            // conventions, matching gmcc_session_startup.sh). CONFIG_SET is the write
             // door for a differing layout; the daemon never reads $GMCC_* env
             // vars (its environment is a posix_spawn snapshot of whichever gm
             // invocation autostarted it).
@@ -1390,6 +1390,434 @@ public enum Migrations {
             try db.execute(
                 sql: "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
                 arguments: [10, Store.isoNow()]
+            )
+        }
+
+        // m0011 — project.primary_project_branch (the prompt's
+        // BASE_DOPED_BRANCH). The user-configured branch whose
+        // SESSION_INSTANCE dope scope is allowed to promote into the
+        // project's BASE_PROJECT scope.
+        //
+        // Plain ADD COLUMN, m0009's precedent: NOT NULL with a CONSTANT
+        // DEFAULT and no CHECK and no REFERENCES — the shape SQLite's
+        // ALTER TABLE ADD COLUMN accepts without a table rebuild. Every
+        // existing project backfills to 'main', which is the documented
+        // default behavior ("this starts as main by default").
+        //
+        // Sequenced FIRST among this prompt's migrations deliberately: it is
+        // the only trivially-reversible one, so it lands as a green commit
+        // between the SessionStart script rename and the two table rebuilds
+        // that follow, and DopePromotion's branch-match predicate has its
+        // column long before the promotion machinery exists to read it.
+        migrator.registerMigration("m0011_projectPrimaryBranch") { db in
+            try db.execute(sql: """
+                ALTER TABLE project
+                    ADD COLUMN primary_project_branch TEXT NOT NULL DEFAULT 'main';
+                """)
+
+            try db.execute(
+                sql: "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+                arguments: [11, Store.isoNow()]
+            )
+        }
+
+        // m0012 — the Dope*Domain* -> Dope*Persistence* rename, carried all
+        // the way down to the SQL table and column names, FUSED with the
+        // deleted_on soft delete, the mask_kind overlay marker, and the
+        // per-subtree content_revision.
+        //
+        // Fusing them is not an optimization, it is the same operation:
+        // UNIQUE(parent, code) is an INLINE TABLE CONSTRAINT that SQLite
+        // cannot drop, so converting it to a partial index
+        // (WHERE deleted_on IS NULL, which is what makes delete-then-re-add
+        // of the same code work) requires exactly the five-table rebuild the
+        // rename already requires. Rebuilding five heavily-FK'd tables twice
+        // in one release, against an append-only db that is never wiped, is
+        // how you lose a database.
+        //
+        // Because the target names are NEW, this needs no ALTER..RENAME at
+        // all: create with final REFERENCES text, copy, drop the old five.
+        // That sidesteps m0008's documented hazard entirely (under
+        // foreign_keys=OFF a RENAME does not rewrite REFERENCES clauses).
+        //
+        // Registered with GRDB's default .deferred foreignKeyChecks and NO
+        // PRAGMA in this body — m0008's rule, and it matters more here: five
+        // tables CASCADE-reference each other, so with enforcement live the
+        // DROPs would cascade the data away.
+        //
+        // Copy order is parent-first; DROP order is child-first. `id` is
+        // copied EXPLICITLY so rowids and therefore every insertion order
+        // survive.
+        //
+        // The three new columns are all nullable-or-defaulted and join no
+        // CHECK that existing data could violate, so this migration is
+        // BEHAVIORALLY INERT: with every deleted_on NULL the partial unique
+        // indexes are semantically identical to the constraints they replace.
+        //
+        // deleted_on  — the prompt's soft delete. Doubles as the resolver's
+        //               WHITEOUT: an overlay node carrying it masks the base
+        //               node at that dot-path. Reads deliberately do NOT
+        //               filter it (that is the point: communicate the
+        //               intended delete).
+        // mask_kind   — 'PASSTHROUGH' marks an ancestor shell that exists in
+        //               a sparse overlay only to carry identity and children.
+        //               Without it, masking one property would drag in
+        //               domain/entity shells whose empty description
+        //               ('' NOT NULL DEFAULT) would OVERRIDE the base's real
+        //               description. Silent data corruption; this column is
+        //               the fix.
+        // content_revision — per-subtree counter for sub-loadable dope, on
+        //               dope_persistence only. dope_scope.revision REMAINS
+        //               the single whole-tree counter and the sole CAS gate;
+        //               this sits BESIDE it and never replaces it.
+        migrator.registerMigration("m0012_dopePersistenceRenameAndSoftDelete") { db in
+            // Row counts BEFORE, so the copy is proven and not merely hoped
+            // for. On an append-only db a migration fails loudly; it never
+            // silently drops a row.
+            let before = try [
+                "dope_domain", "dope_domain_entity", "dope_domain_enum",
+                "dope_domain_enum_option", "dope_domain_entity_property",
+            ].map { table in
+                try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM \(table)") ?? -1
+            }
+
+            try db.execute(sql: """
+                CREATE TABLE dope_persistence (
+                    \(baseColumns),
+                    dope_scope_uuid TEXT NOT NULL
+                        REFERENCES dope_scope(uuid) ON DELETE CASCADE,
+                    code TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    description TEXT NOT NULL DEFAULT ''
+                        CHECK (length(description) <= 512),
+                    sort_order INTEGER NOT NULL DEFAULT 0,
+                    content_revision INTEGER NOT NULL DEFAULT 0
+                        CHECK (content_revision >= 0),
+                    deleted_on TEXT,
+                    mask_kind TEXT CHECK (mask_kind IS NULL OR mask_kind = 'PASSTHROUGH')
+                );
+
+                CREATE TABLE dope_persistence_entity (
+                    \(baseColumns),
+                    dope_persistence_uuid TEXT NOT NULL
+                        REFERENCES dope_persistence(uuid) ON DELETE CASCADE,
+                    code TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    entity_type TEXT NOT NULL DEFAULT 'MODEL'
+                        CHECK (entity_type IN ('MODEL', 'JUNCTION', 'BASE_COMPOSABLE')),
+                    description TEXT NOT NULL DEFAULT ''
+                        CHECK (length(description) <= 512),
+                    sort_order INTEGER NOT NULL DEFAULT 0,
+                    repo_representative_file TEXT,
+                    base_composable_uuid TEXT
+                        REFERENCES dope_persistence_entity(uuid) ON DELETE RESTRICT,
+                    deleted_on TEXT,
+                    mask_kind TEXT CHECK (mask_kind IS NULL OR mask_kind = 'PASSTHROUGH'),
+                    CHECK (base_composable_uuid IS NULL OR base_composable_uuid != uuid)
+                );
+
+                CREATE TABLE dope_persistence_enum (
+                    \(baseColumns),
+                    dope_persistence_uuid TEXT NOT NULL
+                        REFERENCES dope_persistence(uuid) ON DELETE CASCADE,
+                    code TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    description TEXT NOT NULL DEFAULT ''
+                        CHECK (length(description) <= 256),
+                    sort_order INTEGER NOT NULL DEFAULT 0,
+                    repo_representative_file TEXT,
+                    deleted_on TEXT,
+                    mask_kind TEXT CHECK (mask_kind IS NULL OR mask_kind = 'PASSTHROUGH')
+                );
+
+                CREATE TABLE dope_persistence_enum_option (
+                    \(baseColumns),
+                    dope_persistence_enum_uuid TEXT NOT NULL
+                        REFERENCES dope_persistence_enum(uuid) ON DELETE CASCADE,
+                    code TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    description TEXT NOT NULL DEFAULT ''
+                        CHECK (length(description) <= 128),
+                    sort_order INTEGER NOT NULL DEFAULT 0,
+                    deleted_on TEXT,
+                    mask_kind TEXT CHECK (mask_kind IS NULL OR mask_kind = 'PASSTHROUGH')
+                );
+
+                CREATE TABLE dope_persistence_entity_property (
+                    \(baseColumns),
+                    dope_persistence_entity_uuid TEXT NOT NULL
+                        REFERENCES dope_persistence_entity(uuid) ON DELETE CASCADE,
+                    code TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    description TEXT NOT NULL DEFAULT ''
+                        CHECK (length(description) <= 128),
+                    sort_order INTEGER NOT NULL DEFAULT 0,
+                    data_type TEXT NOT NULL
+                        CHECK (data_type IN ('enum', 'relationship', 'boolean',
+                                             'uuid', 'int', 'long', 'decimal',
+                                             'text', 'datetime')),
+                    nullable INTEGER NOT NULL DEFAULT 1 CHECK (nullable IN (0, 1)),
+                    is_unique INTEGER NOT NULL DEFAULT 0 CHECK (is_unique IN (0, 1)),
+                    auto_increment INTEGER CHECK (auto_increment IN (0, 1)),
+                    text_char_limit INTEGER CHECK (text_char_limit > 0),
+                    dope_persistence_enum_uuid TEXT
+                        REFERENCES dope_persistence_enum(uuid) ON DELETE RESTRICT,
+                    related_property_uuid TEXT
+                        REFERENCES dope_persistence_entity_property(uuid) ON DELETE RESTRICT,
+                    base_origin_property_uuid TEXT
+                        REFERENCES dope_persistence_entity_property(uuid) ON DELETE RESTRICT,
+                    deleted_on TEXT,
+                    mask_kind TEXT CHECK (mask_kind IS NULL OR mask_kind = 'PASSTHROUGH'),
+                    CHECK ((data_type = 'enum') = (dope_persistence_enum_uuid IS NOT NULL)),
+                    CHECK ((data_type = 'relationship') = (related_property_uuid IS NOT NULL)),
+                    CHECK (auto_increment IS NULL OR data_type = 'long'),
+                    CHECK (text_char_limit IS NULL OR data_type = 'text')
+                );
+
+                -- Copy: parent-first, id explicit so rowids survive.
+                INSERT INTO dope_persistence
+                    (id, uuid, version, created_at, updated_at,
+                     dope_scope_uuid, code, name, description, sort_order)
+                SELECT id, uuid, version, created_at, updated_at,
+                       dope_scope_uuid, code, name, description, sort_order
+                  FROM dope_domain;
+
+                INSERT INTO dope_persistence_entity
+                    (id, uuid, version, created_at, updated_at,
+                     dope_persistence_uuid, code, name, entity_type, description,
+                     sort_order, repo_representative_file, base_composable_uuid)
+                SELECT id, uuid, version, created_at, updated_at,
+                       dope_domain_uuid, code, name, entity_type, description,
+                       sort_order, repo_representative_file, base_composable_uuid
+                  FROM dope_domain_entity;
+
+                INSERT INTO dope_persistence_enum
+                    (id, uuid, version, created_at, updated_at,
+                     dope_persistence_uuid, code, name, description, sort_order,
+                     repo_representative_file)
+                SELECT id, uuid, version, created_at, updated_at,
+                       dope_domain_uuid, code, name, description, sort_order,
+                       repo_representative_file
+                  FROM dope_domain_enum;
+
+                INSERT INTO dope_persistence_enum_option
+                    (id, uuid, version, created_at, updated_at,
+                     dope_persistence_enum_uuid, code, name, description, sort_order)
+                SELECT id, uuid, version, created_at, updated_at,
+                       dope_domain_enum_uuid, code, name, description, sort_order
+                  FROM dope_domain_enum_option;
+
+                INSERT INTO dope_persistence_entity_property
+                    (id, uuid, version, created_at, updated_at,
+                     dope_persistence_entity_uuid, code, name, description, sort_order,
+                     data_type, nullable, is_unique, auto_increment, text_char_limit,
+                     dope_persistence_enum_uuid, related_property_uuid,
+                     base_origin_property_uuid)
+                SELECT id, uuid, version, created_at, updated_at,
+                       dope_domain_entity_uuid, code, name, description, sort_order,
+                       data_type, nullable, is_unique, auto_increment, text_char_limit,
+                       dope_domain_enum_uuid, related_property_uuid,
+                       base_origin_property_uuid
+                  FROM dope_domain_entity_property;
+
+                -- Drop: child-first.
+                DROP TABLE dope_domain_entity_property;
+                DROP TABLE dope_domain_enum_option;
+                DROP TABLE dope_domain_enum;
+                DROP TABLE dope_domain_entity;
+                DROP TABLE dope_domain;
+
+                -- Uniqueness moves off the table constraint onto partial
+                -- indexes, so a tombstoned row no longer occupies its
+                -- (parent, code) slot and delete-then-re-add works.
+                CREATE UNIQUE INDEX idx_dope_persistence_scope_code
+                    ON dope_persistence(dope_scope_uuid, code)
+                    WHERE deleted_on IS NULL;
+                CREATE UNIQUE INDEX idx_dope_persistence_entity_code
+                    ON dope_persistence_entity(dope_persistence_uuid, code)
+                    WHERE deleted_on IS NULL;
+                CREATE UNIQUE INDEX idx_dope_persistence_enum_code
+                    ON dope_persistence_enum(dope_persistence_uuid, code)
+                    WHERE deleted_on IS NULL;
+                CREATE UNIQUE INDEX idx_dope_persistence_enum_option_code
+                    ON dope_persistence_enum_option(dope_persistence_enum_uuid, code)
+                    WHERE deleted_on IS NULL;
+                CREATE UNIQUE INDEX idx_dope_persistence_property_code
+                    ON dope_persistence_entity_property(dope_persistence_entity_uuid, code)
+                    WHERE deleted_on IS NULL;
+
+                CREATE INDEX idx_dope_persistence_scope_fk
+                    ON dope_persistence(dope_scope_uuid);
+                CREATE INDEX idx_dope_persistence_entity_parent_fk
+                    ON dope_persistence_entity(dope_persistence_uuid);
+                CREATE INDEX idx_dope_persistence_entity_base_composable_fk
+                    ON dope_persistence_entity(base_composable_uuid);
+                CREATE INDEX idx_dope_persistence_enum_parent_fk
+                    ON dope_persistence_enum(dope_persistence_uuid);
+                CREATE INDEX idx_dope_persistence_enum_option_parent_fk
+                    ON dope_persistence_enum_option(dope_persistence_enum_uuid);
+                CREATE INDEX idx_dope_persistence_property_entity_fk
+                    ON dope_persistence_entity_property(dope_persistence_entity_uuid);
+                CREATE INDEX idx_dope_persistence_property_enum_fk
+                    ON dope_persistence_entity_property(dope_persistence_enum_uuid);
+                CREATE INDEX idx_dope_persistence_property_related_fk
+                    ON dope_persistence_entity_property(related_property_uuid);
+                CREATE INDEX idx_dope_persistence_property_base_origin_fk
+                    ON dope_persistence_entity_property(base_origin_property_uuid);
+                """)
+
+            // Proven, not hoped for.
+            let after = try [
+                "dope_persistence", "dope_persistence_entity", "dope_persistence_enum",
+                "dope_persistence_enum_option", "dope_persistence_entity_property",
+            ].map { table in
+                try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM \(table)") ?? -1
+            }
+            guard before == after else {
+                throw StoreError.corruptState(
+                    entity: "dope_persistence",
+                    detail: "m0012 row-count mismatch: before \(before) after \(after)")
+            }
+
+            try db.execute(
+                sql: "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+                arguments: [12, Store.isoNow()]
+            )
+        }
+
+        // m0013 — dope_scope widened from two tiers to four:
+        // BASE_PROJECT / PROJECT_ITEM / SESSION_INSTANCE / SESSION_INSTANCE_ITEM.
+        //
+        // SQLite cannot ALTER a CHECK or a column's NOT NULL-ness, so this is
+        // a full rebuild in the m0002/m0008 grammar. Registered .deferred
+        // with NO PRAGMA in the body: the five dope_persistence* tables
+        // CASCADE-reference this one.
+        //
+        // Ownership is m0010's chain-non-null tier ladder, ported verbatim:
+        // each tier fills its own FK and every ancestor's, one CHECK per
+        // tier, one PARTIAL unique index per tier (four, replacing the two
+        // session_uuid-keyed indexes, which do not generalize past two
+        // tiers). project_uuid is ALWAYS NOT NULL.
+        //
+        // The two existing scope types are pure VALUE renames:
+        //   SESSION_BASE -> SESSION_INSTANCE
+        //   PROMPT       -> SESSION_INSTANCE_ITEM
+        // which is what makes this drop-in rather than a rewrite —
+        // dopeScopeCandidates, dopeGet, dopeList, DopeBootSync and the
+        // diagram binding ladder all keep working on a renamed constant.
+        //
+        // The prompt_uuid CHECK stays a BICONDITIONAL, exactly as m0007's
+        // was. A nullable slot there would re-stamp m0007's NULLs-are-
+        // distinct trap: UNIQUE(session_uuid, prompt_uuid, code) silently
+        // constrains NOTHING for a prompt-free row. A session-level personal
+        // overlay, if ever wanted, is a FIFTH tier — never a nullable slot.
+        //
+        // promoted_from_* is the BASE_PROJECT promotion high-water mark
+        // (CHECK-restricted to that tier). It is deliberately separate from
+        // the row's own `revision`: keying promotion on "did THIS scope
+        // promote before" lets two instances on one branch overwrite each
+        // other at every alternating boot, and without a recorded high-water
+        // the same session re-promotes identical content at every
+        // SessionStart. Keeping them separate also lets BASE_PROJECT.revision
+        // stay its own forward-only counter that a lower-revision winner can
+        // never drag backward.
+        //
+        // The copy uses LEFT JOINs plus a pre-flight refusal, NOT inner
+        // joins: an inner join would silently DROP any scope whose
+        // session/instance lineage is broken — project_uuid NOT NULL would
+        // never fire, because the row simply would not be selected. On an
+        // append-only db a migration fails loudly; it never deletes a row.
+        migrator.registerMigration("m0013_dopeScopeTierLadder") { db in
+            let orphans = try Int.fetchOne(db, sql: """
+                SELECT COUNT(*) FROM dope_scope ds
+                LEFT JOIN session  s ON s.uuid = ds.session_uuid
+                LEFT JOIN instance i ON i.uuid = s.instance_uuid
+                WHERE i.project_uuid IS NULL
+                """) ?? -1
+            guard orphans == 0 else {
+                throw StoreError.corruptState(
+                    entity: "dope_scope",
+                    detail: "m0013: \(orphans) scope(s) have no resolvable project "
+                          + "through session->instance; refusing to drop them")
+            }
+            let before = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM dope_scope") ?? -1
+
+            try db.execute(sql: """
+                CREATE TABLE dope_scope_new (
+                    \(baseColumns),
+                    project_uuid  TEXT NOT NULL REFERENCES project(uuid)  ON DELETE CASCADE,
+                    instance_uuid TEXT          REFERENCES instance(uuid) ON DELETE CASCADE,
+                    session_uuid  TEXT          REFERENCES session(uuid)  ON DELETE CASCADE,
+                    prompt_uuid   TEXT          REFERENCES prompt(uuid)   ON DELETE CASCADE,
+                    scope_type TEXT NOT NULL
+                        CHECK (scope_type IN ('BASE_PROJECT', 'PROJECT_ITEM',
+                                              'SESSION_INSTANCE', 'SESSION_INSTANCE_ITEM')),
+                    code TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    description TEXT NOT NULL DEFAULT ''
+                        CHECK (length(description) <= 512),
+                    revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+                    deleted_on TEXT,
+                    promoted_from_scope_uuid TEXT,
+                    promoted_from_revision INTEGER,
+                    promoted_from_updated_at TEXT,
+                    CHECK ((instance_uuid IS NOT NULL)
+                           = (scope_type IN ('SESSION_INSTANCE', 'SESSION_INSTANCE_ITEM'))),
+                    CHECK ((session_uuid IS NOT NULL)
+                           = (scope_type IN ('SESSION_INSTANCE', 'SESSION_INSTANCE_ITEM'))),
+                    CHECK ((prompt_uuid IS NOT NULL) = (scope_type = 'SESSION_INSTANCE_ITEM')),
+                    CHECK (promoted_from_scope_uuid IS NULL OR scope_type = 'BASE_PROJECT'),
+                    CHECK (promoted_from_revision IS NULL OR scope_type = 'BASE_PROJECT'),
+                    CHECK (promoted_from_updated_at IS NULL OR scope_type = 'BASE_PROJECT')
+                );
+
+                INSERT INTO dope_scope_new
+                    (id, uuid, version, created_at, updated_at,
+                     project_uuid, instance_uuid, session_uuid, prompt_uuid,
+                     scope_type, code, name, description, revision)
+                SELECT ds.id, ds.uuid, ds.version, ds.created_at, ds.updated_at,
+                       i.project_uuid, s.instance_uuid, ds.session_uuid, ds.prompt_uuid,
+                       CASE ds.scope_type
+                            WHEN 'SESSION_BASE' THEN 'SESSION_INSTANCE'
+                            ELSE 'SESSION_INSTANCE_ITEM'
+                       END,
+                       ds.code, ds.name, ds.description, ds.revision
+                  FROM dope_scope ds
+                  LEFT JOIN session  s ON s.uuid = ds.session_uuid
+                  LEFT JOIN instance i ON i.uuid = s.instance_uuid;
+
+                DROP TABLE dope_scope;
+                ALTER TABLE dope_scope_new RENAME TO dope_scope;
+
+                CREATE UNIQUE INDEX idx_dope_scope_base_project_code
+                    ON dope_scope(project_uuid, code)
+                    WHERE scope_type = 'BASE_PROJECT' AND deleted_on IS NULL;
+                CREATE UNIQUE INDEX idx_dope_scope_project_item_code
+                    ON dope_scope(project_uuid, code)
+                    WHERE scope_type = 'PROJECT_ITEM' AND deleted_on IS NULL;
+                CREATE UNIQUE INDEX idx_dope_scope_session_instance_code
+                    ON dope_scope(session_uuid, code)
+                    WHERE scope_type = 'SESSION_INSTANCE' AND deleted_on IS NULL;
+                CREATE UNIQUE INDEX idx_dope_scope_session_instance_item_code
+                    ON dope_scope(session_uuid, prompt_uuid, code)
+                    WHERE scope_type = 'SESSION_INSTANCE_ITEM' AND deleted_on IS NULL;
+
+                CREATE INDEX idx_dope_scope_project_fk  ON dope_scope(project_uuid);
+                CREATE INDEX idx_dope_scope_instance_fk ON dope_scope(instance_uuid);
+                CREATE INDEX idx_dope_scope_session_fk  ON dope_scope(session_uuid);
+                CREATE INDEX idx_dope_scope_prompt_fk   ON dope_scope(prompt_uuid);
+                """)
+
+            let after = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM dope_scope") ?? -1
+            guard before == after else {
+                throw StoreError.corruptState(
+                    entity: "dope_scope",
+                    detail: "m0013 row-count mismatch: before \(before) after \(after)")
+            }
+
+            try db.execute(
+                sql: "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+                arguments: [13, Store.isoNow()]
             )
         }
 

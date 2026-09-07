@@ -19,7 +19,7 @@ public enum DopeProjection {
             })
         )
         let files = tree.domains.map { domain in
-            DopeDomainFileDocument(
+            DopePersistenceFileDocument(
                 version: tree.revision,
                 body: domain.body,
                 entities: domain.entities.map { entity in

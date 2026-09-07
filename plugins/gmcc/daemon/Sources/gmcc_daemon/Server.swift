@@ -298,6 +298,8 @@ final class Server: @unchecked Sendable {
 
             case .projectList:
                 return try ProjectListHandler.handle(line: line, head: head, store: store)
+            case .projectUpdate:
+                return try ProjectUpdateHandler.handle(line: line, head: head, store: store)
             case .instanceList:
                 return try InstanceListHandler.handle(line: line, head: head, store: store)
             case .sessionList:

@@ -40,6 +40,9 @@ public enum DaemonEventKind: String, Codable, Hashable, CaseIterable, Sendable {
     case createInstance = "CREATE_INSTANCE"
     case createSession = "CREATE_SESSION"
     case updateSession = "UPDATE_SESSION"
+    // Added with m0011's project.primary_project_branch. New kinds travel as
+    // raw strings (see the v7 note above), so this needs no version bump.
+    case updateProject = "UPDATE_PROJECT"
     case createPrompt = "CREATE_PROMPT"
     case updatePrompt = "UPDATE_PROMPT"
     case promptStatusChange = "PROMPT_STATUS_CHANGE"
@@ -495,7 +498,7 @@ public struct BackupResponse: Codable, Hashable, Sendable {
 /// session chain exists. Where the ckfs already carries a uuid, the caller
 /// passes it so the db row reuses it (trivial db ↔ ckfs joins). Optional
 /// kbite_codes seed that level's active-kbite registry at CREATE time only —
-/// mirroring detect_repo.sh's inherit_kbite (existing rows are never
+/// mirroring gmcc_session_startup.sh's inherit_kbite (existing rows are never
 /// re-seeded; a child created without codes copies its parent's junctions).
 
 public struct ProjectContext: Codable, Hashable, Sendable {
@@ -655,6 +658,34 @@ public struct ProjectListResponse: Codable, Hashable, Sendable {
 
     public init(projects: [ProjectRow]) {
         self.projects = projects
+    }
+}
+
+/// PROJECT_UPDATE — the only project-level mutation. `primaryProjectBranch`
+/// is Optional so the request shape can grow more settable fields without a
+/// wire bump; an all-nil request is EMPTY_UPDATE, never a silent no-op.
+public struct ProjectUpdateRequest: Codable, Hashable, Sendable {
+    public let projectUuid: String
+    public let expectedVersion: Int64
+    public let primaryProjectBranch: String?
+
+    public init(
+        projectUuid: String,
+        expectedVersion: Int64,
+        primaryProjectBranch: String? = nil
+    ) {
+        self.projectUuid = projectUuid
+        self.expectedVersion = expectedVersion
+        self.primaryProjectBranch = primaryProjectBranch
+    }
+}
+
+/// The refreshed row, so a caller never re-reads to learn the new version.
+public struct ProjectResponse: Codable, Hashable, Sendable {
+    public let project: ProjectRow
+
+    public init(project: ProjectRow) {
+        self.project = project
     }
 }
 

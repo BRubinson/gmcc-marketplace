@@ -28,7 +28,7 @@ extension Store {
                 guard let scope = try self.fetchDopeScope(db, uuid: scopeUuid) else {
                     throw StoreError.notFound(entity: "dope_scope", key: scopeUuid)
                 }
-                return (try self.instanceRoot(db, sessionUuid: scope.sessionUuid),
+                return (try self.instanceRoot(db, sessionUuid: try scope.requireSessionUuid()),
                         scope.revision)
             }
         case (nil, let dirPath?):
@@ -75,7 +75,7 @@ extension Store {
             guard let scope = try self.fetchDopeScope(db, uuid: req.scopeUuid) else {
                 throw StoreError.notFound(entity: "dope_scope", key: req.scopeUuid)
             }
-            let root = try self.instanceRoot(db, sessionUuid: scope.sessionUuid)
+            let root = try self.instanceRoot(db, sessionUuid: try scope.requireSessionUuid())
             let tree = try self.fetchDopeTree(db, scope: scope)
             return (scope, root, tree)
         }
@@ -103,7 +103,7 @@ extension Store {
             var payload: [String: Any] = [
                 "action": "write_repo",
                 "scope_uuid": scope.uuid,
-                "session_uuid": scope.sessionUuid,
+                "session_uuid": try scope.requireSessionUuid(),
                 "revision": Int(scope.revision),
                 "files_written": result.written,
             ]
@@ -111,7 +111,7 @@ extension Store {
             if !result.pruned.isEmpty { payload["files_pruned"] = result.pruned }
             try self.appendEvent(db, kind: .dopeChange, subjectUuid: scope.uuid,
                                  payload: Store.jsonPayload(payload))
-            try self.touchSession(db, uuid: scope.sessionUuid)
+            try self.touchSession(db, uuid: try scope.requireSessionUuid())
         }
         return DopeWriteRepoResponse(
             dopeRoot: sandbox.dopeRoot.path,
@@ -128,7 +128,7 @@ extension Store {
             guard let scope = try self.fetchDopeScope(db, uuid: req.scopeUuid) else {
                 throw StoreError.notFound(entity: "dope_scope", key: req.scopeUuid)
             }
-            return (scope, try self.instanceRoot(db, sessionUuid: scope.sessionUuid))
+            return (scope, try self.instanceRoot(db, sessionUuid: try scope.requireSessionUuid()))
         }
 
         // Phase 3 — read the files (before the write transaction opens).
@@ -230,7 +230,7 @@ extension Store {
         var payload: [String: Any] = [
             "action": adopted ? (before == 0 ? "boot_seed" : "boot_adopt") : "ingest",
             "scope_uuid": scope.uuid,
-            "session_uuid": scope.sessionUuid,
+            "session_uuid": try scope.requireSessionUuid(),
             "revision": Int(scope.revision),
             "previous_revision": Int(before),
             "domains": counts.domains,
@@ -242,6 +242,6 @@ extension Store {
         if adopted { payload["adopted"] = true }
         try appendEvent(db, kind: .dopeChange, subjectUuid: scope.uuid,
                         payload: Store.jsonPayload(payload))
-        try touchSession(db, uuid: scope.sessionUuid)
+        try touchSession(db, uuid: scope.requireSessionUuid())
     }
 }

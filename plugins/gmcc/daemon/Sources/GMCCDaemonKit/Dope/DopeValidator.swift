@@ -26,8 +26,13 @@ public enum DopeValidator {
 
         // Scope.
         check { try DopeCode.validateCode(bundle.main.scope.code, field: "scope code") }
-        if DopeScopeType(rawValue: bundle.main.scopeType) == nil {
-            errors.append("scope_type '\(bundle.main.scopeType)' is not SESSION_BASE or PROMPT")
+        // Tolerant by design: every .doped.json committed before m0013 says
+        // "SESSION_BASE", and the boot path must never reject a tree that is
+        // simply older than the daemon. The file self-updates on its next
+        // write-repo.
+        if DopeScopeType(fromWire: bundle.main.scopeType) == nil {
+            errors.append("scope_type '\(bundle.main.scopeType)' is not one of "
+                + DopeScopeType.allCases.map(\.rawValue).joined(separator: ", "))
         }
         if bundle.main.version < 0 {
             errors.append("main version \(bundle.main.version) is negative")

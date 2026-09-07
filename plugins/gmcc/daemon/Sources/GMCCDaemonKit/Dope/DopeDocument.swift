@@ -8,7 +8,7 @@ import Foundation
 ///
 ///     main.doped.json              DopeMainDocument
 ///     drawing_config.doped.json    {} (future; written only when absent)
-///     domains/{code}.doped.json    DopeDomainFileDocument
+///     domains/{code}.doped.json    DopePersistenceFileDocument
 ///
 /// `version` appears in main AND in every domain file and must match
 /// everywhere — a mismatch means a hand-edit and read-repo reports it.
@@ -101,16 +101,16 @@ public struct DopeEntityDocument: Codable, Hashable, Sendable {
 
 /// One `domains/{code}.doped.json` file: the domain at top level per the
 /// spec, plus the tree-wide version stamp.
-public struct DopeDomainFileDocument: Codable, Hashable, Sendable {
+public struct DopePersistenceFileDocument: Codable, Hashable, Sendable {
     public let version: Int64
-    public let body: DopeDomainBody
+    public let body: DopePersistenceBody
     public let entities: [DopeEntityDocument]
     public let enums: [DopeEnumDocument]
 
     private enum CodingKeys: String, CodingKey { case version, entities, enums }
 
     public init(
-        version: Int64, body: DopeDomainBody,
+        version: Int64, body: DopePersistenceBody,
         entities: [DopeEntityDocument], enums: [DopeEnumDocument]
     ) {
         self.version = version
@@ -120,7 +120,7 @@ public struct DopeDomainFileDocument: Codable, Hashable, Sendable {
     }
 
     public init(from decoder: Decoder) throws {
-        body = try DopeDomainBody(from: decoder)
+        body = try DopePersistenceBody(from: decoder)
         let c = try decoder.container(keyedBy: CodingKeys.self)
         version = try c.decode(Int64.self, forKey: .version)
         entities = try c.decode([DopeEntityDocument].self, forKey: .entities)
@@ -139,9 +139,9 @@ public struct DopeDomainFileDocument: Codable, Hashable, Sendable {
 /// The complete parsed on-disk representation of one scope.
 public struct DopeDocumentBundle: Codable, Hashable, Sendable {
     public let main: DopeMainDocument
-    public let domainFiles: [DopeDomainFileDocument]
+    public let domainFiles: [DopePersistenceFileDocument]
 
-    public init(main: DopeMainDocument, domainFiles: [DopeDomainFileDocument]) {
+    public init(main: DopeMainDocument, domainFiles: [DopePersistenceFileDocument]) {
         self.main = main
         self.domainFiles = domainFiles
     }

@@ -107,7 +107,7 @@ final class DiagramBindingTests: XCTestCase {
     func testDopeDeleteSucceedsWithBoundDiagramsPresent() throws {
         let scope = try makeScope()
         let domain = try store.dopeNodeAdd(DopeNodeAddRequest(
-            level: .domain, parentUuid: scope.scope.uuid,
+            level: .persistence, parentUuid: scope.scope.uuid,
             fields: DopeNodeFields(code: "core", name: "Core")))
         let entity = try store.dopeNodeAdd(DopeNodeAddRequest(
             level: .entity, parentUuid: domain.uuid,
@@ -128,7 +128,7 @@ final class DiagramBindingTests: XCTestCase {
         _ = try store.dopeNodeDelete(DopeNodeDeleteRequest(
             level: .entity, nodeUuid: entity.uuid, expectedVersion: 0))
         _ = try store.dopeNodeDelete(DopeNodeDeleteRequest(
-            level: .domain, nodeUuid: domain.uuid, expectedVersion: 0))
+            level: .persistence, nodeUuid: domain.uuid, expectedVersion: 0))
 
         let get = try store.diagramGet(DiagramGetRequest(diagramUuid: diagram.uuid))
         XCTAssertEqual(get.tree.elements.count, 1)

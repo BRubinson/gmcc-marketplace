@@ -34,7 +34,7 @@ final class DopeCanvasLayoutTests: XCTestCase {
             properties: (0..<properties).map { property("\(code)_p\($0)") })
     }
 
-    private func tree(domains: [DopeDomainNode]) -> DopeScopeTree {
+    private func tree(domains: [DopePersistenceNode]) -> DopeScopeTree {
         DopeScopeTree(
             identity: identity("scope"),
             body: DopeScopeBody(code: "gmcc", name: "GMCC", description: ""),
@@ -44,10 +44,10 @@ final class DopeCanvasLayoutTests: XCTestCase {
 
     private func domain(
         _ code: String, sortOrder: Int = 0, entities: [DopeEntityNode]
-    ) -> DopeDomainNode {
-        DopeDomainNode(
+    ) -> DopePersistenceNode {
+        DopePersistenceNode(
             identity: identity("d-\(code)"),
-            body: DopeDomainBody(code: code, name: code, description: "",
+            body: DopePersistenceBody(code: code, name: code, description: "",
                                  sortOrder: sortOrder),
             entities: entities, enums: [])
     }

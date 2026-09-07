@@ -92,9 +92,9 @@ final class DopeCodecTests: XCTestCase {
                                     enumRef: nil, relatedPropertyRef: nil,
                                     baseOriginRef: nil)),
             ])
-        let core = DopeDomainNode(
+        let core = DopePersistenceNode(
             identity: identity(2),
-            body: DopeDomainBody(code: "core", name: "Core", description: "", sortOrder: 0),
+            body: DopePersistenceBody(code: "core", name: "Core", description: "", sortOrder: 0),
             entities: [user, post, baseEntity], enums: [statusEnum])
         return DopeScopeTree(
             identity: identity(1),
@@ -113,7 +113,7 @@ final class DopeCodecTests: XCTestCase {
 
         for file in bundle.domainFiles {
             let data = try DopeDocumentCodec.encoder.encode(file)
-            let decoded = try DopeDocumentCodec.decoder.decode(DopeDomainFileDocument.self, from: data)
+            let decoded = try DopeDocumentCodec.decoder.decode(DopePersistenceFileDocument.self, from: data)
             XCTAssertEqual(decoded, file)
         }
     }
@@ -174,7 +174,7 @@ final class DopeCodecTests: XCTestCase {
                                  description: "", sortOrder: 9,
                                  repoRepresentativeFile: nil, baseComposableRef: nil),
             properties: [badProperty])
-        let broken = DopeDomainFileDocument(
+        let broken = DopePersistenceFileDocument(
             version: bundle.main.version + 1,   // mismatch
             body: bundle.domainFiles[0].body,
             entities: bundle.domainFiles[0].entities + [entity],
@@ -212,7 +212,7 @@ final class DopeCodecTests: XCTestCase {
         let user = bundle.domainFiles[0].entities[0]
         let patchedUser = DopeEntityDocument(body: user.body,
                                              properties: user.properties + [chain])
-        let file = DopeDomainFileDocument(
+        let file = DopePersistenceFileDocument(
             version: bundle.main.version,
             body: bundle.domainFiles[0].body,
             entities: [patchedUser, bundle.domainFiles[0].entities[1], enumsEntity],
@@ -284,7 +284,7 @@ final class DopeCodecTests: XCTestCase {
             entityDoc("cyc_a", type: "BASE_COMPOSABLE", sortOrder: 14, base: "core.cyc_b"),
             entityDoc("cyc_b", type: "BASE_COMPOSABLE", sortOrder: 15, base: "core.cyc_a"),
         ]
-        let file = DopeDomainFileDocument(
+        let file = DopePersistenceFileDocument(
             version: bundle.main.version,
             body: bundle.domainFiles[0].body,
             entities: bundle.domainFiles[0].entities + broken,
@@ -340,7 +340,7 @@ final class DopeCodecTests: XCTestCase {
                     propertyDoc("e", origin: "core.base_entity.created_at"),    // data_type mismatch (text vs datetime)
                 ]),
         ]
-        let file = DopeDomainFileDocument(
+        let file = DopePersistenceFileDocument(
             version: bundle.main.version,
             body: bundle.domainFiles[0].body,
             entities: bundle.domainFiles[0].entities + cases,
@@ -383,7 +383,7 @@ final class DopeCodecTests: XCTestCase {
                 properties: [propertyDoc("stamp", dataType: "datetime",
                                          origin: "core.m_two.stamp")]),
         ]
-        let file = DopeDomainFileDocument(
+        let file = DopePersistenceFileDocument(
             version: bundle.main.version,
             body: bundle.domainFiles[0].body,
             entities: bundle.domainFiles[0].entities + chain,
@@ -399,7 +399,7 @@ final class DopeCodecTests: XCTestCase {
             entityDoc("b_two", type: "BASE_COMPOSABLE", sortOrder: 11, base: "core.b_three"),
             entityDoc("b_three", type: "BASE_COMPOSABLE", sortOrder: 12),
         ]
-        let file = DopeDomainFileDocument(
+        let file = DopePersistenceFileDocument(
             version: bundle.main.version,
             body: bundle.domainFiles[0].body,
             entities: bundle.domainFiles[0].entities + chain,

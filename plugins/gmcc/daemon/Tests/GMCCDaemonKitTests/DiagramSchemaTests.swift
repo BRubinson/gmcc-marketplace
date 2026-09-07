@@ -232,8 +232,12 @@ final class DiagramSchemaTests: XCTestCase {
         }
     }
 
-    func testSchemaVersionIsTen() throws {
-        XCTAssertEqual(try store.schemaVersion(), 10)
-        XCTAssertEqual(Migrations.currentSchemaVersion, 10)
+    /// The ledger head. Renamed off "IsTen" so it stops lying every time a
+    /// migration lands; it asserts that the applied ledger and the compiled
+    /// constant AGREE, which is the property that actually matters, and
+    /// pins the current value so a migration can never land silently.
+    func testSchemaVersionMatchesCompiledConstant() throws {
+        XCTAssertEqual(try store.schemaVersion(), Migrations.currentSchemaVersion)
+        XCTAssertEqual(Migrations.currentSchemaVersion, 13)
     }
 }

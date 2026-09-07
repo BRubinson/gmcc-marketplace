@@ -71,13 +71,13 @@ final class DiagramResolverTests: XCTestCase {
                                  sortOrder: 0, repoRepresentativeFile: nil,
                                  baseComposableRef: nil),
             properties: [property("created_at", dataType: "datetime", nullable: false)])
-        let core = DopeDomainNode(
+        let core = DopePersistenceNode(
             identity: identity("dom-core"),
-            body: DopeDomainBody(code: "core", name: "Core", description: "", sortOrder: 0),
+            body: DopePersistenceBody(code: "core", name: "Core", description: "", sortOrder: 0),
             entities: [user, profile], enums: [])
-        let base = DopeDomainNode(
+        let base = DopePersistenceNode(
             identity: identity("dom-base"),
-            body: DopeDomainBody(code: "base", name: "Base", description: "", sortOrder: 0),
+            body: DopePersistenceBody(code: "base", name: "Base", description: "", sortOrder: 0),
             entities: [timestamps], enums: [])
         return DopeScopeTree(identity: identity("scope-1"),
                              body: DopeScopeBody(code: "gmcc", name: "GMCC", description: ""),
