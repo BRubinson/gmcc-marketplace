@@ -87,6 +87,16 @@ struct Cheatsheet: ParsableCommand {
       gm dope read-repo (--scope-uuid U | --dir-path P)   (parse + validate {instance_root}/.gmcc/dope; never writes; reports drift)
       gm dope write-repo --scope-uuid U [--force]   (db -> files, atomic whole-tree swap; refuses when files are AHEAD of the db unless --force)
       gm dope ingest --scope-uuid U [--dir-path P]   (files -> db whole-tree overwrite, no smart diff, child uuids change; on-disk version must be EXACTLY db revision + 1)
+    DIAGRAM (db-persisted canvases over dope; diagram.revision = whole-tree counter; exactly ONE owner flag picks the tier PROJECT|INSTANCE|SESSION|PROMPT; batch-apply is THE interactive write — the element verbs are one-mutation batches over the same body)
+      gm diagram init (--project-uuid U | --instance-uuid U | --session-uuid U | --prompt-uuid U) --code C --name N [--description D] [--gmcc-diagram-path P]   (idempotent per owner+code; path refused at PROJECT tier)
+      gm diagram list (--project-uuid U | --instance-uuid U | --session-uuid U | --prompt-uuid U)   (that tier's rows only, never a union; empty is normal, unknown owner NOT_FOUND)
+      gm diagram get (--diagram-uuid U | one owner flag: --project-uuid|--instance-uuid|--session-uuid|--prompt-uuid [--code C])   (tree + dope binding resolutions; no cross-tier fallback; pair with gm dope get for bound trees; real owner with none -> SUMMARY_ABSENT)
+      gm diagram update --diagram-uuid U --expected-version V [--code C] [--name N] [--description D] [--gmcc-diagram-path P | --clear-gmcc-diagram-path] [--promote-tier T --promote-owner-uuid O]   (promotion re-derives the owner chain; same project always)
+      gm diagram element-add --diagram-uuid U (--content JSON | --content-file P) [--parent-element-uuid P] [--code C] [--name N] [--description D] [--sort-order N] [--center-x X] [--center-y Y] [--element-z Z] [--scale S]   (content = {"kind":element_type,"fields":{...}}, vertices ride inside; omitted code/name are minted)
+      gm diagram element-update --uuid U --expected-version V [--code C] [--name N] [--description D] [--sort-order N] [--center-x X] [--center-y Y] [--element-z Z] [--scale S] [--parent-element-uuid P] [--content JSON | --content-file P]   (a present content REPLACES the subtype row + vertex set wholesale)
+      gm diagram element-delete --uuid U --expected-version V   (subtree CASCADE; no referrer guards in this family)
+      gm diagram batch-apply --diagram-uuid U (--mutations JSON | --mutations-file P) [--expected-revision N]   (one txn/revision/event; strict order; clientRef parenting; all-or-nothing; expected-revision = whole-diagram CAS)
+      gm diagram screenshot (--diagram-uuid U | one owner flag: --project-uuid|--instance-uuid|--session-uuid|--prompt-uuid [--code C]) [--scheme light|dark] [--scale N] [--out-name N] [--artifact --artifact-prompt-uuid U]   (client-side headless render -> {instance_root}/.gmcc/.screenshots/, self-gitignored; zero db writes)
     ARTIFACT / FILE-CHANGE
       gm artifact add --prompt-uuid U --file-path P [--note N]
       gm artifact list --prompt-uuid U
@@ -112,6 +122,8 @@ struct Cheatsheet: ParsableCommand {
       - Dope refs in .doped.json are dot-path codes, never uuids (domain.entity.property / domain.enums.enum_code / domain.entity for base composables); granular dope verbs bump revision by 1 each and leave row versions to --expected-version.
       - A base_composable target must be a BASE_COMPOSABLE entity in the same scope; chaining is allowed, cycles are refused, and deleting a still-composed base (or its domain) is refused naming the composer.
       - A materialized property tags its origin (base_origin_ref: domain.entity.property): the origin must live on a base the entity composes and keep its data_type; changing a base that strands a tag, or deleting a tagged origin, is refused naming the referrer.
+      - Diagram dope bindings are CODES resolved at read time through the diagram's own session/prompt context (resolved_via surfaced); a dangling code is a LEGAL state rendered as a ghost, never an error — and dope deletes are never blocked by diagrams.
+      - Diagram element geometry: center_x/y are parent-space, vertices are element-local, scale composes down the tree, element_z orders siblings only; the element row's version is the lock for the whole element aggregate (subtype + vertices replace wholesale, vertex row uuids are not stable).
       - Values starting with a dash need --flag=value form (e.g. --content="- item").
       - After gm prompt create, mkdir -p $GMCC_CKFS_ROOT/<ckfs_relative_storage_path>/memory verbatim from the response — never re-derive {seq}_{name}.
     RESPONSE NOTES

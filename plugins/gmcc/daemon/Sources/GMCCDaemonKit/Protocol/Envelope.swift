@@ -7,7 +7,7 @@ import Foundation
 /// rejected — the daemon stays up (an old pinned-Kit GMVibes must never be
 /// able to kill-loop a fresh daemon).
 public enum GMCCWireProtocol {
-    public static let version = 14
+    public static let version = 15
 }
 
 /// Discriminator for every NDJSON message on the socket. One case per spec
@@ -100,6 +100,15 @@ public enum MessageType: String, Codable, Hashable, CaseIterable, Sendable {
     case dopeReadRepo = "DOPE_READ_REPO"
     case dopeWriteRepo = "DOPE_WRITE_REPO"
     case dopeIngest = "DOPE_INGEST"
+    // DIAGRAM domain modeling (v15). BATCH_APPLY is the primary interactive
+    // write; the NODE verbs are one-mutation batches over the same store body.
+    case diagramInit = "DIAGRAM_INIT"
+    case diagramList = "DIAGRAM_LIST"
+    case diagramGet = "DIAGRAM_GET"
+    case diagramNodeAdd = "DIAGRAM_NODE_ADD"
+    case diagramNodeUpdate = "DIAGRAM_NODE_UPDATE"
+    case diagramNodeDelete = "DIAGRAM_NODE_DELETE"
+    case diagramBatchApply = "DIAGRAM_BATCH_APPLY"
     // Git-state resolution (v7)
     case sessionResolve = "SESSION_RESOLVE"
     case instanceCurrentSession = "INSTANCE_CURRENT_SESSION"

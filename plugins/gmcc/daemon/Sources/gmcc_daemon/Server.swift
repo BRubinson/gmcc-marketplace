@@ -435,6 +435,21 @@ final class Server: @unchecked Sendable {
             case .dopeIngest:
                 return try DopeIngestHandler.handle(line: line, head: head, store: store)
 
+            case .diagramInit:
+                return try DiagramInitHandler.handle(line: line, head: head, store: store)
+            case .diagramList:
+                return try DiagramListHandler.handle(line: line, head: head, store: store)
+            case .diagramGet:
+                return try DiagramGetHandler.handle(line: line, head: head, store: store)
+            case .diagramNodeAdd:
+                return try DiagramNodeAddHandler.handle(line: line, head: head, store: store)
+            case .diagramNodeUpdate:
+                return try DiagramNodeUpdateHandler.handle(line: line, head: head, store: store)
+            case .diagramNodeDelete:
+                return try DiagramNodeDeleteHandler.handle(line: line, head: head, store: store)
+            case .diagramBatchApply:
+                return try DiagramBatchApplyHandler.handle(line: line, head: head, store: store)
+
             case .sessionResolve:
                 return try SessionResolveHandler.handle(line: line, head: head, store: store)
             case .instanceCurrentSession:

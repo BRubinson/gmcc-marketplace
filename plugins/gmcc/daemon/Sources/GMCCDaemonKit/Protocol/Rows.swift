@@ -1115,3 +1115,54 @@ public struct DopeScopeRow: Codable, Hashable, Sendable {
         self.updatedAt = updatedAt
     }
 }
+
+public struct DiagramRow: Codable, Hashable, Sendable {
+    public let uuid: String
+    public let version: Int64
+    public let tier: String
+    public let projectUuid: String
+    public let instanceUuid: String?
+    public let sessionUuid: String?
+    public let promptUuid: String?
+    public let code: String
+    public let name: String
+    public let description: String
+    public let gmccDiagramPath: String?
+    /// The whole-tree content counter (bumpDiagramRevision; never the row's
+    /// optimistic-lock version).
+    public let revision: Int64
+    public let createdAt: String
+    public let updatedAt: String
+
+    public init(
+        uuid: String,
+        version: Int64,
+        tier: String,
+        projectUuid: String,
+        instanceUuid: String?,
+        sessionUuid: String?,
+        promptUuid: String?,
+        code: String,
+        name: String,
+        description: String,
+        gmccDiagramPath: String?,
+        revision: Int64,
+        createdAt: String,
+        updatedAt: String
+    ) {
+        self.uuid = uuid
+        self.version = version
+        self.tier = tier
+        self.projectUuid = projectUuid
+        self.instanceUuid = instanceUuid
+        self.sessionUuid = sessionUuid
+        self.promptUuid = promptUuid
+        self.code = code
+        self.name = name
+        self.description = description
+        self.gmccDiagramPath = gmccDiagramPath
+        self.revision = revision
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+}

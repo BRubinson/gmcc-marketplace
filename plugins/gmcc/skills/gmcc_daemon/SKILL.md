@@ -272,3 +272,55 @@ carries) that other entities point at via `--base-composable-uuid`
   daemon creates, seeds, or special-cases a domain coded `base`; it is simply
   where a scope keeps its shared blocks by convention. Create it like any
   other domain.
+
+## DIAGRAM — db-persisted canvases (wire v15)
+
+`gm diagram` persists visual canvases over the dope subsystem:
+diagram → element → (joined subtype + vertex rows). Two element families:
+dope bindings (`dope_scope`, `dope_entity` — the dbdiagram-style rendering
+path) and the drawing family (`drawing_layer` holding `drawing_stroke` /
+`drawing_shape`). Only `dope_scope` and `drawing_layer` may sit at top
+level; `dope_entity` lives under a scope, strokes/shapes under a layer.
+`diagram.revision` is the whole-tree content counter (the dope split:
+element edits bump it without touching row versions).
+
+**Ownership is a four-tier ladder** (`PROJECT|INSTANCE|SESSION|PROMPT`):
+exactly one owner flag picks the tier, the daemon derives and persists the
+full ancestor chain, and promotion (`gm diagram update --promote-tier T
+--promote-owner-uuid O`) is an UPDATE that re-derives it (same project,
+always). `gmcc_diagram_path` is refused at PROJECT tier (no instance root).
+
+| Subcommand | Purpose |
+|------------|---------|
+| `gm diagram init` / `list` / `get` | Create-or-return / picker rows (one tier, never a union) / full tree + binding resolutions. Real owner with no diagram ⇒ `SUMMARY_ABSENT` ⇒ `gm diagram init`. `get` has NO cross-tier fallback and does NOT embed dope trees — pair it with `gm dope get` per resolved binding. |
+| `gm diagram element-add/-update/-delete` | Granular element edits — each is a ONE-MUTATION BATCH over the same daemon body as batch-apply, so semantics cannot drift. Subtype fields ride `--content` (`{"kind":"<element_type>","fields":{...}}`, vertices inside); a present content on update REPLACES the subtype row + vertex set wholesale (no clear flags anywhere). Omitted `--code`/`--name` are minted (`stroke_0007` style). |
+| `gm diagram update` | Diagram-row edits: rename/describe, path set/clear, tier promotion. |
+| `gm diagram batch-apply` | THE interactive write: many mutations, one transaction, ONE revision bump, ONE `DIAGRAM_CHANGE` event. Strict array order; all-or-nothing; `elementAdd.clientRef` temp ids are parentable by later mutations in the same batch (a gesture creates a layer + strokes atomically); `--expected-revision` is a whole-diagram CAS gate (`VERSION_CONFLICT` when stale) — GMVibes commits at gesture end. |
+| `gm diagram screenshot` | Headless render in the gm CLIENT process (never the daemon) to `{instance_root}/.gmcc/.screenshots/{code}_r{revision}.png` — a SELF-gitignored directory (`.screenshots/.gitignore` containing `*`; the user's root .gitignore is never touched). Zero db writes. The `/gm_screenshot_session_domain_diagram_state` slash command wraps it. |
+
+**fk-by-code bindings, ghost semantics.** Diagram→dope references are TEXT
+codes, never uuids or SQL FKs (`gm dope ingest` re-mints every child uuid,
+so uuid refs are structurally impossible). Resolution happens at READ time
+through the diagram's own session/prompt context via the dope ladder
+(PROMPT preferred, SESSION_BASE fallback), surfaced per binding as
+`resolved_via`; PROJECT/INSTANCE-tier diagrams resolve all-absent by
+construction. A dangling code is a LEGAL state rendered as a ghost card —
+never an error, and never a delete guard: dope evolution is never blocked
+by a picture. Existence is deliberately unchecked on write; only the code
+SHAPE is validated (`snake_case`; entity codes are 2-segment
+`domain.entity`).
+
+**Geometry.** `center_x/y` are parent-space, vertices are element-local
+(dragging a 500-point stroke is one element UPDATE), `scale` composes
+multiplicatively, `element_z` orders siblings only. Vertex rows are full
+BaseEntity rows written as whole-set replacements — their uuids are NOT
+stable (vertices are not elements). The element row's `version` is the
+optimistic lock for the whole element aggregate.
+
+**GMVibes surface.** `DaemonClient.diagram*` methods + the in-kit
+`DiagramUI/` component library: `DiagramResolver` (pure pre-pass:
+transforms, z, ghost injection, FK edges, deterministic FNV-1a domain
+colors) → `ResolvedDiagram` values → `DiagramCanvasView` and friends
+(exhaustive-switch rendering, zero daemon dependency), plus
+`DiagramCommitting` / `DiagramEditSession` for gesture-end batch commits.
+Live refresh: follow `DIAGRAM_CHANGE` events via `gm events`.

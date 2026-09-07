@@ -733,4 +733,63 @@ final class DopeMachineTests: XCTestCase {
                 fields: DopeNodeFields(baseOriginPropertyUuid: ids.property)))
         }
     }
+
+    /// Review fix: every clear flag must persist a real NULL — a typed-nil
+    /// subscript assignment used to drop the key, making clear-alone calls
+    /// throw emptyUpdate and combined calls silently skip the clear.
+    func testClearFlagsPersistNulls() throws {
+        let scope = try initScope().scope
+        let domain = try addNode(.domain, parent: scope.uuid,
+                                 DopeNodeFields(code: "core", name: "Core"))
+        let entity = try addNode(.entity, parent: domain.uuid,
+                                 DopeNodeFields(code: "user", name: "User",
+                                                repoRepresentativeFile: "Sources/User.swift"))
+        let en = try addNode(.enumeration, parent: domain.uuid,
+                             DopeNodeFields(code: "status", name: "Status"))
+
+        // clear-repo-representative-file ALONE (used to throw emptyUpdate).
+        _ = try store.dopeNodeUpdate(DopeNodeUpdateRequest(
+            level: .entity, nodeUuid: entity.uuid, expectedVersion: 0,
+            fields: DopeNodeFields(clearRepoRepresentativeFile: true)))
+
+        // clear-auto-increment and clear-text-char-limit ALONE.
+        let counter = try addNode(.property, parent: entity.uuid,
+                                  DopeNodeFields(code: "counter", name: "Counter",
+                                                 dataType: .long, autoIncrement: true))
+        _ = try store.dopeNodeUpdate(DopeNodeUpdateRequest(
+            level: .property, nodeUuid: counter.uuid, expectedVersion: 0,
+            fields: DopeNodeFields(clearAutoIncrement: true)))
+        let note = try addNode(.property, parent: entity.uuid,
+                               DopeNodeFields(code: "note", name: "Note",
+                                              dataType: .text, textCharLimit: 80))
+        _ = try store.dopeNodeUpdate(DopeNodeUpdateRequest(
+            level: .property, nodeUuid: note.uuid, expectedVersion: 0,
+            fields: DopeNodeFields(clearTextCharLimit: true)))
+
+        // clear-enum COMBINED with a data-type change (the silent-skip path;
+        // clear-alone is refused by the CHECK coupling by design).
+        let state = try addNode(.property, parent: entity.uuid,
+                                DopeNodeFields(code: "state", name: "State",
+                                               dataType: .enumeration, enumUuid: en.uuid))
+        _ = try store.dopeNodeUpdate(DopeNodeUpdateRequest(
+            level: .property, nodeUuid: state.uuid, expectedVersion: 0,
+            fields: DopeNodeFields(dataType: .text, clearEnum: true)))
+
+        try store.dbQueue.read { db in
+            XCTAssertNil(try String.fetchOne(db, sql:
+                "SELECT repo_representative_file FROM dope_domain_entity WHERE uuid = ?",
+                arguments: [entity.uuid]) ?? nil)
+            XCTAssertNil(try Int64.fetchOne(db, sql:
+                "SELECT auto_increment FROM dope_domain_entity_property WHERE uuid = ?",
+                arguments: [counter.uuid]) ?? nil)
+            XCTAssertNil(try Int64.fetchOne(db, sql:
+                "SELECT text_char_limit FROM dope_domain_entity_property WHERE uuid = ?",
+                arguments: [note.uuid]) ?? nil)
+            let stateRow = try Row.fetchOne(db, sql:
+                "SELECT data_type, dope_domain_enum_uuid FROM dope_domain_entity_property WHERE uuid = ?",
+                arguments: [state.uuid])
+            XCTAssertEqual(stateRow?["data_type"] as String?, "text")
+            XCTAssertNil(stateRow?["dope_domain_enum_uuid"] as String?)
+        }
+    }
 }

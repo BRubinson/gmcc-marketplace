@@ -34,6 +34,11 @@ public enum StoreError: Error, Sendable {
     /// mapped onto the SAME wire code (the revisionConflict precedent), so
     /// the four prompt-shaped call sites stay untouched.
     case dopeScopeAbsent(sessionUuid: String, promptUuid: String?, code: String?)
+    /// The diagram owner EXISTS (project/instance/session/prompt row) but no
+    /// diagram was ever initialized for it (or none with the given code).
+    /// Same wire code as summaryAbsent (the dopeScopeAbsent precedent) so a
+    /// pinned-Kit GMVibes always decodes it; the remediation hint differs.
+    case diagramAbsent(ownerKind: String, ownerUuid: String, code: String?)
 
     public var errorPayload: ErrorPayload {
         switch self {
@@ -94,6 +99,14 @@ public enum StoreError: Error, Sendable {
             return ErrorPayload(
                 code: .summaryAbsent,
                 message: "\(target) has no dope scope yet — initialize one (\(initHint))")
+        case .diagramAbsent(let ownerKind, let ownerUuid, let code):
+            var target = "\(ownerKind) \(ownerUuid)"
+            if let code { target += " code '\(code)'" }
+            let initHint = "gm diagram init --\(ownerKind)-uuid \(ownerUuid)"
+                + " --code \(code ?? "<code>") --name <name>"
+            return ErrorPayload(
+                code: .summaryAbsent,
+                message: "\(target) has no diagram yet — initialize one (\(initHint))")
         }
     }
 }

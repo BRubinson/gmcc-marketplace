@@ -355,3 +355,35 @@ extension DaemonClient {
         try request(type: .dopeIngest, payload: req, responseType: DopeIngestResponse.self)
     }
 }
+
+// MARK: - Diagram (v15)
+
+extension DaemonClient {
+    public func diagramInit(_ req: DiagramInitRequest) throws -> DiagramResponse {
+        try request(type: .diagramInit, payload: req, responseType: DiagramResponse.self)
+    }
+
+    public func diagramList(_ req: DiagramListRequest) throws -> DiagramListResponse {
+        try request(type: .diagramList, payload: req, responseType: DiagramListResponse.self)
+    }
+
+    public func diagramGet(_ req: DiagramGetRequest) throws -> DiagramGetResponse {
+        try request(type: .diagramGet, payload: req, responseType: DiagramGetResponse.self)
+    }
+
+    public func diagramNodeAdd(_ req: DiagramNodeAddRequest) throws -> DiagramNodeResponse {
+        try request(type: .diagramNodeAdd, payload: req, responseType: DiagramNodeResponse.self)
+    }
+
+    public func diagramNodeUpdate(_ req: DiagramNodeUpdateRequest) throws -> DiagramNodeResponse {
+        try request(type: .diagramNodeUpdate, payload: req, responseType: DiagramNodeResponse.self)
+    }
+
+    public func diagramNodeDelete(_ req: DiagramNodeDeleteRequest) throws -> DiagramNodeDeleteResponse {
+        try request(type: .diagramNodeDelete, payload: req, responseType: DiagramNodeDeleteResponse.self)
+    }
+
+    public func diagramBatchApply(_ req: DiagramBatchApplyRequest) throws -> DiagramBatchApplyResponse {
+        try request(type: .diagramBatchApply, payload: req, responseType: DiagramBatchApplyResponse.self)
+    }
+}

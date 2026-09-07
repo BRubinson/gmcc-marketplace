@@ -227,7 +227,9 @@ extension Store {
     /// The scope-candidate query shared by dopeGet's resolution ladder and
     /// dopeList's enumeration — one copy keeps the picker's row order and
     /// the BAD_REQUEST candidate order identical (ORDER BY code).
-    private func dopeScopeCandidates(
+    // internal, not private: Store+Diagram's binding resolution reuses this
+    // exact ladder query (the v12 candidates() promotion precedent).
+    func dopeScopeCandidates(
         _ db: Database, sessionUuid: String, scopeType: DopeScopeType,
         promptUuid: String? = nil, code: String? = nil
     ) throws -> [DopeScopeRow] {
@@ -1031,7 +1033,9 @@ extension Store {
                 if let file = req.fields.repoRepresentativeFile {
                     set["repo_representative_file"] = file
                 } else if req.fields.clearRepoRepresentativeFile == true {
-                    set["repo_representative_file"] = nil
+                    // updateValue, not subscript: a nil subscript assignment
+                    // REMOVES the key and the clear vanishes from the UPDATE.
+                    set.updateValue(nil, forKey: "repo_representative_file")
                 }
             }
 
@@ -1099,17 +1103,22 @@ extension Store {
                 if let dataType = req.fields.dataType { set["data_type"] = dataType.rawValue }
                 if let nullable = req.fields.nullable { set["nullable"] = nullable ? 1 : 0 }
                 if let isUnique = req.fields.isUnique { set["is_unique"] = isUnique ? 1 : 0 }
+                // updateValue throughout, not subscript: a typed-nil subscript
+                // assignment REMOVES the key, so a clear-alone call would
+                // throw emptyUpdate and a combined call would silently skip
+                // the clear (the base_composable_uuid trap, all five sites).
                 if req.fields.autoIncrement != nil || req.fields.clearAutoIncrement == true {
-                    set["auto_increment"] = finalAutoIncrement.map { $0 ? 1 : 0 }
+                    set.updateValue(finalAutoIncrement.map { $0 ? 1 : 0 },
+                                    forKey: "auto_increment")
                 }
                 if req.fields.textCharLimit != nil || req.fields.clearTextCharLimit == true {
-                    set["text_char_limit"] = finalCharLimit
+                    set.updateValue(finalCharLimit, forKey: "text_char_limit")
                 }
                 if req.fields.enumUuid != nil || req.fields.clearEnum == true {
-                    set["dope_domain_enum_uuid"] = finalEnum
+                    set.updateValue(finalEnum, forKey: "dope_domain_enum_uuid")
                 }
                 if req.fields.relatedPropertyUuid != nil || req.fields.clearRelatedProperty == true {
-                    set["related_property_uuid"] = finalRelated
+                    set.updateValue(finalRelated, forKey: "related_property_uuid")
                 }
                 if req.fields.baseOriginPropertyUuid != nil || req.fields.clearBaseOrigin == true {
                     // updateValue, not subscript — the typed-nil clear trap

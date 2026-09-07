@@ -63,6 +63,9 @@ public enum DaemonEventKind: String, Codable, Hashable, CaseIterable, Sendable {
     case reviewChange = "REVIEW_CHANGE"
     // v11 — durable rows: the DOPED domain-modeling machine.
     case dopeChange = "DOPE_CHANGE"
+    // v15 — durable rows: the DIAGRAM machine (GMVibes' live-refresh signal;
+    // one event per granular mutation OR per whole batch).
+    case diagramChange = "DIAGRAM_CHANGE"
     /// Ephemeral broadcast only (id 0, never a daemon_event row, never a
     /// replay cursor) — emitted by MemoryWatcher when a prompt's memory/
     /// directory changes on disk.
@@ -2475,5 +2478,217 @@ public struct DopeIngestResponse: Codable, Hashable, Sendable {
     public init(scope: DopeScopeRow, counts: DopeTreeCounts) {
         self.scope = scope
         self.counts = counts
+    }
+}
+
+// MARK: - DIAGRAM_* (v15)
+
+/// Create-or-return a diagram (idempotent per (tier owner, code) — the
+/// dopeInit precedent). Exactly ONE owner uuid picks the tier; the store
+/// derives and persists the full ancestor chain by joins (chain-non-null
+/// ladder). gmccDiagramPath is refused at PROJECT tier (no instance root to
+/// resolve it against).
+public struct DiagramInitRequest: Codable, Hashable, Sendable {
+    public let projectUuid: String?
+    public let instanceUuid: String?
+    public let sessionUuid: String?
+    public let promptUuid: String?
+    public let code: String
+    public let name: String
+    public let description: String?
+    public let gmccDiagramPath: String?
+
+    public init(
+        projectUuid: String? = nil,
+        instanceUuid: String? = nil,
+        sessionUuid: String? = nil,
+        promptUuid: String? = nil,
+        code: String,
+        name: String,
+        description: String? = nil,
+        gmccDiagramPath: String? = nil
+    ) {
+        self.projectUuid = projectUuid
+        self.instanceUuid = instanceUuid
+        self.sessionUuid = sessionUuid
+        self.promptUuid = promptUuid
+        self.code = code
+        self.name = name
+        self.description = description
+        self.gmccDiagramPath = gmccDiagramPath
+    }
+}
+
+public struct DiagramResponse: Codable, Hashable, Sendable {
+    public let diagram: DiagramRow
+    public let created: Bool
+
+    public init(diagram: DiagramRow, created: Bool) {
+        self.diagram = diagram
+        self.created = created
+    }
+}
+
+/// Picker enumeration — the v12 dopeList contract verbatim: exactly one
+/// owner uuid, exactly that tier's rows for that owner, never a union or a
+/// cross-tier ladder, ORDER BY code. Unknown owner is NOT_FOUND; a real
+/// owner with no diagrams is a normal empty list.
+public struct DiagramListRequest: Codable, Hashable, Sendable {
+    public let projectUuid: String?
+    public let instanceUuid: String?
+    public let sessionUuid: String?
+    public let promptUuid: String?
+
+    public init(
+        projectUuid: String? = nil,
+        instanceUuid: String? = nil,
+        sessionUuid: String? = nil,
+        promptUuid: String? = nil
+    ) {
+        self.projectUuid = projectUuid
+        self.instanceUuid = instanceUuid
+        self.sessionUuid = sessionUuid
+        self.promptUuid = promptUuid
+    }
+}
+
+public struct DiagramListResponse: Codable, Hashable, Sendable {
+    public let diagrams: [DiagramRow]
+
+    public init(diagrams: [DiagramRow]) {
+        self.diagrams = diagrams
+    }
+}
+
+/// Full-tree read: by diagramUuid, or by exactly one owner uuid + optional
+/// code. Deliberately NO cross-tier fallback ladder (tiers are explicit
+/// workspaces — the ladder belongs to dope binding resolution INSIDE the
+/// diagram). Several owner matches without a code → BAD_REQUEST naming the
+/// candidate codes; a real owner with none → SUMMARY_ABSENT (diagramAbsent).
+/// The response does NOT embed dope trees — clients pair it with DOPE_GET.
+public struct DiagramGetRequest: Codable, Hashable, Sendable {
+    public let diagramUuid: String?
+    public let projectUuid: String?
+    public let instanceUuid: String?
+    public let sessionUuid: String?
+    public let promptUuid: String?
+    public let code: String?
+
+    public init(
+        diagramUuid: String? = nil,
+        projectUuid: String? = nil,
+        instanceUuid: String? = nil,
+        sessionUuid: String? = nil,
+        promptUuid: String? = nil,
+        code: String? = nil
+    ) {
+        self.diagramUuid = diagramUuid
+        self.projectUuid = projectUuid
+        self.instanceUuid = instanceUuid
+        self.sessionUuid = sessionUuid
+        self.promptUuid = promptUuid
+        self.code = code
+    }
+}
+
+public struct DiagramGetResponse: Codable, Hashable, Sendable {
+    public let tree: DiagramTree
+    /// One row per dope_scope binding element (resolvedVia nil = ghost).
+    public let bindings: [DiagramBindingResolution]
+
+    public init(tree: DiagramTree, bindings: [DiagramBindingResolution]) {
+        self.tree = tree
+        self.bindings = bindings
+    }
+}
+
+/// Granular element verbs — each is a one-mutation batch over the SAME
+/// store body as DIAGRAM_BATCH_APPLY, so granular and batch semantics
+/// cannot drift. Diagram-row updates (rename/promotion) ride batch-apply's
+/// diagramUpdate mutation.
+public struct DiagramNodeAddRequest: Codable, Hashable, Sendable {
+    public let diagramUuid: String
+    public let add: DiagramElementAdd
+
+    public init(diagramUuid: String, add: DiagramElementAdd) {
+        self.diagramUuid = diagramUuid
+        self.add = add
+    }
+}
+
+public struct DiagramNodeUpdateRequest: Codable, Hashable, Sendable {
+    public let update: DiagramElementUpdate
+
+    public init(update: DiagramElementUpdate) {
+        self.update = update
+    }
+}
+
+public struct DiagramNodeDeleteRequest: Codable, Hashable, Sendable {
+    public let delete: DiagramElementDelete
+
+    public init(delete: DiagramElementDelete) {
+        self.delete = delete
+    }
+}
+
+/// Every mutation response carries diagramUuid + revision so clients update
+/// without a refetch (the DopeNodeResponse contract).
+public struct DiagramNodeResponse: Codable, Hashable, Sendable {
+    public let uuid: String
+    public let version: Int64
+    public let diagramUuid: String
+    public let revision: Int64
+
+    public init(uuid: String, version: Int64, diagramUuid: String, revision: Int64) {
+        self.uuid = uuid
+        self.version = version
+        self.diagramUuid = diagramUuid
+        self.revision = revision
+    }
+}
+
+public struct DiagramNodeDeleteResponse: Codable, Hashable, Sendable {
+    public let deletedUuid: String
+    /// Element rows removed, including the target itself.
+    public let cascadedElements: Int
+    public let diagramUuid: String
+    public let revision: Int64
+
+    public init(deletedUuid: String, cascadedElements: Int, diagramUuid: String, revision: Int64) {
+        self.deletedUuid = deletedUuid
+        self.cascadedElements = cascadedElements
+        self.diagramUuid = diagramUuid
+        self.revision = revision
+    }
+}
+
+/// THE interactive write: many typed mutations, one transaction, ONE
+/// revision bump, ONE DIAGRAM_CHANGE event. Mutations apply strictly in
+/// array order; elementAdd clientRefs are resolvable by later mutations in
+/// the same batch. expectedRevision non-nil is a whole-diagram CAS gate
+/// (VERSION_CONFLICT on mismatch — gesture-end concurrency for GMVibes).
+public struct DiagramBatchApplyRequest: Codable, Hashable, Sendable {
+    public let diagramUuid: String
+    public let expectedRevision: Int64?
+    public let mutations: [DiagramMutation]
+
+    public init(diagramUuid: String, expectedRevision: Int64? = nil, mutations: [DiagramMutation]) {
+        self.diagramUuid = diagramUuid
+        self.expectedRevision = expectedRevision
+        self.mutations = mutations
+    }
+}
+
+public struct DiagramBatchApplyResponse: Codable, Hashable, Sendable {
+    public let diagramUuid: String
+    public let revision: Int64
+    /// Index-aligned with the request's mutations array.
+    public let results: [DiagramMutationResult]
+
+    public init(diagramUuid: String, revision: Int64, results: [DiagramMutationResult]) {
+        self.diagramUuid = diagramUuid
+        self.revision = revision
+        self.results = results
     }
 }
