@@ -224,6 +224,152 @@ final class DiagramResolverTests: XCTestCase {
         XCTAssertTrue(resolved.edges.isEmpty)
     }
 
+    // MARK: - Edge routing integration
+
+    func testRoutedEdgeLeavesAtTheFKPropertyRow() {
+        // core.user's FK sits at row index 1 (own rows: id, profile —
+        // base-union rows only append after). Card height = 40 + 3*22 + 8.
+        let userCard = element("e-user", code: "u", payload: .dopeEntity(
+            DopeEntityPayload(entityCode: "core.user")), centerX: 0)
+        let profileCard = element("e-profile", code: "p", payload: .dopeEntity(
+            DopeEntityPayload(entityCode: "core.profile")), centerX: 500)
+        let scope = element("e-scope", code: "sc", payload: .dopeScope(
+            DopeScopePayload(dopeScopeCode: "gmcc")),
+                            children: [userCard, profileCard])
+        let resolved = DiagramResolver.resolve(tree([scope]), dope: context())
+
+        XCTAssertEqual(resolved.edges.count, 1)
+        let edge = resolved.edges[0]
+        XCTAssertTrue(edge.routed)
+        let userFrame = resolved.topLevel[0].children
+            .first { $0.uuid == "e-user" }!.frame
+        let expectedRowY = userFrame.minY + 40 + 1.5 * 22
+        XCTAssertEqual(edge.from.y, expectedRowY, accuracy: 0.01,
+                       "the edge leaves at the FK row's y, not the card midY")
+        XCTAssertEqual(edge.from, edge.points.first)
+        XCTAssertEqual(edge.to, edge.points.last)
+    }
+
+    func testRoutedEdgeFKRowAnchorHonorsScale() {
+        let userCard = element("e-user", code: "u", payload: .dopeEntity(
+            DopeEntityPayload(entityCode: "core.user")), centerX: 0, scale: 2)
+        let profileCard = element("e-profile", code: "p", payload: .dopeEntity(
+            DopeEntityPayload(entityCode: "core.profile")), centerX: 900)
+        let scope = element("e-scope", code: "sc", payload: .dopeScope(
+            DopeScopePayload(dopeScopeCode: "gmcc")),
+                            children: [userCard, profileCard])
+        let resolved = DiagramResolver.resolve(tree([scope]), dope: context())
+
+        XCTAssertEqual(resolved.edges.count, 1)
+        let edge = resolved.edges[0]
+        let userFrame = resolved.topLevel[0].children
+            .first { $0.uuid == "e-user" }!.frame
+        XCTAssertEqual(edge.from.y, userFrame.minY + (40 + 1.5 * 22) * 2,
+                       accuracy: 0.01, "row geometry scales with the card")
+    }
+
+    func testGhostCardIsARoutingObstacle() {
+        // A ghost (.absentEntity) card sits squarely on the straight line
+        // between user and profile — the routed edge must clear its frame.
+        let userCard = element("e-user", code: "u", payload: .dopeEntity(
+            DopeEntityPayload(entityCode: "core.user")), centerX: 0)
+        let ghost = element("e-ghost", code: "g", payload: .dopeEntity(
+            DopeEntityPayload(entityCode: "core.no_such")), centerX: 320, centerY: 10)
+        let profileCard = element("e-profile", code: "p", payload: .dopeEntity(
+            DopeEntityPayload(entityCode: "core.profile")), centerX: 640)
+        let scope = element("e-scope", code: "sc", payload: .dopeScope(
+            DopeScopePayload(dopeScopeCode: "gmcc")),
+                            children: [userCard, ghost, profileCard])
+        let resolved = DiagramResolver.resolve(tree([scope]), dope: context())
+
+        XCTAssertEqual(resolved.edges.count, 1)
+        let edge = resolved.edges[0]
+        XCTAssertTrue(edge.routed)
+        let ghostFrame = resolved.topLevel[0].children
+            .first { $0.uuid == "e-ghost" }!.frame
+        for index in 0..<(edge.points.count - 1) {
+            let a = edge.points[index], b = edge.points[index + 1]
+            let crosses: Bool
+            if a.y == b.y {
+                crosses = ghostFrame.minY < a.y && a.y < ghostFrame.maxY
+                    && min(a.x, b.x) < ghostFrame.maxX && max(a.x, b.x) > ghostFrame.minX
+            } else {
+                crosses = ghostFrame.minX < a.x && a.x < ghostFrame.maxX
+                    && min(a.y, b.y) < ghostFrame.maxY && max(a.y, b.y) > ghostFrame.minY
+            }
+            XCTAssertFalse(crosses, "segment \(a) → \(b) crosses the ghost card")
+        }
+    }
+
+    func testContentBoundsCoverRoutedDetours() {
+        // Same blocking fixture: every routed point must be inside
+        // contentBounds or detours clip out of the screenshot viewport.
+        let userCard = element("e-user", code: "u", payload: .dopeEntity(
+            DopeEntityPayload(entityCode: "core.user")), centerX: 0)
+        let ghost = element("e-ghost", code: "g", payload: .dopeEntity(
+            DopeEntityPayload(entityCode: "core.no_such")), centerX: 320, centerY: 10)
+        let profileCard = element("e-profile", code: "p", payload: .dopeEntity(
+            DopeEntityPayload(entityCode: "core.profile")), centerX: 640)
+        let scope = element("e-scope", code: "sc", payload: .dopeScope(
+            DopeScopePayload(dopeScopeCode: "gmcc")),
+                            children: [userCard, ghost, profileCard])
+        let resolved = DiagramResolver.resolve(tree([scope]), dope: context())
+
+        for edge in resolved.edges {
+            for point in edge.points {
+                XCTAssertTrue(resolved.contentBounds.insetBy(dx: -0.01, dy: -0.01)
+                    .contains(point),
+                    "routed point \(point) escapes contentBounds \(resolved.contentBounds)")
+            }
+        }
+    }
+
+    func testSandwichedCardFallsBackToLegacyAnchorPair() {
+        // Both of the user card's escape stubs are swallowed by neighbors
+        // closer than 2×padding — the edge keeps the legacy straight pair.
+        let userCard = element("e-user", code: "u", payload: .dopeEntity(
+            DopeEntityPayload(entityCode: "core.user")), centerX: 0)
+        let wallL = element("e-wl", code: "wl", payload: .dopeEntity(
+            DopeEntityPayload(entityCode: "core.ghost_l")), centerX: -266)
+        let wallR = element("e-wr", code: "wr", payload: .dopeEntity(
+            DopeEntityPayload(entityCode: "core.ghost_r")), centerX: 266)
+        let profileCard = element("e-profile", code: "p", payload: .dopeEntity(
+            DopeEntityPayload(entityCode: "core.profile")), centerX: 1200)
+        let scope = element("e-scope", code: "sc", payload: .dopeScope(
+            DopeScopePayload(dopeScopeCode: "gmcc")),
+                            children: [userCard, wallL, wallR, profileCard])
+        let resolved = DiagramResolver.resolve(tree([scope]), dope: context())
+
+        XCTAssertEqual(resolved.edges.count, 1)
+        let edge = resolved.edges[0]
+        XCTAssertFalse(edge.routed)
+        XCTAssertEqual(edge.points, [edge.from, edge.to],
+                       "unrouted edges keep the legacy anchor pair")
+        XCTAssertEqual(edge.from.y, resolved.topLevel[0].children
+            .first { $0.uuid == "e-user" }!.frame.midY,
+                       "legacy fallback keeps side-midpoint anchors")
+    }
+
+    func testResolveTwiceProducesIdenticalEdgeGeometry() {
+        let userCard = element("e-user", code: "u", payload: .dopeEntity(
+            DopeEntityPayload(entityCode: "core.user")), centerX: 0)
+        let ghost = element("e-ghost", code: "g", payload: .dopeEntity(
+            DopeEntityPayload(entityCode: "core.no_such")), centerX: 320, centerY: 10)
+        let profileCard = element("e-profile", code: "p", payload: .dopeEntity(
+            DopeEntityPayload(entityCode: "core.profile")), centerX: 640)
+        let scope = element("e-scope", code: "sc", payload: .dopeScope(
+            DopeScopePayload(dopeScopeCode: "gmcc")),
+                            children: [userCard, ghost, profileCard])
+        let first = DiagramResolver.resolve(tree([scope]), dope: context())
+        let second = DiagramResolver.resolve(tree([scope]), dope: context())
+
+        XCTAssertEqual(first.edges.count, second.edges.count)
+        for (a, b) in zip(first.edges, second.edges) {
+            XCTAssertEqual(a.points, b.points)
+            XCTAssertEqual(a.routed, b.routed)
+        }
+    }
+
     // MARK: - Bounds
 
     func testContentBoundsCoverEveryFrameAndAnEmptyDiagramGetsAFallback() {

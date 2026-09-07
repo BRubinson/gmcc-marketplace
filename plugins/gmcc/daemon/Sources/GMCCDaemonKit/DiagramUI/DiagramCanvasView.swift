@@ -341,9 +341,10 @@ public struct DopeEntityCardView: View {
     }
 }
 
-/// The FK edge pass, drawn over everything: cubic side-to-side connectors
-/// between pre-anchored card border points (straight-curve v1 — no routing
-/// engine).
+/// The FK edge pass, drawn over everything: a dumb stroker over the
+/// resolver's routed orthogonal polylines (rounded corners, radius clamped
+/// per corner), with the legacy cubic quarantined as the `routed: false`
+/// fallback. All geometry decisions live in DiagramEdgeRouter — none here.
 public struct DiagramEdgeCanvas: View {
     public let edges: [ResolvedEdge]
     public let environment: DiagramRenderEnvironment
@@ -360,14 +361,9 @@ public struct DiagramEdgeCanvas: View {
         Canvas { context, _ in
             context.translateBy(x: offset.width, y: offset.height)
             for edge in edges {
-                var path = Path()
-                path.move(to: edge.from)
-                let dx = max(40, abs(edge.to.x - edge.from.x) / 2)
-                let lead = edge.to.x >= edge.from.x ? dx : -dx
-                path.addCurve(
-                    to: edge.to,
-                    control1: CGPoint(x: edge.from.x + lead, y: edge.from.y),
-                    control2: CGPoint(x: edge.to.x - lead, y: edge.to.y))
+                let path = edge.routed && edge.points.count >= 2
+                    ? Self.roundedPolyline(edge.points)
+                    : Self.legacyCubic(from: edge.from, to: edge.to)
                 context.stroke(path, with: .color(.secondary.opacity(0.7)),
                                style: StrokeStyle(lineWidth: 1.2))
                 context.fill(Path(ellipseIn: CGRect(x: edge.to.x - 2.5, y: edge.to.y - 2.5,
@@ -376,6 +372,43 @@ public struct DiagramEdgeCanvas: View {
             }
         }
         .allowsHitTesting(false)
+    }
+
+    /// Rounded-corner orthogonal polyline. Radius clamps per corner to half
+    /// the shorter adjacent segment — the router merged collinear runs, so
+    /// segment lengths are honest and short jogs never invert visually.
+    static func roundedPolyline(_ points: [CGPoint]) -> Path {
+        var path = Path()
+        path.move(to: points[0])
+        for index in 1..<(points.count - 1) {
+            let previous = points[index - 1]
+            let corner = points[index]
+            let next = points[index + 1]
+            let inLength = hypot(corner.x - previous.x, corner.y - previous.y)
+            let outLength = hypot(next.x - corner.x, next.y - corner.y)
+            let radius = min(8, inLength / 2, outLength / 2)
+            if radius > 0.1 {
+                path.addArc(tangent1End: corner, tangent2End: next, radius: radius)
+            } else {
+                path.addLine(to: corner)
+            }
+        }
+        path.addLine(to: points[points.count - 1])
+        return path
+    }
+
+    /// The pre-routing straight-curve v1, kept VERBATIM — drawn only when
+    /// the router declined (`routed: false`).
+    static func legacyCubic(from: CGPoint, to: CGPoint) -> Path {
+        var path = Path()
+        path.move(to: from)
+        let dx = max(40, abs(to.x - from.x) / 2)
+        let lead = to.x >= from.x ? dx : -dx
+        path.addCurve(
+            to: to,
+            control1: CGPoint(x: from.x + lead, y: from.y),
+            control2: CGPoint(x: to.x - lead, y: to.y))
+        return path
     }
 }
 

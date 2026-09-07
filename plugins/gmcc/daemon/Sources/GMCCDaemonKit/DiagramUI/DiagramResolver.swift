@@ -188,21 +188,30 @@ public struct EntityCardModel: Sendable {
 }
 
 public struct ResolvedEdge: Sendable {
-    /// Diagram-space anchor points on the two card borders.
+    /// Diagram-space anchor points on the two card borders. When `routed`,
+    /// these are the routed polyline's real endpoints (`points.first/.last`).
     public let from: CGPoint
     public let to: CGPoint
     public let fromElementUuid: String
     public let toElementUuid: String
     /// `domain.entity.property` of the relationship property.
     public let propertyRef: String
+    /// Diagram-space orthogonal polyline, >= 2 points — `[from, to]` when
+    /// routing declined (`routed == false`) and the view keeps the legacy
+    /// cubic. Derived state: never persisted, never on the wire.
+    public let points: [CGPoint]
+    public let routed: Bool
 
     public init(from: CGPoint, to: CGPoint, fromElementUuid: String,
-                toElementUuid: String, propertyRef: String) {
+                toElementUuid: String, propertyRef: String,
+                points: [CGPoint]? = nil, routed: Bool = false) {
         self.from = from
         self.to = to
         self.fromElementUuid = fromElementUuid
         self.toElementUuid = toElementUuid
         self.propertyRef = propertyRef
+        self.points = points ?? [from, to]
+        self.routed = routed
     }
 }
 
@@ -224,16 +233,20 @@ public enum DiagramResolver {
         dope: DiagramDopeContext,
         environment: DiagramRenderEnvironment = DiagramRenderEnvironment()
     ) -> ResolvedDiagram {
-        var entityFrames: [String: (frame: CGRect, entityCode: String, scopeCode: String)] = [:]
+        var entityFrames: [String: (frame: CGRect, entityCode: String,
+                                    scopeCode: String, scale: Double)] = [:]
+        var obstacles: [DiagramEdgeRouter.Obstacle] = []
 
         let sortedTop = tree.elements.sorted(by: siblingOrder)
         let topLevel = sortedTop.map { node in
             resolveElement(node, parentCenter: .zero, parentScale: 1,
                            scope: scopeEntry(for: node, dope: dope),
-                           environment: environment, entityFrames: &entityFrames)
+                           environment: environment, entityFrames: &entityFrames,
+                           obstacles: &obstacles)
         }
 
-        let edges = resolveEdges(dope: dope, entityFrames: entityFrames)
+        let edges = resolveEdges(dope: dope, entityFrames: entityFrames,
+                                 environment: environment, obstacles: obstacles)
 
         var bounds = CGRect.null
         func union(_ element: ResolvedElement) {
@@ -242,8 +255,11 @@ public enum DiagramResolver {
         }
         for element in topLevel { union(element) }
         for edge in edges {
-            bounds = bounds.union(CGRect(origin: edge.from, size: .zero))
-            bounds = bounds.union(CGRect(origin: edge.to, size: .zero))
+            // Every routed point, not just the endpoints — detours around
+            // perimeter cards must never clip out of the screenshot viewport.
+            for point in edge.points {
+                bounds = bounds.union(CGRect(origin: point, size: .zero))
+            }
         }
         if bounds.isNull { bounds = CGRect(x: 0, y: 0, width: 320, height: 200) }
 
@@ -270,7 +286,9 @@ public enum DiagramResolver {
     private static func resolveElement(
         _ node: DiagramElementNode, parentCenter: CGPoint, parentScale: Double,
         scope: DiagramDopeContext.Entry?, environment: DiagramRenderEnvironment,
-        entityFrames: inout [String: (frame: CGRect, entityCode: String, scopeCode: String)]
+        entityFrames: inout [String: (frame: CGRect, entityCode: String,
+                                      scopeCode: String, scale: Double)],
+        obstacles: inout [DiagramEdgeRouter.Obstacle]
     ) -> ResolvedElement {
         let scale = parentScale * node.base.scale
         let center = CGPoint(x: parentCenter.x + node.base.centerX * parentScale,
@@ -288,7 +306,7 @@ public enum DiagramResolver {
             children = sortedChildren.map {
                 resolveElement($0, parentCenter: center, parentScale: scale,
                                scope: nil, environment: environment,
-                               entityFrames: &entityFrames)
+                               entityFrames: &entityFrames, obstacles: &obstacles)
             }
             kind = .layer(LayerStyle(opacity: payload.opacity, visible: payload.visible,
                                      locked: payload.locked))
@@ -331,7 +349,7 @@ public enum DiagramResolver {
             children = sortedChildren.map {
                 resolveElement($0, parentCenter: center, parentScale: scale,
                                scope: scope, environment: environment,
-                               entityFrames: &entityFrames)
+                               entityFrames: &entityFrames, obstacles: &obstacles)
             }
             if let scope {
                 kind = .scopeCard(ResolvedScopeCard(
@@ -357,13 +375,17 @@ public enum DiagramResolver {
                                width: width, height: height)
                 kind = .entityCard(model)
                 entityFrames[node.identity.uuid] =
-                    (frame, payload.entityCode, scope.tree.body.code)
+                    (frame, payload.entityCode, scope.tree.body.code, scale)
+                obstacles.append(DiagramEdgeRouter.Obstacle(frame: frame, scale: scale))
             } else {
                 let width = environment.cardWidth * scale
                 let height = (environment.cardHeaderHeight + environment.cardRowHeight + 8) * scale
                 frame = CGRect(x: center.x - width / 2, y: center.y - height / 2,
                                width: width, height: height)
                 kind = .absentEntity(code: payload.entityCode)
+                // Ghost cards are obstacles too — edges route around them,
+                // they just never produce edges themselves.
+                obstacles.append(DiagramEdgeRouter.Obstacle(frame: frame, scale: scale))
             }
         }
 
@@ -435,11 +457,23 @@ public enum DiagramResolver {
     /// entity card, if the target property's owning entity also has a card
     /// under the SAME scope element family, draw an edge between the two
     /// card borders.
+    /// Base routing padding in points, scaled per-obstacle by accumulated
+    /// scale. Coupled to the frozen layout generator's corridors
+    /// (diagram_from_dope.py: 50pt gutters, 48pt row gaps) — must stay < 24
+    /// or the vertical row-gap corridors close entirely. Deliberately NOT a
+    /// DiagramRenderEnvironment knob: it is routing policy, not a render
+    /// setting. Internal (not private) so the corridor-arithmetic fixture
+    /// pins THIS value against the generator constants — changing it without
+    /// updating the fixture breaks loudly.
+    static let edgeRoutingPadding: Double = 12
+
     private static func resolveEdges(
         dope: DiagramDopeContext,
-        entityFrames: [String: (frame: CGRect, entityCode: String, scopeCode: String)]
+        entityFrames: [String: (frame: CGRect, entityCode: String,
+                                scopeCode: String, scale: Double)],
+        environment: DiagramRenderEnvironment,
+        obstacles: [DiagramEdgeRouter.Obstacle]
     ) -> [ResolvedEdge] {
-        var edges: [ResolvedEdge] = []
         // entityCode+scopeCode → (uuid, frame). Built from a SORTED walk with
         // first-wins so duplicate cards binding the same entity always pick
         // the same (lowest-uuid) target — screenshot determinism is a
@@ -452,6 +486,17 @@ public enum DiagramResolver {
             }
         }
 
+        // Emission pass: one spec + one legacy fallback pair per FK, in
+        // sorted-by-uuid order (which is also the routing order).
+        struct EdgeSeed {
+            let request: DiagramEdgeRouter.EdgeRequest
+            let fallbackFrom: CGPoint
+            let fallbackTo: CGPoint
+            let fromElementUuid: String
+            let toElementUuid: String
+            let propertyRef: String
+        }
+        var seeds: [EdgeSeed] = []
         for (uuid, info) in entityFrames.sorted(by: { $0.key < $1.key }) {
             guard let scope = dope.entries[info.scopeCode] else { continue }
             let segments = info.entityCode.split(separator: ".").map(String.init)
@@ -459,7 +504,7 @@ public enum DiagramResolver {
                   let domain = scope.tree.domains.first(where: { $0.body.code == segments[0] }),
                   let entity = domain.entities.first(where: { $0.body.code == segments[1] })
             else { continue }
-            for property in entity.properties {
+            for (rowIndex, property) in entity.properties.enumerated() {
                 guard let ref = property.body.relatedPropertyRef else { continue }
                 let parts = ref.split(separator: ".").map(String.init)
                 guard parts.count == 3 else { continue }
@@ -467,14 +512,43 @@ public enum DiagramResolver {
                 guard let target = cardByEntity["\(info.scopeCode)|\(targetEntityCode)"],
                       target.uuid != uuid
                 else { continue }
+                // The edge leaves at the FK property ROW's y. rowIndex maps
+                // 1:1 to drawn rows: own properties render first, the
+                // composed-base union only appends after them.
+                let rowY = info.frame.minY + (environment.cardHeaderHeight
+                    + (Double(rowIndex) + 0.5) * environment.cardRowHeight) * info.scale
                 let (from, to) = anchorPoints(info.frame, target.frame)
-                edges.append(ResolvedEdge(
-                    from: from, to: to, fromElementUuid: uuid,
-                    toElementUuid: target.uuid,
+                seeds.append(EdgeSeed(
+                    request: DiagramEdgeRouter.EdgeRequest(
+                        fromFrame: info.frame, toFrame: target.frame,
+                        sourceRowY: rowY,
+                        propertyRef: "\(info.entityCode).\(property.body.code)",
+                        fromElementUuid: uuid),
+                    fallbackFrom: from, fallbackTo: to,
+                    fromElementUuid: uuid, toElementUuid: target.uuid,
                     propertyRef: "\(info.entityCode).\(property.body.code)"))
             }
         }
-        return edges
+
+        // Routing pass: one shared-graph call; index i in == index i out.
+        let routes = DiagramEdgeRouter.route(edges: seeds.map(\.request),
+                                             obstacles: obstacles,
+                                             padding: edgeRoutingPadding)
+        return zip(seeds, routes).map { seed, route in
+            if route.routed, route.points.count >= 2 {
+                return ResolvedEdge(
+                    from: route.points[0], to: route.points[route.points.count - 1],
+                    fromElementUuid: seed.fromElementUuid,
+                    toElementUuid: seed.toElementUuid,
+                    propertyRef: seed.propertyRef,
+                    points: route.points, routed: true)
+            }
+            return ResolvedEdge(
+                from: seed.fallbackFrom, to: seed.fallbackTo,
+                fromElementUuid: seed.fromElementUuid,
+                toElementUuid: seed.toElementUuid,
+                propertyRef: seed.propertyRef)
+        }
     }
 
     /// Side-midpoint anchors: leave from the edge facing the target.
