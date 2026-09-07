@@ -106,18 +106,30 @@ struct Dope: ParsableCommand {
     }
 
     static func runDelete(
-        _ level: DopeLevel, _ target: MutationTarget, _ output: OutputOptions
+        _ level: DopeLevel, _ target: MutationTarget, _ output: OutputOptions,
+        soft: Bool = false
     ) throws {
         let response = try withClient {
             try $0.dopeNodeDelete(DopeNodeDeleteRequest(
-                level: level, nodeUuid: target.uuid, expectedVersion: target.expectedVersion))
+                level: level, nodeUuid: target.uuid, expectedVersion: target.expectedVersion,
+                soft: soft ? true : nil))
         }
-        if output.json { printJSON(response) } else {
+        if output.json { printJSON(response) } else if soft {
+            print("[gm] dope \(level.rawValue) soft-deleted: \(response.deletedUuid) "
+                + "(tombstoned; still returned by reads, revision \(response.revision))")
+        } else {
             let c = response.cascaded
             print("[gm] dope \(level.rawValue) deleted: \(response.deletedUuid) "
                 + "(cascaded \(c.domains)d/\(c.entities)e/\(c.properties)p/\(c.enums)n/\(c.options)o, "
                 + "revision \(response.revision))")
         }
+    }
+
+    /// `--soft` on every delete verb. Shared so the five leaves stay identical.
+    struct SoftDeleteOption: ParsableArguments {
+        @Flag(name: .customLong("soft"),
+              help: "Tombstone (set deleted_on) instead of removing; reads still return it.")
+        var soft: Bool = false
     }
 
     private static func emitNode(_ verb: String, _ response: DopeNodeResponse, _ output: OutputOptions) {
@@ -295,7 +307,8 @@ struct Dope: ParsableCommand {
             aliases: ["domain-delete"])
         @OptionGroup var output: OutputOptions
         @OptionGroup var target: MutationTarget
-        func run() throws { try Dope.runDelete(.persistence, target, output) }
+        @OptionGroup var softOpt: SoftDeleteOption
+        func run() throws { try Dope.runDelete(.persistence, target, output, soft: softOpt.soft) }
     }
 
     // MARK: - Entity
@@ -351,7 +364,8 @@ struct Dope: ParsableCommand {
             abstract: "Delete an entity and its properties (external relationship referrers refused loudly).")
         @OptionGroup var output: OutputOptions
         @OptionGroup var target: MutationTarget
-        func run() throws { try Dope.runDelete(.entity, target, output) }
+        @OptionGroup var softOpt: SoftDeleteOption
+        func run() throws { try Dope.runDelete(.entity, target, output, soft: softOpt.soft) }
     }
 
     // MARK: - Property
@@ -441,7 +455,8 @@ struct Dope: ParsableCommand {
             abstract: "Delete a property (relationship referrers refused loudly).")
         @OptionGroup var output: OutputOptions
         @OptionGroup var target: MutationTarget
-        func run() throws { try Dope.runDelete(.property, target, output) }
+        @OptionGroup var softOpt: SoftDeleteOption
+        func run() throws { try Dope.runDelete(.property, target, output, soft: softOpt.soft) }
     }
 
     // MARK: - Enum
@@ -483,7 +498,8 @@ struct Dope: ParsableCommand {
             abstract: "Delete an enum and its options (typed properties refused loudly).")
         @OptionGroup var output: OutputOptions
         @OptionGroup var target: MutationTarget
-        func run() throws { try Dope.runDelete(.enumeration, target, output) }
+        @OptionGroup var softOpt: SoftDeleteOption
+        func run() throws { try Dope.runDelete(.enumeration, target, output, soft: softOpt.soft) }
     }
 
     // MARK: - Option
@@ -510,7 +526,8 @@ struct Dope: ParsableCommand {
             commandName: "option-delete", abstract: "Delete an option.")
         @OptionGroup var output: OutputOptions
         @OptionGroup var target: MutationTarget
-        func run() throws { try Dope.runDelete(.option, target, output) }
+        @OptionGroup var softOpt: SoftDeleteOption
+        func run() throws { try Dope.runDelete(.option, target, output, soft: softOpt.soft) }
     }
 
     // MARK: - Repo verbs

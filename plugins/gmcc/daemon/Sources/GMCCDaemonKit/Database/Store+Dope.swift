@@ -380,7 +380,8 @@ extension Store {
 
         func identity(_ row: Row) -> DopeNodeIdentity {
             DopeNodeIdentity(uuid: row["uuid"], version: row["version"],
-                             createdAt: row["created_at"], updatedAt: row["updated_at"])
+                             createdAt: row["created_at"], updatedAt: row["updated_at"],
+                             deletedOn: row["deleted_on"], maskKind: row["mask_kind"])
         }
 
         var propertiesByEntity = [String: [DopePropertyNode]]()
@@ -1171,6 +1172,49 @@ extension Store {
         let spec = DopeLevelSpec.spec(for: req.level)
         return try dbQueue.write { db in
             let scope = try self.dopeOwningScope(db, level: req.level, nodeUuid: req.nodeUuid)
+
+            // Soft delete is a stamp, not a removal. It deliberately skips
+            // BOTH the referrer guard and the cascade: a tombstoned row is
+            // still a row, so every RESTRICT FK pointing at it still resolves
+            // and nothing below it needs to go. Reads do not filter it — that
+            // is the point.
+            if req.soft == true {
+                // A tombstone is a MASKING artifact, not real state. It is
+                // assumed absent from a base scope and rides only on the
+                // overlay tiers, which are db-only and never serialized --
+                // which is exactly why deleted_on lives on the wire identity
+                // layer and never in a .doped.json. Soft-deleting inside a
+                // base scope would put a value in the saved format that does
+                // not describe anything real, so it is refused outright.
+                guard scope.tier?.isOverlay == true else {
+                    throw StoreError.badRequest(
+                        detail: "--soft is only valid inside a masking scope "
+                              + "(PROJECT_ITEM / SESSION_INSTANCE_ITEM); scope "
+                              + "\(scope.uuid) is \(scope.scopeType). A base scope "
+                              + "records real state only -- use a hard delete.")
+                }
+                guard try Row.fetchOne(
+                    db, sql: "SELECT deleted_on FROM \(spec.table) WHERE uuid = ?",
+                    arguments: [req.nodeUuid]
+                )?["deleted_on"] as String? == nil else {
+                    throw StoreError.badRequest(
+                        detail: "node \(req.nodeUuid) is already soft-deleted")
+                }
+                try self.updateBase(
+                    db, table: spec.table, uuid: req.nodeUuid,
+                    expectedVersion: req.expectedVersion,
+                    set: ["deleted_on": Store.isoNow()])
+                let revision = try self.bumpScopeRevision(db, scopeUuid: scope.uuid)
+                try self.recordDopeChange(
+                    db, scope: scope, action: "node_soft_delete", level: req.level,
+                    nodeUuid: req.nodeUuid, revision: revision)
+                return DopeNodeDeleteResponse(
+                    deletedUuid: req.nodeUuid,
+                    cascaded: DopeTreeCounts(domains: 0, entities: 0, properties: 0,
+                                             enums: 0, options: 0),
+                    scopeUuid: scope.uuid, revision: revision)
+            }
+
             try self.requireNoExternalReferrers(db, level: req.level, nodeUuid: req.nodeUuid)
             let cascaded = try self.dopeCascadeCounts(db, level: req.level, nodeUuid: req.nodeUuid)
 

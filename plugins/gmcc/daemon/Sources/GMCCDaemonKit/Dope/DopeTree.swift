@@ -38,7 +38,8 @@ public struct DopePersistenceBody: Codable, Hashable, Sendable {
     public let description: String
     public let sortOrder: Int
 
-    public init(code: String, name: String, description: String, sortOrder: Int) {
+    public init(code: String, name: String, description: String, sortOrder: Int
+    ) {
         self.code = code
         self.name = name
         self.description = description
@@ -138,7 +139,8 @@ public struct DopeOptionBody: Codable, Hashable, Sendable {
     public let description: String
     public let sortOrder: Int
 
-    public init(code: String, name: String, description: String, sortOrder: Int) {
+    public init(code: String, name: String, description: String, sortOrder: Int
+    ) {
         self.code = code
         self.name = name
         self.description = description
@@ -153,12 +155,41 @@ public struct DopeNodeIdentity: Codable, Hashable, Sendable {
     public let version: Int64
     public let createdAt: String
     public let updatedAt: String
+    /// Soft delete / whiteout. Lives HERE, on the wire-only identity layer,
+    /// and deliberately NOT on the body: the body is what
+    /// DopeProjection.documents emits, and a saved .doped.json represents
+    /// REAL STATE only. A tombstone is a masking artifact — it is assumed
+    /// absent from a base scope and rides only on the overlay tiers
+    /// (PROJECT_ITEM / SESSION_INSTANCE_ITEM), which are db-only and never
+    /// serialized. Keeping it off the body makes that structural rather than
+    /// a rule someone has to remember.
+    public let deletedOn: String?
+    /// "PASSTHROUGH" — an ancestor shell that exists in a sparse overlay only
+    /// to carry identity and children; its field values are never applied
+    /// over the base. Same tier rules, same reason for living here.
+    public let maskKind: String?
 
-    public init(uuid: String, version: Int64, createdAt: String, updatedAt: String) {
+    public init(
+        uuid: String, version: Int64, createdAt: String, updatedAt: String,
+        deletedOn: String? = nil, maskKind: String? = nil
+    ) {
         self.uuid = uuid
         self.version = version
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+        self.deletedOn = deletedOn
+        self.maskKind = maskKind
+    }
+
+    /// Tolerant: neither field exists on a pre-m0012 peer.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        uuid = try c.decode(String.self, forKey: .uuid)
+        version = try c.decode(Int64.self, forKey: .version)
+        createdAt = try c.decode(String.self, forKey: .createdAt)
+        updatedAt = try c.decode(String.self, forKey: .updatedAt)
+        deletedOn = try c.decodeIfPresent(String.self, forKey: .deletedOn)
+        maskKind = try c.decodeIfPresent(String.self, forKey: .maskKind)
     }
 }
 

@@ -2386,11 +2386,21 @@ public struct DopeNodeDeleteRequest: Codable, Hashable, Sendable {
     public let level: DopeLevel
     public let nodeUuid: String
     public let expectedVersion: Int64
+    /// Soft delete: stamp `deleted_on` instead of removing the row. The node
+    /// stays visible to every read (that IS the feature — it communicates an
+    /// intended delete), keeps satisfying every FK, and in an overlay tree
+    /// acts as the resolver's whiteout over the base node at that dot-path.
+    ///
+    /// Additive OPTIONAL, so a peer that omits it still means "hard delete".
+    public let soft: Bool?
 
-    public init(level: DopeLevel, nodeUuid: String, expectedVersion: Int64) {
+    public init(
+        level: DopeLevel, nodeUuid: String, expectedVersion: Int64, soft: Bool? = nil
+    ) {
         self.level = level
         self.nodeUuid = nodeUuid
         self.expectedVersion = expectedVersion
+        self.soft = soft
     }
 }
 
