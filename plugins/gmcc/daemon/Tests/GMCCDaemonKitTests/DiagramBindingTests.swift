@@ -54,7 +54,7 @@ final class DiagramBindingTests: XCTestCase {
     private func addScopeElement(_ diagramUuid: String, code: String) throws -> DiagramNodeResponse {
         try store.diagramNodeAdd(DiagramNodeAddRequest(
             diagramUuid: diagramUuid,
-            add: DiagramElementAdd(payload: .dopeScope(DopeScopePayload(dopeScopeCode: code)))))
+            add: DiagramElementAdd(payload: .dopeScopePersistenceLayer(DopeScopePersistenceLayerPayload(dopeScopeCode: code)))))
     }
 
     func testBindingResolvesSessionBaseAndSurfacesVia() throws {

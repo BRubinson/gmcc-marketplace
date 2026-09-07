@@ -198,7 +198,7 @@ final class DiagramWorkspace {
     /// Record every entity card's current authored center by entity code.
     private func rememberCenters() {
         for element in tree.elements {
-            guard case .dopeScope = element.payload else { continue }
+            guard case .dopeScopePersistenceLayer = element.payload else { continue }
             for child in element.children {
                 if case .dopeEntity(let payload) = child.payload {
                     codeCenters[payload.entityCode] =

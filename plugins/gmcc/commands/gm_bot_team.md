@@ -65,7 +65,7 @@ Same as `/gm_bot_rpi`: read `kbite_codes` from `gm prompt get`; explicit add onl
 
 ## Phase 1b: DOPE Dump
 
-`gm dope list --session-uuid U` — if the session carries a SESSION_BASE scope, `gm dope get --session-uuid U --json` and hold the tree in primary context. The dump is **force-injected into every explore teammate spawn** (see the spawn template's `## Domain Model (DOPE)` block); architects get the fetch command, not the dump. The dump is always the persistence layer's source of truth (boot-synced from `.gmcc/dope`); no scope → note it and move on. Full protocol: `skills/gmcc/ref/bot_workflows.md`.
+`gm dope list --session-uuid U` — if the session carries a SESSION_BASE scope, `gm dope get --session-uuid U --json` and hold the tree in primary context. The dump is **force-injected into every explore teammate spawn** (see the spawn template's `## Domain Model (DOPE)` block); architects get the fetch command, not the dump. The dump is always the persistence layer's source of truth (boot-synced from `.gmcc`); no scope → note it and move on. Full protocol: `skills/gmcc/ref/bot_workflows.md`.
 
 ---
 

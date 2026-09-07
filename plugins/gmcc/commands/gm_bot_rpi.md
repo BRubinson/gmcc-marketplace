@@ -114,7 +114,7 @@ context: it is **force-injected into every explore spawn** as a
 `## Domain Model (DOPE)` block (explorers do not choose whether to load
 it); architects get the fetch command and load on demand. The dump is
 always the persistence layer's source of truth (boot-synced from
-`.gmcc/dope`). No scope → note it and move on. Full protocol:
+`.gmcc`). No scope → note it and move on. Full protocol:
 `skills/gmcc/ref/bot_workflows.md`.
 
 ---

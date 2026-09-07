@@ -320,7 +320,7 @@ extension Store {
         let layers = try subtypeRows("diagram_drawing_layer")
         let strokes = try subtypeRows("diagram_drawing_stroke")
         let shapes = try subtypeRows("diagram_drawing_shape")
-        let scopes = try subtypeRows("diagram_dope_scope")
+        let scopes = try subtypeRows("diagram_dope_scope_persistence_layer")
         let entities = try subtypeRows("diagram_dope_entity")
 
         func vertexRows(_ table: String, _ parentColumn: String) throws -> [String: [DiagramVertex]] {
@@ -373,9 +373,9 @@ extension Store {
                     strokeWidth: sub["stroke_width"], fillColor: sub["fill_color"],
                     cornerRadius: sub["corner_radius"],
                     vertices: shapeVertices[uuid] ?? []))
-            case .dopeScope:
+            case .dopeScopePersistenceLayer:
                 guard let sub = scopes[uuid] else { break }
-                return .dopeScope(DopeScopePayload(dopeScopeCode: sub["dope_scope_code"]))
+                return .dopeScopePersistenceLayer(DopeScopePersistenceLayerPayload(dopeScopeCode: sub["dope_scope_code"]))
             case .dopeEntity:
                 guard let sub = entities[uuid] else { break }
                 return .dopeEntity(DopeEntityPayload(entityCode: sub["entity_code"]))
@@ -431,7 +431,7 @@ extension Store {
         var bindings: [DiagramBindingResolution] = []
 
         func walk(_ node: DiagramElementNode) throws {
-            if case .dopeScope(let payload) = node.payload {
+            if case .dopeScopePersistenceLayer(let payload) = node.payload {
                 var resolvedVia: String?
                 var scope: DopeScopeRow?
                 if let sessionUuid = diagram.sessionUuid {
@@ -518,7 +518,7 @@ extension Store {
                 "\(type.rawValue) is a top-level element type and cannot have a parent")
         }
         switch payload {
-        case .dopeScope(let p):
+        case .dopeScopePersistenceLayer(let p):
             try DopeCode.validateCode(p.dopeScopeCode, field: "dope_scope binding code")
         case .dopeEntity(let p):
             _ = try DopeCode.parseEntityRef(p.entityCode, field: "dope entity binding")
@@ -937,8 +937,8 @@ extension Store {
                                 parentColumn: "shape_element_uuid",
                                 elementUuid: elementUuid, vertices: p.vertices,
                                 withPressure: false)
-        case .dopeScope(let p):
-            _ = try insertBase(db, table: "diagram_dope_scope", extra: [
+        case .dopeScopePersistenceLayer(let p):
+            _ = try insertBase(db, table: "diagram_dope_scope_persistence_layer", extra: [
                 "element_uuid": elementUuid,
                 "dope_scope_code": p.dopeScopeCode,
             ])
@@ -997,12 +997,12 @@ extension Store {
                                 parentColumn: "shape_element_uuid",
                                 elementUuid: elementUuid, vertices: p.vertices,
                                 withPressure: false)
-        case .dopeScope(let p):
+        case .dopeScopePersistenceLayer(let p):
             try db.execute(sql: """
                 UPDATE diagram_dope_scope SET dope_scope_code = ?, updated_at = ?
                 WHERE element_uuid = ?
                 """, arguments: [p.dopeScopeCode, now, elementUuid])
-            try requireRow("diagram_dope_scope")
+            try requireRow("diagram_dope_scope_persistence_layer")
         case .dopeEntity(let p):
             try db.execute(sql: """
                 UPDATE diagram_dope_entity SET entity_code = ?, updated_at = ?

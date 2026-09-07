@@ -108,7 +108,7 @@ final class DopeCodecTests: XCTestCase {
     func testDocumentRoundTripIsIdentity() throws {
         let bundle = DopeProjection.documents(from: makeTree())
         let mainData = try DopeDocumentCodec.encoder.encode(bundle.main)
-        let decodedMain = try DopeDocumentCodec.decoder.decode(DopeMainDocument.self, from: mainData)
+        let decodedMain = try DopeDocumentCodec.decoder.decode(DopeScopeDocument.self, from: mainData)
         XCTAssertEqual(decodedMain, bundle.main)
 
         for file in bundle.domainFiles {
@@ -180,11 +180,10 @@ final class DopeCodecTests: XCTestCase {
             entities: bundle.domainFiles[0].entities + [entity],
             enums: bundle.domainFiles[0].enums)
         bundle = DopeDocumentBundle(
-            main: DopeMainDocument(
+            main: DopeScopeDocument(
                 version: bundle.main.version,
-                scopeType: bundle.main.scopeType,
                 scope: bundle.main.scope,
-                domains: ["core": "../escape.doped.json"]),
+                persistence: ["core": "../escape.doped.json"]),
             domainFiles: [broken])
 
         do {

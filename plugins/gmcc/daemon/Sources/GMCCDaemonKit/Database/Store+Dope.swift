@@ -133,6 +133,15 @@ extension Store {
         _ db: Database, scope: DopeScopeRow, action: String, level: DopeLevel?,
         nodeUuid: String?, revision: Int64
     ) throws {
+        // Every granular mutation funnels through here, which makes it the
+        // one place the merge base learns that this session touched an
+        // element. Addressed by dot-path, because ingest re-mints uuids.
+        if let level, let nodeUuid, level != .scope {
+            if let dotPath = try dopeDotPath(db, nodeUuid: nodeUuid, level: level) {
+                try markLocallyModified(db, scopeUuid: scope.uuid,
+                                        dotPath: dotPath, kind: level.rawValue)
+            }
+        }
         // A project-tier scope (BASE_PROJECT / PROJECT_ITEM) has no session,
         // so the event carries the key only when there is one to carry, and
         // there is no session activity to touch below.
@@ -437,32 +446,65 @@ extension Store {
     // MARK: - Hydration (five flat queries, grouped in Swift — never per-node
     // recursion; ORDER BY sort_order, code keeps write-repo deterministic)
 
-    func fetchDopeTree(_ db: Database, scope: DopeScopeRow) throws -> DopeScopeTree {
+    /// - Parameter forProjection: when true, every level filters
+    ///   `deleted_on IS NULL`.
+    ///
+    ///   Reads deliberately return tombstoned rows — the masking resolver
+    ///   NEEDS them, since a whiteout is only meaningful if you can see it.
+    ///   The db → files projection must not: a tombstone is personal,
+    ///   overlay-tier state, and a saved .doped.json is shared, committed
+    ///   fact.
+    ///
+    ///   DEFENCE IN DEPTH, deliberately. Two independent gates already make
+    ///   a tombstone unreachable from here: `dopeNodeDelete` refuses `--soft`
+    ///   outside an overlay tier, and `requireRepoWritableScope` refuses any
+    ///   repo verb outside SESSION_INSTANCE — disjoint sets, so no scope is
+    ///   both soft-deletable and writable. This filter is what keeps that
+    ///   true if either gate is ever relaxed: the invariant then holds
+    ///   because the projection enforces it directly, not because two
+    ///   unrelated guards happen to intersect at zero.
+    ///
+    ///   Defaults to false so every existing read keeps its behaviour; only
+    ///   the write path opts in.
+    func fetchDopeTree(
+        _ db: Database, scope: DopeScopeRow, forProjection: Bool = false
+    ) throws -> DopeScopeTree {
+        // Interpolated, not bound: this is a constant SQL fragment chosen by a
+        // Bool, never user input.
+        let live = forProjection ? "AND %@.deleted_on IS NULL" : ""
+        func alive(_ alias: String) -> String {
+            live.replacingOccurrences(of: "%@", with: alias)
+        }
         let domainRows = try Row.fetchAll(db, sql: """
             SELECT * FROM dope_persistence WHERE dope_scope_uuid = ?
+            \(forProjection ? "AND deleted_on IS NULL" : "")
             ORDER BY sort_order, code
             """, arguments: [scope.uuid])
         let entityRows = try Row.fetchAll(db, sql: """
             SELECT e.* FROM dope_persistence_entity e
             JOIN dope_persistence d ON d.uuid = e.dope_persistence_uuid
-            WHERE d.dope_scope_uuid = ? ORDER BY e.sort_order, e.code
+            WHERE d.dope_scope_uuid = ? \(alive("e")) \(alive("d"))
+            ORDER BY e.sort_order, e.code
             """, arguments: [scope.uuid])
         let enumRows = try Row.fetchAll(db, sql: """
             SELECT n.* FROM dope_persistence_enum n
             JOIN dope_persistence d ON d.uuid = n.dope_persistence_uuid
-            WHERE d.dope_scope_uuid = ? ORDER BY n.sort_order, n.code
+            WHERE d.dope_scope_uuid = ? \(alive("n")) \(alive("d"))
+            ORDER BY n.sort_order, n.code
             """, arguments: [scope.uuid])
         let optionRows = try Row.fetchAll(db, sql: """
             SELECT o.* FROM dope_persistence_enum_option o
             JOIN dope_persistence_enum n ON n.uuid = o.dope_persistence_enum_uuid
             JOIN dope_persistence d ON d.uuid = n.dope_persistence_uuid
-            WHERE d.dope_scope_uuid = ? ORDER BY o.sort_order, o.code
+            WHERE d.dope_scope_uuid = ? \(alive("o")) \(alive("n")) \(alive("d"))
+            ORDER BY o.sort_order, o.code
             """, arguments: [scope.uuid])
         let propertyRows = try Row.fetchAll(db, sql: """
             SELECT p.* FROM dope_persistence_entity_property p
             JOIN dope_persistence_entity e ON e.uuid = p.dope_persistence_entity_uuid
             JOIN dope_persistence d ON d.uuid = e.dope_persistence_uuid
-            WHERE d.dope_scope_uuid = ? ORDER BY p.sort_order, p.code
+            WHERE d.dope_scope_uuid = ? \(alive("p")) \(alive("e")) \(alive("d"))
+            ORDER BY p.sort_order, p.code
             """, arguments: [scope.uuid])
 
         // Ref projection maps: uuid → dot-path code.

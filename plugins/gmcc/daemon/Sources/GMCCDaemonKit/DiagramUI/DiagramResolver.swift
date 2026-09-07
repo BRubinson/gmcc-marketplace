@@ -213,6 +213,13 @@ public struct EntityCardModel: Sendable {
     public let entityCode: String
     public let entityName: String
     public let domainCode: String
+    /// The entity's OWN code — i.e. the table name, the second segment of
+    /// `entityCode`. Cards render this, never the 2-segment binding path:
+    /// the domain is already carried by the header hue and the enclosing
+    /// scope card, so repeating it in the header is noise.
+    public var tableName: String {
+        entityCode.split(separator: ".").last.map(String.init) ?? entityCode
+    }
     /// Stable FNV-1a hue in [0, 1).
     public let headerHue: Double
     public let rows: [PropertyRow]
@@ -317,7 +324,7 @@ public enum DiagramResolver {
     private static func scopeEntry(
         for node: DiagramElementNode, dope: DiagramDopeContext
     ) -> DiagramDopeContext.Entry? {
-        if case .dopeScope(let payload) = node.payload {
+        if case .dopeScopePersistenceLayer(let payload) = node.payload {
             return dope.entries[payload.dopeScopeCode]
         }
         return nil
@@ -385,7 +392,7 @@ public enum DiagramResolver {
                     $0.union(CGRect(origin: $1, size: .zero))
                 }.insetBy(dx: -payload.strokeWidth * scale, dy: -payload.strokeWidth * scale)
 
-        case .dopeScope(let payload):
+        case .dopeScopePersistenceLayer(let payload):
             children = sortedChildren.map {
                 resolveElement($0, parentCenter: center, parentScale: scale,
                                scope: scope, environment: environment,
@@ -470,6 +477,8 @@ public enum DiagramResolver {
                 } else {
                     typeLabel = property.body.dataType
                 }
+                // `name` is the property's OWN code — the snake_case column
+                // name exactly as modeled, never the dot-path.
                 return EntityCardModel.PropertyRow(
                     name: property.body.code, typeLabel: typeLabel, badges: badges)
             }

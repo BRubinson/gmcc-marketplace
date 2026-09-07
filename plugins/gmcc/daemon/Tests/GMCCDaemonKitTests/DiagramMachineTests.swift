@@ -175,8 +175,8 @@ final class DiagramMachineTests: XCTestCase {
     func testContainmentRulesEnforced() throws {
         let diagram = try initDiagram().diagram
         let layer = try addElement(diagram.uuid, payload: .drawingLayer(DrawingLayerPayload()))
-        let scope = try addElement(diagram.uuid, payload: .dopeScope(
-            DopeScopePayload(dopeScopeCode: "gmcc")))
+        let scope = try addElement(diagram.uuid, payload: .dopeScopePersistenceLayer(
+            DopeScopePersistenceLayerPayload(dopeScopeCode: "gmcc")))
 
         // A stroke needs a parent...
         XCTAssertThrowsError(try addElement(diagram.uuid, payload: .drawingStroke(
@@ -206,7 +206,7 @@ final class DiagramMachineTests: XCTestCase {
         XCTAssertThrowsError(try store.diagramNodeUpdate(DiagramNodeUpdateRequest(
             update: DiagramElementUpdate(
                 elementUuid: layer.uuid, expectedVersion: 0,
-                payload: .dopeScope(DopeScopePayload(dopeScopeCode: "gmcc")))))) {
+                payload: .dopeScopePersistenceLayer(DopeScopePersistenceLayerPayload(dopeScopeCode: "gmcc")))))) {
             guard case StoreError.badRequest(let detail) = $0 else {
                 return XCTFail("expected badRequest, got \($0)")
             }
@@ -217,14 +217,14 @@ final class DiagramMachineTests: XCTestCase {
     func testBindingCodesValidatedButExistenceIsNot() throws {
         let diagram = try initDiagram().diagram
         // A dangling (but well-formed) code is LEGAL — the ghost state.
-        try addElement(diagram.uuid, payload: .dopeScope(
-            DopeScopePayload(dopeScopeCode: "no_such_scope")))
+        try addElement(diagram.uuid, payload: .dopeScopePersistenceLayer(
+            DopeScopePersistenceLayerPayload(dopeScopeCode: "no_such_scope")))
         // A malformed code is refused at write time.
-        XCTAssertThrowsError(try addElement(diagram.uuid, payload: .dopeScope(
-            DopeScopePayload(dopeScopeCode: "Bad-Code"))))
+        XCTAssertThrowsError(try addElement(diagram.uuid, payload: .dopeScopePersistenceLayer(
+            DopeScopePersistenceLayerPayload(dopeScopeCode: "Bad-Code"))))
         // Entity codes must parse as 2-segment domain.entity.
-        let scope = try addElement(diagram.uuid, payload: .dopeScope(
-            DopeScopePayload(dopeScopeCode: "gmcc")))
+        let scope = try addElement(diagram.uuid, payload: .dopeScopePersistenceLayer(
+            DopeScopePersistenceLayerPayload(dopeScopeCode: "gmcc")))
         XCTAssertThrowsError(try addElement(diagram.uuid, payload: .dopeEntity(
             DopeEntityPayload(entityCode: "not_a_ref")), parent: scope.uuid))
     }
@@ -322,7 +322,7 @@ final class DiagramMachineTests: XCTestCase {
                 shapeKind: .arrow, strokeColor: "#000000", strokeWidth: 1,
                 fillColor: nil, cornerRadius: nil,
                 vertices: [DiagramVertex(x: 0, y: 0), DiagramVertex(x: 4, y: 4)])),
-            .dopeScope(DopeScopePayload(dopeScopeCode: "gmcc")),
+            .dopeScopePersistenceLayer(DopeScopePersistenceLayerPayload(dopeScopeCode: "gmcc")),
             .dopeEntity(DopeEntityPayload(entityCode: "core.user")),
         ]
         for payload in payloads {
@@ -406,16 +406,16 @@ extension DiagramMachineTests {
         // Top-level types: dope_scope + drawing_layer, exactly.
         let topLevel = DiagramElementType.allCases
             .filter { DiagramElementTypeSpec.spec(for: $0).allowedParentTypes == nil }
-        XCTAssertEqual(Set(topLevel), [.dopeScope, .drawingLayer])
+        XCTAssertEqual(Set(topLevel), [.dopeScopePersistenceLayer, .drawingLayer])
         XCTAssertEqual(DiagramElementTypeSpec.spec(for: .drawingStroke).allowedParentTypes,
                        [.drawingLayer])
         XCTAssertEqual(DiagramElementTypeSpec.spec(for: .drawingShape).allowedParentTypes,
                        [.drawingLayer])
         XCTAssertEqual(DiagramElementTypeSpec.spec(for: .dopeEntity).allowedParentTypes,
-                       [.dopeScope])
+                       [.dopeScopePersistenceLayer])
         XCTAssertEqual(DiagramElementType.allCases.filter {
             DiagramElementTypeSpec.spec(for: $0).isDopeBinding
-        }.sorted { $0.rawValue < $1.rawValue }, [.dopeEntity, .dopeScope])
+        }.sorted { $0.rawValue < $1.rawValue }, [.dopeEntity, .dopeScopePersistenceLayer])
     }
 
     func testMintPrefixesAreDistinctAndMintIgnoresAbsurdSuffixes() throws {

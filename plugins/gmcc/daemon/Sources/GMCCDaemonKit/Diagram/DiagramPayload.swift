@@ -16,7 +16,7 @@ public enum DiagramElementPayload: Codable, Hashable, Sendable {
     case drawingLayer(DrawingLayerPayload)
     case drawingStroke(DrawingStrokePayload)
     case drawingShape(DrawingShapePayload)
-    case dopeScope(DopeScopePayload)
+    case dopeScopePersistenceLayer(DopeScopePersistenceLayerPayload)
     case dopeEntity(DopeEntityPayload)
 
     /// The tag IS the element type — payload/element_type agreement is
@@ -26,7 +26,7 @@ public enum DiagramElementPayload: Codable, Hashable, Sendable {
         case .drawingLayer: return .drawingLayer
         case .drawingStroke: return .drawingStroke
         case .drawingShape: return .drawingShape
-        case .dopeScope: return .dopeScope
+        case .dopeScopePersistenceLayer: return .dopeScopePersistenceLayer
         case .dopeEntity: return .dopeEntity
         }
     }
@@ -48,8 +48,8 @@ public enum DiagramElementPayload: Codable, Hashable, Sendable {
             self = .drawingStroke(try c.decode(DrawingStrokePayload.self, forKey: .fields))
         case .drawingShape:
             self = .drawingShape(try c.decode(DrawingShapePayload.self, forKey: .fields))
-        case .dopeScope:
-            self = .dopeScope(try c.decode(DopeScopePayload.self, forKey: .fields))
+        case .dopeScopePersistenceLayer:
+            self = .dopeScopePersistenceLayer(try c.decode(DopeScopePersistenceLayerPayload.self, forKey: .fields))
         case .dopeEntity:
             self = .dopeEntity(try c.decode(DopeEntityPayload.self, forKey: .fields))
         }
@@ -62,7 +62,7 @@ public enum DiagramElementPayload: Codable, Hashable, Sendable {
         case .drawingLayer(let p): try c.encode(p, forKey: .fields)
         case .drawingStroke(let p): try c.encode(p, forKey: .fields)
         case .drawingShape(let p): try c.encode(p, forKey: .fields)
-        case .dopeScope(let p): try c.encode(p, forKey: .fields)
+        case .dopeScopePersistenceLayer(let p): try c.encode(p, forKey: .fields)
         case .dopeEntity(let p): try c.encode(p, forKey: .fields)
         }
     }
@@ -187,7 +187,7 @@ public struct DrawingShapePayload: Codable, Hashable, Sendable {
 /// fk-by-code binding to a dope scope. Resolution runs at READ time through
 /// the diagram row's own session/prompt context (the dopeGet ladder), never
 /// at write time — a dangling code is a legal, renderable ghost state.
-public struct DopeScopePayload: Codable, Hashable, Sendable {
+public struct DopeScopePersistenceLayerPayload: Codable, Hashable, Sendable {
     public let dopeScopeCode: String
 
     public init(dopeScopeCode: String) {

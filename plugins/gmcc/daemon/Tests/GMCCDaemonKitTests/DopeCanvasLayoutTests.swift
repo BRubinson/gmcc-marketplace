@@ -110,7 +110,7 @@ final class DopeCanvasLayoutTests: XCTestCase {
         let mutations = DopeCanvasLayout.mutations(for: t)
         let allAdds = adds(mutations)
         XCTAssertEqual(allAdds.count, 2, "scope container + one card; empty domain skipped")
-        if case .dopeScope(let payload) = allAdds[0].payload {
+        if case .dopeScopePersistenceLayer(let payload) = allAdds[0].payload {
             XCTAssertEqual(payload.dopeScopeCode, "gmcc")
         } else {
             XCTFail("first add must be the scope container")
@@ -123,7 +123,7 @@ final class DopeCanvasLayoutTests: XCTestCase {
             base: DiagramElementBase(code: "x", name: "x", description: "",
                                      sortOrder: 0, centerX: 0, centerY: 0,
                                      elementZ: 0, scale: 1),
-            payload: .dopeScope(DopeScopePayload(dopeScopeCode: "gmcc")),
+            payload: .dopeScopePersistenceLayer(DopeScopePersistenceLayerPayload(dopeScopeCode: "gmcc")),
             children: [])
         let t = tree(domains: [domain("core", entities: [entity("user", properties: 1)])])
         let mutations = DopeCanvasLayout.mutations(for: t, replacing: [existingElement])

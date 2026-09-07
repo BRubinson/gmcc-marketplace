@@ -2382,13 +2382,18 @@ public struct DopeCogElementNode: Codable, Hashable, Sendable {
     /// never a uuid FK (ingest re-mints uuids, and scope delete is not
     /// offered, so there is no ON DELETE answer to give).
     public let dopeScopeCode: String?
-    /// From the type's subtype table.
+    /// From the type's subtype table. Hull only.
     public let primaryPath: String?
+    /// From the type's subtype table. PersistenceOwner only: the CODE of the
+    /// persistence domain this element's parent Hull owns. Additive and
+    /// OPTIONAL, so it decodes safely in both directions.
+    public let dopePersistenceCode: String?
     public let deletedOn: String?
 
     public init(uuid: String, version: Int64, elementType: String, code: String, name: String,
                 description: String, sortOrder: Int, parentElementUuid: String?,
-                dopeScopeCode: String?, primaryPath: String?, deletedOn: String?) {
+                dopeScopeCode: String?, primaryPath: String?,
+                dopePersistenceCode: String? = nil, deletedOn: String?) {
         self.uuid = uuid
         self.version = version
         self.elementType = elementType
@@ -2399,6 +2404,7 @@ public struct DopeCogElementNode: Codable, Hashable, Sendable {
         self.parentElementUuid = parentElementUuid
         self.dopeScopeCode = dopeScopeCode
         self.primaryPath = primaryPath
+        self.dopePersistenceCode = dopePersistenceCode
         self.deletedOn = deletedOn
     }
 }
@@ -2472,14 +2478,17 @@ public struct DopeCogElementAddRequest: Codable, Hashable, Sendable {
     public let parentElementUuid: String?
     public let dopeScopeCode: String?
     public let primaryPath: String?
+    /// PersistenceOwner's owned domain CODE. Additive and OPTIONAL, so it
+    /// decodes safely in both directions per the wire convention.
+    public let dopePersistenceCode: String?
     public init(cogUuid: String, elementType: String, code: String, name: String,
                 description: String? = nil, sortOrder: Int? = nil,
                 parentElementUuid: String? = nil, dopeScopeCode: String? = nil,
-                primaryPath: String? = nil) {
+                primaryPath: String? = nil, dopePersistenceCode: String? = nil) {
         self.cogUuid = cogUuid; self.elementType = elementType; self.code = code
         self.name = name; self.description = description; self.sortOrder = sortOrder
         self.parentElementUuid = parentElementUuid; self.dopeScopeCode = dopeScopeCode
-        self.primaryPath = primaryPath
+        self.primaryPath = primaryPath; self.dopePersistenceCode = dopePersistenceCode
     }
 }
 
@@ -3076,5 +3085,57 @@ public struct DiagramBatchApplyResponse: Codable, Hashable, Sendable {
         self.diagramUuid = diagramUuid
         self.revision = revision
         self.results = results
+    }
+}
+
+
+// MARK: - Dope merge / resolve
+
+/// DOPE_MERGE_PLAN — the per-element boundary plan for one scope. Read-only.
+public struct DopeMergePlanRequest: Codable, Hashable, Sendable {
+    public let scopeUuid: String
+    public init(scopeUuid: String) { self.scopeUuid = scopeUuid }
+}
+
+public struct DopeMergeOutcomeRow: Codable, Hashable, Sendable {
+    public let dotPath: String
+    public let kind: String
+    public let decision: String
+    public init(dotPath: String, kind: String, decision: String) {
+        self.dotPath = dotPath
+        self.kind = kind
+        self.decision = decision
+    }
+}
+
+public struct DopeMergePlanResponse: Codable, Hashable, Sendable {
+    public let outcomes: [DopeMergeOutcomeRow]
+    public let conflictCount: Int
+    public init(outcomes: [DopeMergeOutcomeRow], conflictCount: Int) {
+        self.outcomes = outcomes
+        self.conflictCount = conflictCount
+    }
+}
+
+/// DOPE_RESOLVE — settle conflicting dot-paths in one direction.
+public struct DopeResolveRequest: Codable, Hashable, Sendable {
+    public let scopeUuid: String
+    /// nil = every unresolved conflict.
+    public let dotPath: String?
+    /// true keeps the db side, false takes the file side.
+    public let takeOurs: Bool
+    public init(scopeUuid: String, dotPath: String? = nil, takeOurs: Bool) {
+        self.scopeUuid = scopeUuid
+        self.dotPath = dotPath
+        self.takeOurs = takeOurs
+    }
+}
+
+public struct DopeResolveResponse: Codable, Hashable, Sendable {
+    public let resolved: [String]
+    public let takeOurs: Bool
+    public init(resolved: [String], takeOurs: Bool) {
+        self.resolved = resolved
+        self.takeOurs = takeOurs
     }
 }

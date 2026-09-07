@@ -42,7 +42,7 @@ public enum DopeCanvasLayout {
             code: "scope_\(tree.body.code)",
             name: tree.body.name,
             centerX: 0, centerY: 0, elementZ: 0,
-            payload: .dopeScope(DopeScopePayload(dopeScopeCode: tree.body.code)))))
+            payload: .dopeScopePersistenceLayer(DopeScopePersistenceLayerPayload(dopeScopeCode: tree.body.code)))))
 
         var xCursor = 0.0
         var sort = 0

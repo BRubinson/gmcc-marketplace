@@ -56,7 +56,7 @@ The retired path family (`GMCC_PROJECTS`, `GMCC_PROJECT_PATH`,
 **DOPE = Domain Optimized Project Essence** (DOPED with the optional
 trailing **D**river names the saved `.doped.json` form). The session's dope
 scope is the persistence layer's model, boot-synced from the repo's
-`.gmcc/dope` tree: files are authoritative on boot (`gm context ensure` /
+`.gmcc` tree: files are authoritative on boot (`gm context ensure` /
 `gm dope sync` seed or re-adopt forward), the db is authoritative for
 granular edits, and `gm dope write-repo` publishes back. After a
 mid-session branch change run `gm dope sync`. See `ref/bot_workflows.md`

@@ -450,6 +450,10 @@ final class Server: @unchecked Sendable {
                 return try DopeNodeDeleteHandler.handle(line: line, head: head, store: store)
             case .dopeReadRepo:
                 return try DopeReadRepoHandler.handle(line: line, head: head, store: store)
+            case .dopeMergePlan:
+                return try DopeMergePlanHandler.handle(line: line, head: head, store: store)
+            case .dopeResolve:
+                return try DopeResolveHandler.handle(line: line, head: head, store: store)
             case .dopeWriteRepo:
                 return try DopeWriteRepoHandler.handle(line: line, head: head, store: store)
             case .dopeIngest:

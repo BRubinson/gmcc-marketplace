@@ -350,7 +350,7 @@ public enum DiagramTreeReducer {
                 "\(type.rawValue) is a top-level element type and cannot have a parent")
         }
         switch payload {
-        case .dopeScope(let p):
+        case .dopeScopePersistenceLayer(let p):
             try mapValidation {
                 try DopeCode.validateCode(p.dopeScopeCode, field: "dope_scope binding code")
             }

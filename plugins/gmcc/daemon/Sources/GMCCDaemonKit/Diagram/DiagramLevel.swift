@@ -20,7 +20,7 @@ public enum DiagramElementType: String, Codable, Hashable, CaseIterable, Sendabl
     case drawingLayer = "drawing_layer"
     case drawingStroke = "drawing_stroke"
     case drawingShape = "drawing_shape"
-    case dopeScope = "dope_scope"
+    case dopeScopePersistenceLayer = "dope_scope_persistence_layer"
     case dopeEntity = "dope_entity"
 
     /// Auto-mint prefix for elements added without a code (hand-naming
@@ -30,7 +30,7 @@ public enum DiagramElementType: String, Codable, Hashable, CaseIterable, Sendabl
         case .drawingLayer: return "layer"
         case .drawingStroke: return "stroke"
         case .drawingShape: return "shape"
-        case .dopeScope: return "scope"
+        case .dopeScopePersistenceLayer: return "scope"
         case .dopeEntity: return "entity"
         }
     }
@@ -41,7 +41,7 @@ public enum DiagramElementType: String, Codable, Hashable, CaseIterable, Sendabl
         case .drawingLayer: return "Layer 1"
         case .drawingStroke: return "Stroke"
         case .drawingShape: return "Shape"
-        case .dopeScope: return "Dope Scope"
+        case .dopeScopePersistenceLayer: return "Dope Scope Persistence Layer"
         case .dopeEntity: return "Dope Entity"
         }
     }
@@ -96,13 +96,13 @@ public struct DiagramElementTypeSpec: Sendable {
                 vertexParentColumn: "shape_element_uuid",
                 allowedParentTypes: [.drawingLayer], isDopeBinding: false),
             DiagramElementTypeSpec(
-                type: .dopeScope, subtypeTable: "diagram_dope_scope",
+                type: .dopeScopePersistenceLayer, subtypeTable: "diagram_dope_scope_persistence_layer",
                 vertexTable: nil, vertexParentColumn: nil,
                 allowedParentTypes: nil, isDopeBinding: true),
             DiagramElementTypeSpec(
                 type: .dopeEntity, subtypeTable: "diagram_dope_entity",
                 vertexTable: nil, vertexParentColumn: nil,
-                allowedParentTypes: [.dopeScope], isDopeBinding: true),
+                allowedParentTypes: [.dopeScopePersistenceLayer], isDopeBinding: true),
         ]
         return Dictionary(uniqueKeysWithValues: specs.map { ($0.type, $0) })
     }()

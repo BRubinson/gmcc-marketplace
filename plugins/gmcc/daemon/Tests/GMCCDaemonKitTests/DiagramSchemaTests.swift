@@ -155,7 +155,7 @@ final class DiagramSchemaTests: XCTestCase {
             try self.insertElement(db, uuid: "e-1", diagram: "d-1",
                                    type: "drawing_layer", code: "x")
             XCTAssertThrowsError(try self.insertElement(
-                db, uuid: "e-2", diagram: "d-1", type: "dope_scope", code: "x"))
+                db, uuid: "e-2", diagram: "d-1", type: "dope_scope_persistence_layer", code: "x"))
         }
     }
 
@@ -166,7 +166,7 @@ final class DiagramSchemaTests: XCTestCase {
             try self.insertDiagram(db, uuid: "d-1", tier: "SESSION",
                                    instance: "inst-1", session: "sess-1", code: "main")
             try self.insertElement(db, uuid: "e-scope", diagram: "d-1",
-                                   type: "dope_scope", code: "sc")
+                                   type: "dope_scope_persistence_layer", code: "sc")
             let now = Store.isoNow()
             // A vertex pointed at an element with NO stroke subtype row must
             // be refused by the FK — the schema itself proves
@@ -238,6 +238,6 @@ final class DiagramSchemaTests: XCTestCase {
     /// pins the current value so a migration can never land silently.
     func testSchemaVersionMatchesCompiledConstant() throws {
         XCTAssertEqual(try store.schemaVersion(), Migrations.currentSchemaVersion)
-        XCTAssertEqual(Migrations.currentSchemaVersion, 17)
+        XCTAssertEqual(Migrations.currentSchemaVersion, 20)
     }
 }

@@ -21,6 +21,7 @@ struct Dope: ParsableCommand {
             EnumAdd.self, EnumUpdate.self, EnumDelete.self,
             OptionAdd.self, OptionUpdate.self, OptionDelete.self,
             ReadRepo.self, WriteRepo.self, Ingest.self, Sync.self,
+            MergePlan.self, Resolve.self,
         ]
     )
 
@@ -749,6 +750,7 @@ struct Dope: ParsableCommand {
         private func label(_ outcome: DopeBootSync.Outcome) -> String {
             switch outcome {
             case .noRepoTree: return "no_repo_tree"
+            case .legacyLayout: return "legacy_layout"
             case .inSync: return "in_sync"
             case .seeded: return "seeded"
             case .readopted: return "readopted"
@@ -757,4 +759,60 @@ struct Dope: ParsableCommand {
             }
         }
     }
+    // MARK: - merge / resolve
+
+    struct MergePlan: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "merge-plan",
+            abstract: """
+                Per-element plan of the db tree against the on-disk tree.                 Read-only: it reports, it never ingests or writes files.
+                """)
+        @OptionGroup var output: OutputOptions
+        @Option(name: .long) var scopeUuid: String
+
+        func run() throws {
+            let r = try withClient { try $0.dopeMergePlan(DopeMergePlanRequest(
+                scopeUuid: scopeUuid)) }
+            if output.json { return printJSON(r) }
+            if r.conflictCount == 0 {
+                print("[gm] dope merge-plan: clean (\(r.outcomes.count) elements)")
+            } else {
+                print("[gm] dope merge-plan: \(r.conflictCount) conflict(s)")
+                for row in r.outcomes where row.decision == "conflict" {
+                    print("  CONFLICT \(row.dotPath) (\(row.kind))")
+                }
+                print("  resolve with: gm dope resolve --scope-uuid \(scopeUuid) "
+                      + "--path <dot.path> --take ours|theirs")
+            }
+        }
+    }
+
+    struct Resolve: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: """
+                Settle conflicting dot-paths. 'theirs' takes the file, 'ours'                 keeps the db edit; either way the conflict clears on the next                 plan. Omit --path to resolve every conflict at once.
+                """)
+        @OptionGroup var output: OutputOptions
+        @Option(name: .long) var scopeUuid: String
+        @Option(name: .long, help: "Conflicting dot-path; omitted = all conflicts.")
+        var path: String?
+        @Option(name: .long, help: "ours | theirs")
+        var take: String
+
+        func run() throws {
+            guard take == "ours" || take == "theirs" else {
+                throw ValidationError("--take must be 'ours' or 'theirs'")
+            }
+            let r = try withClient { try $0.dopeResolve(DopeResolveRequest(
+                scopeUuid: scopeUuid, dotPath: path, takeOurs: take == "ours")) }
+            if output.json { return printJSON(r) }
+            if r.resolved.isEmpty {
+                print("[gm] dope resolve: nothing to resolve")
+            } else {
+                print("[gm] dope resolve: took \(take) for \(r.resolved.count) path(s)")
+                for p in r.resolved { print("  \(p)") }
+            }
+        }
+    }
+
 }

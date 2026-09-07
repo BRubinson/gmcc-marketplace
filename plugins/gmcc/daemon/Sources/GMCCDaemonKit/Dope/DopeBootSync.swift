@@ -2,7 +2,7 @@ import Foundation
 
 /// Files → db boot reconciliation for a session's SESSION_BASE dope scope.
 ///
-/// The repo's `.gmcc/dope` tree travels with the branch, but a fresh checkout
+/// The repo's `.gmcc` dope tree travels with the branch, but a fresh checkout
 /// mints a virgin scope (revision 0, empty tree) — so without this, every new
 /// branch starts with an empty session dope. On the boot path the FILES are
 /// authoritative forward: a virgin scope seeds wholesale, a scope behind the
@@ -16,9 +16,16 @@ import Foundation
 /// Every outcome is non-throwing — boot must never block on a domain model.
 public enum DopeBootSync {
     public enum Outcome {
-        /// No `.gmcc/dope/main.doped.json` on disk — the silent common case,
+        /// No `.gmcc/scope.doped.json` on disk — the silent common case,
         /// decided by one stat before any socket is opened.
         case noRepoTree
+        /// A RETIRED `.gmcc/dope` tree is present but the current layout is
+        /// not. Distinct from `noRepoTree` on purpose: this outcome exists
+        /// because the honest failure of moving the path constants is that
+        /// every checkout still holding an old-shape tree would otherwise
+        /// stat as "no dope here" and degrade silently to empty. Loud, and
+        /// still non-throwing.
+        case legacyLayout(path: String)
         case inSync(code: String, revision: Int64)
         case seeded(code: String, revision: Int64, counts: DopeTreeCounts)
         case readopted(code: String, from: Int64, to: Int64, counts: DopeTreeCounts)
@@ -31,13 +38,22 @@ public enum DopeBootSync {
 
     /// Reconcile the session's SESSION_BASE scope with the repo tree.
     /// `instanceRoot` is the repo checkout root (the tree lives at
-    /// `{instanceRoot}/.gmcc/dope`).
+    /// `{instanceRoot}/.gmcc`).
     public static func run(
         client: DaemonClient, sessionUuid: String, instanceRoot: String
     ) -> Outcome {
-        let main = URL(fileURLWithPath: instanceRoot, isDirectory: true)
-            .appendingPathComponent(".gmcc/dope/main.doped.json")
+        let root = URL(fileURLWithPath: instanceRoot, isDirectory: true)
+        let main = root.appendingPathComponent(
+            ".gmcc/\(DopeDocumentCodec.scopeFileName)")
         guard FileManager.default.fileExists(atPath: main.path) else {
+            // Before concluding "no dope", check for the retired layout —
+            // otherwise a stale checkout is indistinguishable from a repo
+            // that was never doped.
+            let legacy = root.appendingPathComponent(
+                ".gmcc/\(DopeDocumentCodec.legacyDopeDirectoryName)/\(DopeDocumentCodec.legacyMainFileName)")
+            if FileManager.default.fileExists(atPath: legacy.path) {
+                return .legacyLayout(path: legacy.path)
+            }
             return .noRepoTree
         }
         do {
@@ -99,6 +115,11 @@ public enum DopeBootSync {
             return "[GMB] dope: WARN — session scope '\(code)' (revision \(dbRevision)) is AHEAD of "
                 + ".gmcc/dope (version \(diskVersion)); boot never writes files. "
                 + "Publish with: gm dope write-repo"
+        case let .legacyLayout(path):
+            return "[GMB] dope: WARN — found a RETIRED .gmcc/dope tree at \(path) and no "
+                + ".gmcc/\(DopeDocumentCodec.scopeFileName). The session scope was NOT seeded from it. "
+                + "Republish with: gm dope write-repo --scope-uuid <uuid> --force, "
+                + "then: git rm -r .gmcc/dope"
         case let .unreadable(reason):
             return "[GMB] dope: WARN — sync skipped: \(reason) (inspect with: gm dope sync)"
         }

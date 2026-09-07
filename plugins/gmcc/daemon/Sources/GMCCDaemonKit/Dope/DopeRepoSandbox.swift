@@ -1,7 +1,18 @@
 import Foundation
 
 /// The daemon's first repo file writer — a value type whose entire public
-/// surface can only name paths under `{instanceRoot}/.gmcc/dope/`.
+/// surface can only name paths under `{instanceRoot}/.gmcc/`.
+///
+/// NOTE ON THE SWAP. `.gmcc/` is NOT exclusively dope-owned: `.screenshots/`
+/// and the staging directory live there too. The old layout could
+/// `replaceItemAt` the whole `.gmcc/dope` directory precisely because nothing
+/// else lived in it; doing that to `.gmcc/` would delete its siblings. So the
+/// write swaps the two dope-owned SUBTREES (`persistence/`, `cogs/`)
+/// individually and writes `scope.doped.json` LAST. Each subtree is still
+/// atomic; whole-tree atomicity across all three is traded away deliberately,
+/// and the ordering makes the failure mode benign — a crash leaves an OLDER
+/// index over newer subtrees, which `peekRevision` reports as behind and an
+/// idempotent re-run repairs.
 ///
 /// KbiteMawOpenHandler (writes a caller-supplied absolute path, no root, no
 /// containment) is explicitly NOT the template. Three independent layers of
@@ -42,7 +53,7 @@ public struct DopeRepoSandbox: Sendable {
             throw SandboxError("instance root is not a git checkout: \(trimmed)")
         }
         let root = URL(fileURLWithPath: trimmed).standardizedFileURL
-        let dopeRoot = root.appendingPathComponent(".gmcc/dope", isDirectory: true)
+        let dopeRoot = root.appendingPathComponent(".gmcc", isDirectory: true)
         // Symlink guard: standardizedFileURL is lexical, so a symlinked
         // .gmcc or .gmcc/dope would redirect every "contained" path (and the
         // atomic swap) outside the repo. resolvingSymlinksInPath resolves the
@@ -60,22 +71,51 @@ public struct DopeRepoSandbox: Sendable {
     // MARK: - Contained paths
 
     public var mainFile: URL {
-        dopeRoot.appendingPathComponent(DopeDocumentCodec.mainFileName)
+        dopeRoot.appendingPathComponent(DopeDocumentCodec.scopeFileName)
     }
 
-    public var drawingConfigFile: URL {
-        dopeRoot.appendingPathComponent(DopeDocumentCodec.drawingConfigFileName)
+    public var persistenceDirectory: URL {
+        dopeRoot.appendingPathComponent(
+            DopeDocumentCodec.persistenceDirectoryName, isDirectory: true)
     }
 
-    public var domainsDirectory: URL {
-        dopeRoot.appendingPathComponent(DopeDocumentCodec.domainsDirectoryName, isDirectory: true)
+    public var cogsDirectory: URL {
+        dopeRoot.appendingPathComponent(DopeDocumentCodec.cogsDirectoryName, isDirectory: true)
     }
 
-    public func domainFile(code: String) throws -> URL {
+    /// The retired `.gmcc/dope` tree. Named ONLY so callers can detect and
+    /// report a stale checkout; nothing reads or writes through it.
+    public var legacyDopeRoot: URL {
+        dopeRoot.appendingPathComponent(
+            DopeDocumentCodec.legacyDopeDirectoryName, isDirectory: true)
+    }
+
+    /// One domain's directory. The layout gained a level, and the old
+    /// single-flat-segment helper did not generalise — every segment below
+    /// is validated here rather than assumed.
+    public func domainDirectory(code: String) throws -> URL {
         try DopeCode.validateCode(code, field: "domain code")
-        let url = domainsDirectory
-            .appendingPathComponent(code + DopeDocumentCodec.domainFileSuffix)
-        return try contained(url)
+        return try contained(persistenceDirectory.appendingPathComponent(code, isDirectory: true))
+    }
+
+    public func domainIndexFile(code: String) throws -> URL {
+        let dir = try domainDirectory(code: code)
+        return try contained(dir.appendingPathComponent(
+            "\(code).index\(DopeDocumentCodec.persistenceFileSuffix)"))
+    }
+
+    public func domainEntityFile(domain: String, entity: String) throws -> URL {
+        try DopeCode.validateCode(entity, field: "entity code")
+        let dir = try domainDirectory(code: domain)
+        return try contained(dir.appendingPathComponent(
+            DopePersistenceIndexDocument.expectedEntityFile(domain: domain, entity: entity)))
+    }
+
+    public func domainEnumFile(domain: String, enumCode: String) throws -> URL {
+        try DopeCode.validateCode(enumCode, field: "enum code")
+        let dir = try domainDirectory(code: domain)
+        return try contained(dir.appendingPathComponent(
+            DopePersistenceIndexDocument.expectedEnumFile(domain: domain, enumCode: enumCode)))
     }
 
     /// The final belt-and-braces guard on every path this type hands out —
@@ -98,61 +138,130 @@ public struct DopeRepoSandbox: Sendable {
         public let warnings: [String]
     }
 
-    /// Reads `main.doped.json`, then ONLY the files main's map names — after
-    /// re-deriving each value from its key (the map is data, never followed).
-    /// Never globs the directory.
+    /// Reads `scope.doped.json`, then ONLY the files its map names — after
+    /// re-deriving each value from its key — and for each domain, only the
+    /// entity/enum files ITS index names, re-derived the same way. Never
+    /// globs. The map is data at BOTH levels, never followed.
     public func readBundle() throws -> RepoBundle {
         let mainURL = mainFile
         guard FileManager.default.fileExists(atPath: mainURL.path) else {
             throw SandboxError("no dope tree on disk: \(mainURL.path) does not exist")
         }
-        let main: DopeMainDocument
+        let main: DopeScopeDocument
         do {
             let data = try Data(contentsOf: mainURL)
-            main = try DopeDocumentCodec.decoder.decode(DopeMainDocument.self, from: data)
+            main = try DopeDocumentCodec.decoder.decode(DopeScopeDocument.self, from: data)
         } catch let error as DecodingError {
-            throw SandboxError("main.doped.json failed to parse: \(error)")
+            throw SandboxError("\(DopeDocumentCodec.scopeFileName) failed to parse: \(error)")
         }
 
         var warnings: [String] = []
         var files: [DopePersistenceFileDocument] = []
-        for (code, mapped) in main.domains.sorted(by: { $0.key < $1.key }) {
-            let expected = DopeMainDocument.expectedFile(forDomainCode: code)
+        for (code, mapped) in main.persistence.sorted(by: { $0.key < $1.key }) {
+            let expected = DopeScopeDocument.expectedFile(forPersistenceCode: code)
             guard mapped == expected else {
                 throw SandboxError(
-                    "main.doped.json maps domain '\(code)' to '\(mapped)' — refused; expected '\(expected)' (the map is data, never followed)")
+                    "\(DopeDocumentCodec.scopeFileName) maps persistence '\(code)' to '\(mapped)' — refused; expected '\(expected)' (the map is data, never followed)")
             }
-            let url = try domainFile(code: code)
+            files.append(try readDomain(code: code, warnings: &warnings))
+        }
+        for orphan in try unreferencedDomainDirectories(referenced: Set(main.persistence.keys)) {
+            warnings.append("unreferenced persistence directory on disk: \(orphan)")
+        }
+        return RepoBundle(bundle: DopeDocumentBundle(main: main, domainFiles: files),
+                          warnings: warnings)
+    }
+
+    /// Assembles ONE domain from its index plus the entity/enum files the
+    /// index names. The returned value is the same shape the old
+    /// one-file-per-domain layout produced, so nothing downstream changes.
+    private func readDomain(code: String, warnings: inout [String]) throws
+        -> DopePersistenceFileDocument
+    {
+        let indexURL = try domainIndexFile(code: code)
+        guard FileManager.default.fileExists(atPath: indexURL.path) else {
+            throw SandboxError(
+                "persistence index missing: \(DopeScopeDocument.expectedFile(forPersistenceCode: code))")
+        }
+        let index: DopePersistenceIndexDocument
+        do {
+            let data = try Data(contentsOf: indexURL)
+            index = try DopeDocumentCodec.decoder.decode(
+                DopePersistenceIndexDocument.self, from: data)
+        } catch let error as DecodingError {
+            throw SandboxError("\(code).index failed to parse: \(error)")
+        }
+        guard index.body.code == code else {
+            throw SandboxError(
+                "persistence index for '\(code)' declares code '\(index.body.code)' — directory name and code must agree")
+        }
+
+        var entities: [DopeEntityDocument] = []
+        for (entityCode, mapped) in index.entities.sorted(by: { $0.key < $1.key }) {
+            let expected = DopePersistenceIndexDocument.expectedEntityFile(
+                domain: code, entity: entityCode)
+            guard mapped == expected else {
+                throw SandboxError(
+                    "\(code) index maps entity '\(entityCode)' to '\(mapped)' — refused; expected '\(expected)' (the map is data, never followed)")
+            }
+            let url = try domainEntityFile(domain: code, entity: entityCode)
             guard FileManager.default.fileExists(atPath: url.path) else {
-                throw SandboxError("domain file missing: \(expected)")
+                throw SandboxError("entity file missing: \(expected)")
             }
             do {
-                let data = try Data(contentsOf: url)
                 let file = try DopeDocumentCodec.decoder.decode(
-                    DopePersistenceFileDocument.self, from: data)
-                if file.body.code != code {
+                    DopeEntityFileDocument.self, from: try Data(contentsOf: url))
+                guard file.body.code == entityCode else {
                     throw SandboxError(
-                        "domain file \(expected) declares code '\(file.body.code)' — file name and code must agree")
+                        "\(expected) declares code '\(file.body.code)' — file name and code must agree")
                 }
-                files.append(file)
+                entities.append(DopeEntityDocument(body: file.body, properties: file.properties))
             } catch let error as DecodingError {
                 throw SandboxError("\(expected) failed to parse: \(error)")
             }
         }
-        // Unreferenced *.doped.json files under domains/ are surfaced as
-        // warnings on read (write-repo prunes them).
-        for orphan in try unreferencedDomainFiles(referenced: Set(main.domains.keys)) {
-            warnings.append("unreferenced domain file on disk: domains/\(orphan)")
+
+        var enums: [DopeEnumDocument] = []
+        for (enumCode, mapped) in index.enums.sorted(by: { $0.key < $1.key }) {
+            let expected = DopePersistenceIndexDocument.expectedEnumFile(
+                domain: code, enumCode: enumCode)
+            guard mapped == expected else {
+                throw SandboxError(
+                    "\(code) index maps enum '\(enumCode)' to '\(mapped)' — refused; expected '\(expected)' (the map is data, never followed)")
+            }
+            let url = try domainEnumFile(domain: code, enumCode: enumCode)
+            guard FileManager.default.fileExists(atPath: url.path) else {
+                throw SandboxError("enum file missing: \(expected)")
+            }
+            do {
+                let file = try DopeDocumentCodec.decoder.decode(
+                    DopeEnumFileDocument.self, from: try Data(contentsOf: url))
+                guard file.body.code == enumCode else {
+                    throw SandboxError(
+                        "\(expected) declares code '\(file.body.code)' — file name and code must agree")
+                }
+                enums.append(DopeEnumDocument(body: file.body, options: file.options))
+            } catch let error as DecodingError {
+                throw SandboxError("\(expected) failed to parse: \(error)")
+            }
         }
-        return RepoBundle(bundle: DopeDocumentBundle(main: main, domainFiles: files),
-                          warnings: warnings)
+
+        // Unreferenced files inside a domain directory are surfaced, not
+        // silently ignored — the pruning pass removes them on write.
+        for orphan in try unreferencedDomainMemberFiles(domain: code, index: index) {
+            warnings.append(
+                "unreferenced file in persistence/\(code): \(orphan)")
+        }
+
+        return DopePersistenceFileDocument(
+            version: index.version, body: index.body, entities: entities, enums: enums)
     }
 
     /// Peek at the on-disk revision without a full parse. Nil when no tree
     /// exists on disk.
     public func peekRevision() -> Int64? {
         guard let data = try? Data(contentsOf: mainFile),
-              let main = try? DopeDocumentCodec.decoder.decode(DopeMainDocument.self, from: data)
+              let main = try? DopeDocumentCodec.decoder.decode(DopeScopeDocument.self, from: data)
         else { return nil }
         return main.version
     }
@@ -164,67 +273,138 @@ public struct DopeRepoSandbox: Sendable {
         public let pruned: [String]
     }
 
-    /// Atomic whole-tree write: the complete new tree is staged into
-    /// `.gmcc/.dope-staging-{uuid}` and swapped in with replaceItemAt —
-    /// same volume by construction, so a crash mid-write leaves the old
-    /// tree byte-intact and a reader never sees a half-written domain set.
-    /// `drawing_config.doped.json` is preserved if present, written blank
-    /// only when absent (a future UX pass owns its content). Returned paths
-    /// are instance-root-relative.
+    /// Subtree-atomic write.
+    ///
+    /// The complete new `persistence/` (and `cogs/`) tree is staged under
+    /// `.gmcc/.dope-staging-{uuid}` and swapped in with replaceItemAt — same
+    /// volume by construction, so a crash mid-write leaves the previous
+    /// subtree byte-intact and a reader never sees a half-written domain.
+    ///
+    /// `scope.doped.json` is written LAST and deliberately: it is the version
+    /// authority, so a crash between the subtree swap and the index write
+    /// leaves an index that reports a revision BEHIND the files. That is the
+    /// benign direction — `peekRevision` sees it as stale and re-running
+    /// write-repo repairs it — whereas writing the index first would claim a
+    /// revision the files do not yet contain.
+    ///
+    /// Returned paths are instance-root-relative.
     public func writeAtomically(_ bundle: DopeDocumentBundle) throws -> WriteResult {
         let fm = FileManager.default
-        let gmccDir = instanceRoot.appendingPathComponent(".gmcc", isDirectory: true)
-        let staging = gmccDir.appendingPathComponent(
+        let staging = dopeRoot.appendingPathComponent(
             ".dope-staging-\(UUID().uuidString.lowercased())", isDirectory: true)
         defer { try? fm.removeItem(at: staging) }
 
-        let pruned = try unreferencedDomainFiles(
+        let pruned = try unreferencedDomainDirectories(
             referenced: Set(bundle.domainFiles.map(\.body.code)))
-            .map { "\(DopeDocumentCodec.domainsDirectoryName)/\($0)" }
 
-        try fm.createDirectory(
-            at: staging.appendingPathComponent(DopeDocumentCodec.domainsDirectoryName,
-                                               isDirectory: true),
-            withIntermediateDirectories: true)
+        let stagedPersistence = staging.appendingPathComponent(
+            DopeDocumentCodec.persistenceDirectoryName, isDirectory: true)
+        try fm.createDirectory(at: stagedPersistence, withIntermediateDirectories: true)
 
         var written: [String] = []
         func stage(_ data: Data, _ relative: String) throws {
             let url = staging.appendingPathComponent(relative)
+            try fm.createDirectory(at: url.deletingLastPathComponent(),
+                                   withIntermediateDirectories: true)
             try data.write(to: url, options: .atomic)
-            written.append(".gmcc/dope/" + relative)
+            written.append(".gmcc/" + relative)
         }
-        try stage(DopeDocumentCodec.encoder.encode(bundle.main),
-                  DopeDocumentCodec.mainFileName)
-        for file in bundle.domainFiles {
-            try DopeCode.validateCode(file.body.code, field: "domain code")
-            try stage(DopeDocumentCodec.encoder.encode(file),
-                      DopeMainDocument.expectedFile(forDomainCode: file.body.code))
-        }
-        // Preserve an existing drawing config verbatim; blank when absent.
-        let existingDrawingConfig = try? Data(contentsOf: drawingConfigFile)
-        try stage(existingDrawingConfig ?? Data("{}\n".utf8),
-                  DopeDocumentCodec.drawingConfigFileName)
 
-        if fm.fileExists(atPath: dopeRoot.path) {
-            _ = try fm.replaceItemAt(dopeRoot, withItemAt: staging)
-        } else {
-            try fm.createDirectory(at: gmccDir, withIntermediateDirectories: true)
-            try fm.moveItem(at: staging, to: dopeRoot)
+        for file in bundle.domainFiles {
+            let code = file.body.code
+            try DopeCode.validateCode(code, field: "domain code")
+            let dir = DopeScopeDocument.expectedDirectory(forPersistenceCode: code)
+
+            for entity in file.entities {
+                try DopeCode.validateCode(entity.body.code, field: "entity code")
+                let name = DopePersistenceIndexDocument.expectedEntityFile(
+                    domain: code, entity: entity.body.code)
+                try stage(
+                    DopeDocumentCodec.encoder.encode(
+                        DopeEntityFileDocument(version: file.version, body: entity.body,
+                                               properties: entity.properties)),
+                    "\(dir)/\(name)")
+            }
+            for en in file.enums {
+                try DopeCode.validateCode(en.body.code, field: "enum code")
+                let name = DopePersistenceIndexDocument.expectedEnumFile(
+                    domain: code, enumCode: en.body.code)
+                try stage(
+                    DopeDocumentCodec.encoder.encode(
+                        DopeEnumFileDocument(version: file.version, body: en.body,
+                                             options: en.options)),
+                    "\(dir)/\(name)")
+            }
+            let index = DopePersistenceIndexDocument(
+                version: file.version,
+                body: file.body,
+                entities: Dictionary(uniqueKeysWithValues: file.entities.map {
+                    ($0.body.code,
+                     DopePersistenceIndexDocument.expectedEntityFile(
+                        domain: code, entity: $0.body.code))
+                }),
+                enums: Dictionary(uniqueKeysWithValues: file.enums.map {
+                    ($0.body.code,
+                     DopePersistenceIndexDocument.expectedEnumFile(
+                        domain: code, enumCode: $0.body.code))
+                }))
+            try stage(DopeDocumentCodec.encoder.encode(index),
+                      DopeScopeDocument.expectedFile(forPersistenceCode: code))
         }
+
+        // Swap the dope-owned subtree only. `.gmcc/` itself is NOT replaced:
+        // it holds `.screenshots/` and this staging directory, which a
+        // whole-directory swap would delete.
+        try fm.createDirectory(at: dopeRoot, withIntermediateDirectories: true)
+        if fm.fileExists(atPath: persistenceDirectory.path) {
+            _ = try fm.replaceItemAt(persistenceDirectory, withItemAt: stagedPersistence)
+        } else {
+            try fm.moveItem(at: stagedPersistence, to: persistenceDirectory)
+        }
+
+        // Index last — see the note above on the benign failure direction.
+        let mainData = try DopeDocumentCodec.encoder.encode(bundle.main)
+        try mainData.write(to: mainFile, options: .atomic)
+        written.append(".gmcc/" + DopeDocumentCodec.scopeFileName)
+
         return WriteResult(written: written.sorted(), pruned: pruned)
     }
 
-    /// Bounded stale scan: exactly one non-recursive listing of `domains/`,
-    /// matching only `*.doped.json`.
-    private func unreferencedDomainFiles(referenced: Set<String>) throws -> [String] {
+    /// Bounded stale scan: exactly one non-recursive listing of
+    /// `persistence/`, yielding directories no longer referenced by the
+    /// scope map.
+    ///
+    /// Deliberately NOT recursive. A non-recursive listing structurally
+    /// cannot name a path outside the directory it lists; making the scan
+    /// recursive would hand the pruner the ability to delete anywhere
+    /// beneath the tree, which is a materially weaker safety property for a
+    /// function whose whole job is removal. Stale files INSIDE a live
+    /// domain directory are handled by replaceItemAt, which swaps the
+    /// directory wholesale, so a recursive prune would buy nothing.
+    private func unreferencedDomainDirectories(referenced: Set<String>) throws -> [String] {
         let fm = FileManager.default
-        guard fm.fileExists(atPath: domainsDirectory.path) else { return [] }
-        return try fm.contentsOfDirectory(atPath: domainsDirectory.path)
-            .filter { $0.hasSuffix(DopeDocumentCodec.domainFileSuffix) }
-            .filter { name in
-                let code = String(name.dropLast(DopeDocumentCodec.domainFileSuffix.count))
-                return !referenced.contains(code)
-            }
+        guard fm.fileExists(atPath: persistenceDirectory.path) else { return [] }
+        return try fm.contentsOfDirectory(atPath: persistenceDirectory.path)
+            .filter { !referenced.contains($0) && !$0.hasPrefix(".") }
+            .map { "\(DopeDocumentCodec.persistenceDirectoryName)/\($0)" }
+            .sorted()
+    }
+
+    /// Files inside a live domain directory that its index does not name.
+    /// Read-side reporting only — the write path removes them by swapping
+    /// the whole directory.
+    private func unreferencedDomainMemberFiles(
+        domain: String, index: DopePersistenceIndexDocument
+    ) throws -> [String] {
+        let fm = FileManager.default
+        let dir = try domainDirectory(code: domain)
+        guard fm.fileExists(atPath: dir.path) else { return [] }
+        var expected = Set(index.entities.values)
+        expected.formUnion(index.enums.values)
+        expected.insert("\(domain).index\(DopeDocumentCodec.persistenceFileSuffix)")
+        return try fm.contentsOfDirectory(atPath: dir.path)
+            .filter { $0.hasSuffix(DopeDocumentCodec.persistenceFileSuffix) }
+            .filter { !expected.contains($0) }
             .sorted()
     }
 }

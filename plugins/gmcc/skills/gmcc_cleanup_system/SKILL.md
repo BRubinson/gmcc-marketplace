@@ -49,7 +49,7 @@ first, then re-run.
 | `gm_shim_stale` | An installed GMCC shim no longer matches the current resolver rule | Re-run `gm setup --install-path --path-dir <dir>` |
 | `ckfs_root_mismatch` / `gmcc_root_mismatch` | Env claim disagrees with the db the daemon answered from | Sandbox: `gm sandbox refresh`. Prod: `gm config set --key ckfs_root --value <correct>` — show both values, let the user pick which is right |
 | `sandbox_metaless` | `GMCC_ROOT` points at a snapshot with no `snapshot_meta.json` | Re-run `gm sandbox refresh` from the prod environment |
-| `dope_scope_unseeded` / `dope_files_ahead` | Repo `.gmcc/dope` tree newer than (or absent from) the session scope | `gm dope sync` |
+| `dope_scope_unseeded` / `dope_files_ahead` | Repo `.gmcc` tree newer than (or absent from) the session scope | `gm dope sync` |
 | `dope_db_ahead` | Session dope edits never published to the repo files | `gm dope write-repo --scope-uuid <U>` (or accept — boot never overwrites db-ahead state) |
 | `daemon_unreachable` | Socket dead or binary stale | `bash $GMCC_PLUGIN_ROOT/scripts/build_daemon.sh` then `gm daemon restart` |
 

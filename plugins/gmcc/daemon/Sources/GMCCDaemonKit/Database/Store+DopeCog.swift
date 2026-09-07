@@ -98,7 +98,17 @@ extension Store {
             }
             let scope = try self.cogOwningScope(db, cogUuid: req.cogUuid)
 
-            if let parent = req.parentElementUuid {
+            // allowedParentTypes is a two-way constraint: nil means top-level
+            // ONLY, and non-nil means parented ONLY. The second half was
+            // unreachable while every type was top-level, so a type that
+            // must be parented could still be created at the root.
+            switch (req.parentElementUuid, spec.allowedParentTypes) {
+            case (nil, .some(let allowed)):
+                throw StoreError.badRequest(
+                    detail: "element type '\(spec.type.rawValue)' must be parented under "
+                          + allowed.map(\.rawValue).sorted().joined(separator: " or ")
+                          + " and cannot be top-level")
+            case (.some(let parent), _):
                 guard let parentType = try String.fetchOne(db, sql: """
                     SELECT element_type FROM dope_cog_element WHERE uuid = ?
                     """, arguments: [parent]) else {
@@ -110,14 +120,31 @@ extension Store {
                         detail: "element type '\(spec.type.rawValue)' is top-level only "
                               + "and cannot be parented under '\(parentType)'")
                 }
+            case (nil, nil):
+                break  // top-level type at top level
             }
 
-            // primary_path is the subtype table's only required field, so a
-            // missing one is a precise BAD_REQUEST rather than an FK error.
-            guard spec.ownedFields.contains(.primaryPath), let primaryPath = req.primaryPath,
-                  !primaryPath.isEmpty else {
-                throw StoreError.badRequest(
-                    detail: "element type '\(spec.type.rawValue)' requires --primary-path")
+            // Spec-driven, not a literal special case: this was a hardcoded
+            // primary_path check back when one type existed and its only
+            // owned field happened to also be its only required one.
+            // PersistenceOwner has no primary_path at all, so a per-type
+            // requiredFields loop is what lets a second type exist.
+            var subtypeValues: [String: (any DatabaseValueConvertible)?] = [:]
+            for field in spec.requiredFields.sorted(by: { $0.rawValue < $1.rawValue }) {
+                let supplied: String?
+                switch field {
+                case .primaryPath:         supplied = req.primaryPath
+                case .dopePersistenceCode: supplied = req.dopePersistenceCode
+                case .dopeScopeCode:       supplied = req.dopeScopeCode
+                }
+                guard let value = supplied, !value.isEmpty else {
+                    throw StoreError.badRequest(
+                        detail: "element type '\(spec.type.rawValue)' requires --"
+                              + field.rawValue.replacingOccurrences(
+                                    of: "([a-z0-9])([A-Z])", with: "$1-$2",
+                                    options: .regularExpression).lowercased())
+                }
+                subtypeValues[field.dbColumn] = value
             }
 
             let uuid = try self.insertBase(db, table: "dope_cog_element", extra: [
@@ -129,10 +156,8 @@ extension Store {
                 "sort_order": req.sortOrder ?? 0,
                 "dope_scope_code": req.dopeScopeCode,
             ])
-            _ = try self.insertBase(db, table: spec.subtypeTable, extra: [
-                "element_uuid": uuid,
-                "primary_path": primaryPath,
-            ])
+            subtypeValues["element_uuid"] = uuid
+            _ = try self.insertBase(db, table: spec.subtypeTable, extra: subtypeValues)
             let revision = try self.bumpScopeRevision(
                 db, scopeUuid: scope.uuid, area: .cogs, ownerUuid: req.cogUuid)
             try self.recordDopeChange(db, scope: scope, action: "cog_element_add", level: nil,
@@ -296,14 +321,24 @@ extension Store {
 
     private func hydrateElement(_ db: Database, row: Row) throws -> DopeCogElementNode {
         let spec = try DopeCogElementSpec.spec(for: row["element_type"] as String)
-        let primaryPath = try String.fetchOne(db, sql: """
-            SELECT primary_path FROM \(spec.subtypeTable) WHERE element_uuid = ?
+        // Spec-driven, like the writer: the subtype table's columns differ
+        // per type, so selecting primary_path unconditionally would throw
+        // "no such column" the moment a second type existed.
+        let subtype = try Row.fetchOne(db, sql: """
+            SELECT * FROM \(spec.subtypeTable) WHERE element_uuid = ?
             """, arguments: [row["uuid"] as String])
+        func subtypeValue(_ field: DopeCogField) -> String? {
+            guard spec.ownedFields.contains(field), let subtype,
+                  subtype.hasColumn(field.dbColumn) else { return nil }
+            return subtype[field.dbColumn]
+        }
         return DopeCogElementNode(
             uuid: row["uuid"], version: row["version"], elementType: row["element_type"],
             code: row["code"], name: row["name"], description: row["description"],
             sortOrder: row["sort_order"], parentElementUuid: row["parent_element_uuid"],
-            dopeScopeCode: row["dope_scope_code"], primaryPath: primaryPath,
+            dopeScopeCode: row["dope_scope_code"],
+            primaryPath: subtypeValue(.primaryPath),
+            dopePersistenceCode: subtypeValue(.dopePersistenceCode),
             deletedOn: row["deleted_on"])
     }
 

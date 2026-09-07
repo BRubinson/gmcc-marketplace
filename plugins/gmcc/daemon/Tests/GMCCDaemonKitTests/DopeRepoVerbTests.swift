@@ -79,13 +79,326 @@ final class DopeRepoVerbTests: XCTestCase {
         }
     }
 
+    // MARK: - merge provenance (the base)
+
+    /// End-to-end: a real edit through the real verbs must show up as a
+    /// dirty dot-path, and a sync from files must clear it and record the
+    /// base. Without this the merge has nothing true to reason about.
+    func testProvenanceTracksLocalEditsAndIsClearedByIngest() throws {
+        let scope = try makeScopeWithTree()
+
+        // Granular edits mark their own dot-paths, addressed the way dope
+        // refs address them.
+        let dirty = try store.dbQueue.read { db in
+            try self.store.locallyModifiedPaths(db, scopeUuid: scope.uuid)
+        }
+        XCTAssertTrue(dirty.contains("core.user"), "entity add should mark core.user: \(dirty)")
+        XCTAssertTrue(dirty.contains("core.user.id"), "property add should mark it: \(dirty)")
+        XCTAssertTrue(dirty.contains("core.enums.status.active"),
+                      "option add should mark it: \(dirty)")
+
+        // Publish, then re-ingest: the tree now came FROM the files, so the
+        // base is recorded and nothing is dirty any more.
+        _ = try store.dopeWriteRepo(DopeWriteRepoRequest(scopeUuid: scope.uuid))
+        let sandbox = try DopeRepoSandbox.resolve(instanceRoot: repoRoot.path)
+        let read = try sandbox.readBundle().bundle
+        let bumped = DopeDocumentBundle(
+            main: DopeScopeDocument(version: scope.revision + 1, scope: read.main.scope,
+                                    persistence: read.main.persistence),
+            domainFiles: read.domainFiles.map {
+                DopePersistenceFileDocument(version: scope.revision + 1, body: $0.body,
+                                            entities: $0.entities, enums: $0.enums)
+            })
+        _ = try sandbox.writeAtomically(bumped)
+        _ = try store.dopeIngest(DopeIngestRequest(scopeUuid: scope.uuid))
+
+        let afterSync = try store.dbQueue.read { db in
+            try self.store.locallyModifiedPaths(db, scopeUuid: scope.uuid)
+        }
+        XCTAssertTrue(afterSync.isEmpty, "sync must clear dirty flags, got \(afterSync)")
+
+        let base = try store.dbQueue.read { db in
+            try self.store.dopeProvenance(db, scopeUuid: scope.uuid)
+        }
+        XCTAssertNotNil(base["core.user"]?.syncedContentHash,
+                        "the base hash must be recorded for every synced element")
+        XCTAssertEqual(base["core.user"]?.locallyModified, false)
+
+        // And the recorded base must agree with what a fresh read hashes —
+        // otherwise the very next boundary would report phantom conflicts.
+        let theirs = DopeMerge.elements(of: try sandbox.readBundle().bundle)
+        let plan = DopeMerge.plan(
+            ours: theirs, theirs: theirs,
+            base: try store.dbQueue.read { db in
+                try self.store.dopeProvenance(db, scopeUuid: scope.uuid)
+            })
+        XCTAssertTrue(DopeMerge.conflicts(in: plan).isEmpty,
+                      "a freshly synced tree must merge clean against itself")
+    }
+
+    // MARK: - conflict detection and resolution
+
+    /// Drives a real conflict end-to-end: publish, sync to establish a base,
+    /// edit BOTH sides, and confirm the plan reports exactly the conflicting
+    /// path — then resolve it each way and confirm it clears in the
+    /// direction chosen.
+    func testConflictIsDetectedThenResolvedInEitherDirection() throws {
+        let scope = try makeScopeWithTree()
+        _ = try store.dopeWriteRepo(DopeWriteRepoRequest(scopeUuid: scope.uuid))
+        let sandbox = try DopeRepoSandbox.resolve(instanceRoot: repoRoot.path)
+
+        // Establish the base: this tree came from the files.
+        let published = try sandbox.readBundle().bundle
+        let rebased = DopeDocumentBundle(
+            main: DopeScopeDocument(version: scope.revision + 1, scope: published.main.scope,
+                                    persistence: published.main.persistence),
+            domainFiles: published.domainFiles.map {
+                DopePersistenceFileDocument(version: scope.revision + 1, body: $0.body,
+                                            entities: $0.entities, enums: $0.enums)
+            })
+        _ = try sandbox.writeAtomically(rebased)
+        _ = try store.dopeIngest(DopeIngestRequest(scopeUuid: scope.uuid))
+        XCTAssertTrue(DopeMerge.conflicts(in:
+            try store.dopeMergePlan(scopeUuid: scope.uuid)).isEmpty,
+            "a freshly synced tree must be conflict-free")
+
+        // OUR side: edit the entity through the real verb.
+        let entityUuid = try store.dbQueue.read { db in
+            try String.fetchOne(db, sql: """
+                SELECT uuid FROM dope_persistence_entity WHERE code = 'user'
+                """)
+        }
+        _ = try store.dopeNodeUpdate(DopeNodeUpdateRequest(
+            level: .entity, nodeUuid: entityUuid!, expectedVersion: 0,
+            fields: DopeNodeFields(name: "User (ours)")))
+
+        // THEIR side: the same element moves on disk.
+        let current = try sandbox.readBundle().bundle
+        let theirDomains = current.domainFiles.map { file in
+            DopePersistenceFileDocument(
+                version: file.version + 1, body: file.body,
+                entities: file.entities.map { entity in
+                    entity.body.code == "user"
+                        ? DopeEntityDocument(
+                            body: DopeEntityBody(
+                                code: entity.body.code, name: "User (theirs)",
+                                entityType: entity.body.entityType,
+                                description: entity.body.description,
+                                sortOrder: entity.body.sortOrder,
+                                repoRepresentativeFile: entity.body.repoRepresentativeFile,
+                                baseComposableRef: entity.body.baseComposableRef),
+                            properties: entity.properties)
+                        : entity
+                },
+                enums: file.enums)
+        }
+        _ = try sandbox.writeAtomically(DopeDocumentBundle(
+            main: DopeScopeDocument(version: current.main.version + 1,
+                                    scope: current.main.scope,
+                                    persistence: current.main.persistence),
+            domainFiles: theirDomains))
+
+        // Both moved → exactly one conflict, named by dot-path.
+        let conflicts = DopeMerge.conflicts(in: try store.dopeMergePlan(scopeUuid: scope.uuid))
+        XCTAssertEqual(conflicts.map(\.dotPath), ["core.user"])
+
+        // Resolve toward THEIRS: the file wins on the next plan.
+        XCTAssertEqual(
+            try store.dopeResolve(scopeUuid: scope.uuid, dotPath: "core.user", takeOurs: false),
+            ["core.user"])
+        let afterTheirs = try store.dopeMergePlan(scopeUuid: scope.uuid)
+        XCTAssertTrue(DopeMerge.conflicts(in: afterTheirs).isEmpty)
+        XCTAssertEqual(afterTheirs.first { $0.dotPath == "core.user" }?.decision, .takeTheirs)
+    }
+
+    func testResolveTowardOursKeepsTheLocalEdit() throws {
+        let scope = try makeScopeWithTree()
+        _ = try store.dopeWriteRepo(DopeWriteRepoRequest(scopeUuid: scope.uuid))
+        let sandbox = try DopeRepoSandbox.resolve(instanceRoot: repoRoot.path)
+        let published = try sandbox.readBundle().bundle
+        _ = try sandbox.writeAtomically(DopeDocumentBundle(
+            main: DopeScopeDocument(version: scope.revision + 1, scope: published.main.scope,
+                                    persistence: published.main.persistence),
+            domainFiles: published.domainFiles.map {
+                DopePersistenceFileDocument(version: scope.revision + 1, body: $0.body,
+                                            entities: $0.entities, enums: $0.enums)
+            }))
+        _ = try store.dopeIngest(DopeIngestRequest(scopeUuid: scope.uuid))
+
+        let entityUuid = try store.dbQueue.read { db in
+            try String.fetchOne(db, sql: """
+                SELECT uuid FROM dope_persistence_entity WHERE code = 'user'
+                """)
+        }
+        _ = try store.dopeNodeUpdate(DopeNodeUpdateRequest(
+            level: .entity, nodeUuid: entityUuid!, expectedVersion: 0,
+            fields: DopeNodeFields(name: "User (ours)")))
+
+        let current = try sandbox.readBundle().bundle
+        _ = try sandbox.writeAtomically(DopeDocumentBundle(
+            main: DopeScopeDocument(version: current.main.version + 1,
+                                    scope: current.main.scope,
+                                    persistence: current.main.persistence),
+            domainFiles: current.domainFiles.map { file in
+                DopePersistenceFileDocument(
+                    version: file.version + 1, body: file.body,
+                    entities: file.entities.map { entity in
+                        entity.body.code == "user"
+                            ? DopeEntityDocument(
+                                body: DopeEntityBody(
+                                    code: entity.body.code, name: "User (theirs)",
+                                    entityType: entity.body.entityType,
+                                    description: entity.body.description,
+                                    sortOrder: entity.body.sortOrder,
+                                    repoRepresentativeFile: entity.body.repoRepresentativeFile,
+                                    baseComposableRef: entity.body.baseComposableRef),
+                                properties: entity.properties)
+                            : entity
+                    },
+                    enums: file.enums)
+            }))
+
+        XCTAssertEqual(
+            DopeMerge.conflicts(in: try store.dopeMergePlan(scopeUuid: scope.uuid))
+                .map(\.dotPath),
+            ["core.user"])
+
+        // Resolve with no path = every conflict, toward ours.
+        XCTAssertEqual(
+            try store.dopeResolve(scopeUuid: scope.uuid, dotPath: nil, takeOurs: true),
+            ["core.user"])
+        let after = try store.dopeMergePlan(scopeUuid: scope.uuid)
+        XCTAssertTrue(DopeMerge.conflicts(in: after).isEmpty)
+        XCTAssertEqual(after.first { $0.dotPath == "core.user" }?.decision, .keepOurs)
+    }
+
+    // MARK: - tombstones never project
+
+    /// Directly proves the projection filter, independent of the two gates
+    /// that currently make a tombstone unreachable from the write path
+    /// (soft-delete is overlay-only, repo verbs are session-base-only).
+    /// Those gates are disjoint today; this asserts the invariant holds on
+    /// its own merits, so relaxing either one cannot quietly start writing
+    /// tombstones into committed files.
+    func testProjectionFilterDropsSoftDeletedRows() throws {
+        let scope = try makeScopeWithTree()
+
+        // Soft-delete is refused outside an overlay, so stamp deleted_on
+        // directly — this is exactly the state the filter must survive.
+        try store.dbQueue.write { db in
+            try db.execute(sql: """
+                UPDATE dope_persistence_entity SET deleted_on = '2026-01-01T00:00:00Z'
+                 WHERE code = 'user'
+                """)
+        }
+
+        let unfiltered = try store.dbQueue.read { db in
+            try self.store.fetchDopeTree(db, scope: scope)
+        }
+        let projected = try store.dbQueue.read { db in
+            try self.store.fetchDopeTree(db, scope: scope, forProjection: true)
+        }
+
+        func hasUserEntity(_ tree: DopeScopeTree) -> Bool {
+            for domain in tree.domains {
+                for entity in domain.entities where entity.body.code == "user" { return true }
+            }
+            return false
+        }
+        XCTAssertTrue(
+            hasUserEntity(unfiltered),
+            "an unfiltered read must still see the tombstone — the resolver depends on it")
+        XCTAssertFalse(
+            hasUserEntity(projected),
+            "the projection must drop the tombstoned entity")
+    }
+
+    // MARK: - session-base-only gate
+
+    /// Creates a PROMPT-tier (SESSION_INSTANCE_ITEM) scope alongside the
+    /// session-base one. Before the gate existed, all three repo verbs
+    /// happily resolved this scope's instance root — the same root the
+    /// session-base tree lives at — and wrote a prompt tree over the shared
+    /// .gmcc, tombstones and all.
+    private func makeOverlayScope() throws -> DopeScopeRow {
+        try store.dbQueue.write { db in
+            let now = Store.isoNow()
+            try db.execute(sql: """
+                INSERT INTO prompt (id, uuid, version, created_at, updated_at,
+                    session_uuid, seq, code, name, backstory, goal, detail, command,
+                    status, ckfs_relative_storage_path)
+                VALUES (NULL, 'prompt-1', 0, '\(now)', '\(now)',
+                        'sess-1', 1, 'p1', 'P1', '', '', '', '', 'draft', 'x');
+                """)
+        }
+        return try store.dopeInit(DopeInitRequest(
+            sessionUuid: "sess-1", promptUuid: "prompt-1",
+            code: "gmcc", name: "GMCC overlay")).scope
+    }
+
+    private func assertNotRepoWritable(
+        _ body: @autoclosure () throws -> Void,
+        _ verb: String,
+        file: StaticString = #filePath, line: UInt = #line
+    ) {
+        do {
+            try body()
+            XCTFail("\(verb) accepted a SESSION_INSTANCE_ITEM scope", file: file, line: line)
+        } catch let error as StoreError {
+            guard case .dopeScopeNotRepoWritable(_, let scopeType, let named) = error else {
+                return XCTFail("\(verb): wrong StoreError \(error)", file: file, line: line)
+            }
+            XCTAssertEqual(scopeType, DopeScopeType.sessionInstanceItem.rawValue,
+                           file: file, line: line)
+            XCTAssertEqual(named, verb, file: file, line: line)
+        } catch {
+            XCTFail("\(verb): unexpected error \(error)", file: file, line: line)
+        }
+    }
+
+    func testWriteRepoRefusesOverlayScope() throws {
+        let overlay = try makeOverlayScope()
+        assertNotRepoWritable(
+            _ = try self.store.dopeWriteRepo(DopeWriteRepoRequest(scopeUuid: overlay.uuid)),
+            "write-repo")
+    }
+
+    func testReadRepoRefusesOverlayScope() throws {
+        let scope = try makeScopeWithTree()
+        _ = try store.dopeWriteRepo(DopeWriteRepoRequest(scopeUuid: scope.uuid))
+        // The files exist and are perfectly readable — the refusal is about
+        // the scope's tier, not about a missing tree.
+        let overlay = try makeOverlayScope()
+        assertNotRepoWritable(
+            _ = try self.store.dopeReadRepo(DopeReadRepoRequest(scopeUuid: overlay.uuid)),
+            "read-repo")
+    }
+
+    func testIngestRefusesOverlayScope() throws {
+        let scope = try makeScopeWithTree()
+        _ = try store.dopeWriteRepo(DopeWriteRepoRequest(scopeUuid: scope.uuid))
+        let overlay = try makeOverlayScope()
+        assertNotRepoWritable(
+            _ = try self.store.dopeIngest(DopeIngestRequest(scopeUuid: overlay.uuid)),
+            "ingest")
+    }
+
+    /// The gate must not cost the base tier anything.
+    func testSessionBaseScopeStillPassesTheGate() throws {
+        let scope = try makeScopeWithTree()
+        XCTAssertNoThrow(
+            try store.dopeWriteRepo(DopeWriteRepoRequest(scopeUuid: scope.uuid)))
+        XCTAssertNoThrow(
+            try store.dopeReadRepo(DopeReadRepoRequest(scopeUuid: scope.uuid)))
+    }
+
     func testWriteReadIngestRoundTrip() throws {
         let scope = try makeScopeWithTree()
         XCTAssertEqual(scope.revision, 7)
 
         let written = try store.dopeWriteRepo(DopeWriteRepoRequest(scopeUuid: scope.uuid))
         XCTAssertEqual(written.revision, 7)
-        XCTAssertTrue(written.filesWritten.contains(".gmcc/dope/main.doped.json"))
+        XCTAssertTrue(written.filesWritten.contains(".gmcc/\(DopeDocumentCodec.scopeFileName)"))
 
         let read = try store.dopeReadRepo(DopeReadRepoRequest(scopeUuid: scope.uuid))
         XCTAssertEqual(read.onDiskRevision, 7)
@@ -95,9 +408,9 @@ final class DopeRepoVerbTests: XCTestCase {
         // Hand-bump the on-disk version to revision + 1 and ingest.
         let sandbox = try DopeRepoSandbox.resolve(instanceRoot: repoRoot.path)
         let bumped = DopeDocumentBundle(
-            main: DopeMainDocument(version: 8, scopeType: read.bundle.main.scopeType,
-                                   scope: read.bundle.main.scope,
-                                   domains: read.bundle.main.domains),
+            main: DopeScopeDocument(version: 8,
+                                    scope: read.bundle.main.scope,
+                                    persistence: read.bundle.main.persistence),
             domainFiles: read.bundle.domainFiles.map {
                 DopePersistenceFileDocument(version: 8, body: $0.body,
                                        entities: $0.entities, enums: $0.enums)
@@ -135,8 +448,9 @@ final class DopeRepoVerbTests: XCTestCase {
         let read = try sandbox.readBundle().bundle
         func stamped(_ version: Int64) -> DopeDocumentBundle {
             DopeDocumentBundle(
-                main: DopeMainDocument(version: version, scopeType: read.main.scopeType,
-                                       scope: read.main.scope, domains: read.main.domains),
+                main: DopeScopeDocument(version: version,
+                                    scope: read.main.scope,
+                                    persistence: read.main.persistence),
                 domainFiles: read.domainFiles.map {
                     DopePersistenceFileDocument(version: version, body: $0.body,
                                            entities: $0.entities, enums: $0.enums)
@@ -158,8 +472,9 @@ final class DopeRepoVerbTests: XCTestCase {
         let sandbox = try DopeRepoSandbox.resolve(instanceRoot: repoRoot.path)
         let read = try sandbox.readBundle().bundle
         _ = try sandbox.writeAtomically(DopeDocumentBundle(
-            main: DopeMainDocument(version: 99, scopeType: read.main.scopeType,
-                                   scope: read.main.scope, domains: read.main.domains),
+            main: DopeScopeDocument(version: 99,
+                                    scope: read.main.scope,
+                                    persistence: read.main.persistence),
             domainFiles: read.domainFiles.map {
                 DopePersistenceFileDocument(version: 99, body: $0.body,
                                        entities: $0.entities, enums: $0.enums)
@@ -229,8 +544,9 @@ final class DopeRepoVerbTests: XCTestCase {
         let read = try sandbox.readBundle().bundle
         let next = read.main.version + 1
         _ = try sandbox.writeAtomically(DopeDocumentBundle(
-            main: DopeMainDocument(version: next, scopeType: read.main.scopeType,
-                                   scope: read.main.scope, domains: read.main.domains),
+            main: DopeScopeDocument(version: next,
+                                    scope: read.main.scope,
+                                    persistence: read.main.persistence),
             domainFiles: read.domainFiles.map {
                 DopePersistenceFileDocument(version: next, body: $0.body,
                                        entities: $0.entities, enums: $0.enums)
@@ -274,8 +590,9 @@ final class DopeRepoVerbTests: XCTestCase {
         let read = try sandbox.readBundle().bundle
         let next = read.main.version + 1
         _ = try sandbox.writeAtomically(DopeDocumentBundle(
-            main: DopeMainDocument(version: next, scopeType: read.main.scopeType,
-                                   scope: read.main.scope, domains: read.main.domains),
+            main: DopeScopeDocument(version: next,
+                                    scope: read.main.scope,
+                                    persistence: read.main.persistence),
             domainFiles: read.domainFiles.map {
                 DopePersistenceFileDocument(version: next, body: $0.body,
                                        entities: $0.entities, enums: $0.enums)
@@ -339,8 +656,9 @@ final class DopeRepoVerbTests: XCTestCase {
             let read = try sandbox.readBundle().bundle
             let next = read.main.version + 1
             _ = try sandbox.writeAtomically(DopeDocumentBundle(
-                main: DopeMainDocument(version: next, scopeType: read.main.scopeType,
-                                       scope: read.main.scope, domains: read.main.domains),
+                main: DopeScopeDocument(version: next,
+                                    scope: read.main.scope,
+                                    persistence: read.main.persistence),
                 domainFiles: read.domainFiles.map {
                     DopePersistenceFileDocument(version: next, body: $0.body,
                                            entities: $0.entities, enums: $0.enums)
@@ -390,8 +708,9 @@ final class DopeRepoVerbTests: XCTestCase {
 
         func stamped(_ version: Int64, scopeBody: DopeScopeBody) -> DopeDocumentBundle {
             DopeDocumentBundle(
-                main: DopeMainDocument(version: version, scopeType: read.main.scopeType,
-                                       scope: scopeBody, domains: read.main.domains),
+                main: DopeScopeDocument(version: version,
+                                    scope: scopeBody,
+                                    persistence: read.main.persistence),
                 domainFiles: read.domainFiles.map {
                     DopePersistenceFileDocument(version: version, body: $0.body,
                                            entities: $0.entities, enums: $0.enums)

@@ -35,7 +35,7 @@ so generated geometry and rendered frames share one formula).
    elements and adds the regenerated canvas in ONE batch under the
    diagram-revision CAS (one automatic retry on REVISION_CONFLICT).
    No scope ⇒ it reports that no dope model exists — suggest `gm dope sync`
-   (seeds from the repo's `.gmcc/dope` tree) or `gm dope init`. A tree whose
+   (seeds from the repo's `.gmcc` tree) or `gm dope init`. A tree whose
    domains are all entity-less ⇒ it reports there is nothing to draw.
    To inspect without applying: `--dry-run [--mutations-out <path>]`.
 
@@ -51,7 +51,7 @@ so generated geometry and rendered frames share one formula).
 ## Rules
 
 - The dope tree is fetched from the DB, never parsed from the on-disk
-  `.gmcc/dope/` files — run `gm dope sync` first if the files are ahead.
+  `.gmcc/` dope files — run `gm dope sync` first if the files are ahead.
 - Hand-placed elements do not survive a regenerate: the batch deletes ALL
   top-level elements. Say so when regenerating a `revision > 0` diagram
   the user may have edited in GMVibes.

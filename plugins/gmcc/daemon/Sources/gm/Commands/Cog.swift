@@ -108,8 +108,8 @@ struct Cog: ParsableCommand {
             commandName: "element-add", abstract: "Add a typed element to a cog.")
         @OptionGroup var output: OutputOptions
         @Option(name: .long) var cogUuid: String
-        @Option(name: .long, help: "Registry type; today: Primary_System.")
-        var elementType: String = DopeCogElementType.primarySystem.rawValue
+        @Option(name: .long, help: "Registry type: Hull or PersistenceOwner.")
+        var elementType: String = DopeCogElementType.hull.rawValue
         @Option(name: .long) var code: String
         @Option(name: .long) var name: String
         @Option(name: .long) var description: String?
@@ -117,8 +117,11 @@ struct Cog: ParsableCommand {
         @Option(name: .long) var parentElementUuid: String?
         @Option(name: .long, help: "Ghost-tolerant dope scope code this element points at.")
         var dopeScopeCode: String?
-        @Option(name: .long, help: "Root path of the primary system.")
+        @Option(name: .long, help: "Root path of the hull. Required for Hull.")
         var primaryPath: String?
+        @Option(name: .long,
+                help: "Owned persistence domain CODE. Required for PersistenceOwner.")
+        var dopePersistenceCode: String?
 
         func run() throws {
             let r = try withClient {
@@ -126,7 +129,7 @@ struct Cog: ParsableCommand {
                     cogUuid: cogUuid, elementType: elementType, code: code, name: name,
                     description: description, sortOrder: sortOrder,
                     parentElementUuid: parentElementUuid, dopeScopeCode: dopeScopeCode,
-                    primaryPath: primaryPath))
+                    primaryPath: primaryPath, dopePersistenceCode: dopePersistenceCode))
             }
             emitElement(r, output)
         }

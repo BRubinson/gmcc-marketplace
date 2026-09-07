@@ -74,7 +74,8 @@ final class DopeBootSyncTests: XCTestCase {
     }
 
     private func mainFileBytes() throws -> Data {
-        try Data(contentsOf: repoRoot.appendingPathComponent(".gmcc/dope/main.doped.json"))
+        try Data(contentsOf: repoRoot.appendingPathComponent(
+            ".gmcc/\(DopeDocumentCodec.scopeFileName)"))
     }
 
     /// Rewrite the on-disk bundle at a new version (content unchanged).
@@ -82,8 +83,9 @@ final class DopeBootSyncTests: XCTestCase {
         let sandbox = try DopeRepoSandbox.resolve(instanceRoot: repoRoot.path)
         let read = try sandbox.readBundle().bundle
         let bumped = DopeDocumentBundle(
-            main: DopeMainDocument(version: version, scopeType: read.main.scopeType,
-                                   scope: read.main.scope, domains: read.main.domains),
+            main: DopeScopeDocument(version: version, scope: read.main.scope,
+                                    persistence: read.main.persistence,
+                                    cogs: read.main.cogs),
             domainFiles: read.domainFiles.map {
                 DopePersistenceFileDocument(version: version, body: $0.body,
                                        entities: $0.entities, enums: $0.enums)

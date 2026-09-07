@@ -26,16 +26,14 @@ public enum DopeValidator {
 
         // Scope.
         check { try DopeCode.validateCode(bundle.main.scope.code, field: "scope code") }
-        // Tolerant by design: every .doped.json committed before m0013 says
-        // "SESSION_BASE", and the boot path must never reject a tree that is
-        // simply older than the daemon. The file self-updates on its next
-        // write-repo.
-        if DopeScopeType(fromWire: bundle.main.scopeType) == nil {
-            errors.append("scope_type '\(bundle.main.scopeType)' is not one of "
-                + DopeScopeType.allCases.map(\.rawValue).joined(separator: ", "))
-        }
+        // scope_type is no longer persisted, so there is nothing to
+        // validate: only a SESSION_INSTANCE tree can be written to a repo
+        // (Store.requireRepoWritableScope), which makes the field a constant
+        // and a stored constant only creates the possibility of a file that
+        // contradicts it. An older file that still carries scope_type simply
+        // decodes with the key ignored.
         if bundle.main.version < 0 {
-            errors.append("main version \(bundle.main.version) is negative")
+            errors.append("scope version \(bundle.main.version) is negative")
         }
         if bundle.main.scope.description.count > 512 {
             errors.append("scope description exceeds 512 characters")
@@ -47,17 +45,19 @@ public enum DopeValidator {
         for code in dupFileCodes.sorted() {
             errors.append("duplicate domain file for code '\(code)'")
         }
-        let mapCodes = Set(bundle.main.domains.keys)
+        let mapCodes = Set(bundle.main.persistence.keys)
         for code in mapCodes.subtracting(fileCodes).sorted() {
-            errors.append("main.doped.json names domain '\(code)' but no domain file was provided")
+            errors.append(
+                "\(DopeDocumentCodec.scopeFileName) names persistence '\(code)' but no domain was provided")
         }
         for code in Set(fileCodes).subtracting(mapCodes).sorted() {
-            errors.append("domain file '\(code)' is not named in main.doped.json")
-        }
-        for (code, path) in bundle.main.domains.sorted(by: { $0.key < $1.key })
-        where path != DopeMainDocument.expectedFile(forDomainCode: code) {
             errors.append(
-                "main.doped.json maps domain '\(code)' to '\(path)' — expected '\(DopeMainDocument.expectedFile(forDomainCode: code))' (the map is data, never followed)")
+                "persistence domain '\(code)' is not named in \(DopeDocumentCodec.scopeFileName)")
+        }
+        for (code, path) in bundle.main.persistence.sorted(by: { $0.key < $1.key })
+        where path != DopeScopeDocument.expectedFile(forPersistenceCode: code) {
+            errors.append(
+                "\(DopeDocumentCodec.scopeFileName) maps persistence '\(code)' to '\(path)' — expected '\(DopeScopeDocument.expectedFile(forPersistenceCode: code))' (the map is data, never followed)")
         }
 
         // Per-domain walks + the cross-domain ref indexes.

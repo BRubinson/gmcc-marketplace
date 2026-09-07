@@ -10,12 +10,13 @@ import Foundation
 public enum DopeProjection {
 
     public static func documents(from tree: DopeScopeTree) -> DopeDocumentBundle {
-        let main = DopeMainDocument(
+        // scope_type is deliberately absent: only a SESSION_INSTANCE tree is
+        // writable, so persisting it would store a constant.
+        let main = DopeScopeDocument(
             version: tree.revision,
-            scopeType: tree.scopeType,
             scope: tree.body,
-            domains: Dictionary(uniqueKeysWithValues: tree.domains.map {
-                ($0.body.code, DopeMainDocument.expectedFile(forDomainCode: $0.body.code))
+            persistence: Dictionary(uniqueKeysWithValues: tree.domains.map {
+                ($0.body.code, DopeScopeDocument.expectedFile(forPersistenceCode: $0.body.code))
             })
         )
         let files = tree.domains.map { domain in

@@ -19,11 +19,11 @@ final class DopeSandboxTests: XCTestCase {
 
     private func makeBundle(version: Int64 = 1, domains: [String] = ["core"]) -> DopeDocumentBundle {
         DopeDocumentBundle(
-            main: DopeMainDocument(
-                version: version, scopeType: "SESSION_BASE",
+            main: DopeScopeDocument(
+                version: version,
                 scope: DopeScopeBody(code: "gmcc", name: "GMCC", description: ""),
-                domains: Dictionary(uniqueKeysWithValues: domains.map {
-                    ($0, DopeMainDocument.expectedFile(forDomainCode: $0))
+                persistence: Dictionary(uniqueKeysWithValues: domains.map {
+                    ($0, DopeScopeDocument.expectedFile(forPersistenceCode: $0))
                 })),
             domainFiles: domains.map {
                 DopePersistenceFileDocument(
@@ -55,13 +55,22 @@ final class DopeSandboxTests: XCTestCase {
 
     // MARK: - Containment
 
-    func testDomainFileRefusesEscapes() throws {
+    func testDomainPathsRefuseEscapes() throws {
         let sandbox = try DopeRepoSandbox.resolve(instanceRoot: repoRoot.path)
+        // The layout gained a level, so EVERY segment is validated now, not
+        // just the single flat one the old helper checked.
         for bad in ["../escape", "a/b", "..", "UPPER", ""] {
-            XCTAssertThrowsError(try sandbox.domainFile(code: bad), "'\(bad)' must be refused")
+            XCTAssertThrowsError(try sandbox.domainDirectory(code: bad))
+            XCTAssertThrowsError(try sandbox.domainIndexFile(code: bad))
+            XCTAssertThrowsError(try sandbox.domainEntityFile(domain: "core", entity: bad))
+            XCTAssertThrowsError(try sandbox.domainEnumFile(domain: "core", enumCode: bad))
         }
-        let good = try sandbox.domainFile(code: "core")
-        XCTAssertTrue(good.path.hasPrefix(sandbox.dopeRoot.path + "/"))
+        for good in [try sandbox.domainDirectory(code: "core"),
+                     try sandbox.domainIndexFile(code: "core"),
+                     try sandbox.domainEntityFile(domain: "core", entity: "user"),
+                     try sandbox.domainEnumFile(domain: "core", enumCode: "status")] {
+            XCTAssertTrue(good.path.hasPrefix(sandbox.dopeRoot.path + "/"))
+        }
     }
 
     func testReadRefusesTamperedDomainMap() throws {
@@ -69,9 +78,9 @@ final class DopeSandboxTests: XCTestCase {
         _ = try sandbox.writeAtomically(makeBundle())
         // Tamper: point the map outside domains/.
         let tampered = """
-            {"version": 1, "scope_type": "SESSION_BASE",
+            {"version": 1,
              "scope": {"code": "gmcc", "name": "GMCC", "description": ""},
-             "domains": {"core": "../../../etc/passwd"}}
+             "persistence": {"core": "../../../etc/passwd"}}
             """
         try Data(tampered.utf8).write(to: sandbox.mainFile)
         XCTAssertThrowsError(try sandbox.readBundle()) { error in
@@ -85,7 +94,7 @@ final class DopeSandboxTests: XCTestCase {
         let sandbox = try DopeRepoSandbox.resolve(instanceRoot: repoRoot.path)
         let bundle = makeBundle(domains: ["core", "billing"])
         let first = try sandbox.writeAtomically(bundle)
-        XCTAssertEqual(first.written.count, 4, "main + 2 domains + drawing config")
+        XCTAssertEqual(first.written.count, 3, "scope index + 2 domain index files")
 
         let read = try sandbox.readBundle()
         XCTAssertEqual(read.bundle.main, bundle.main)
@@ -101,18 +110,81 @@ final class DopeSandboxTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: sandbox.mainFile), mainBefore)
     }
 
-    func testWritePrunesStaleDomainFilesAndPreservesDrawingConfig() throws {
+    func testWritePrunesStaleDomainDirectories() throws {
         let sandbox = try DopeRepoSandbox.resolve(instanceRoot: repoRoot.path)
         _ = try sandbox.writeAtomically(makeBundle(domains: ["core", "billing"]))
-        // A user-authored drawing config must survive rewrites.
-        try Data("{\"zoom\": 2}".utf8).write(to: sandbox.drawingConfigFile)
 
         let second = try sandbox.writeAtomically(makeBundle(version: 2, domains: ["core"]))
-        XCTAssertEqual(second.pruned, ["domains/billing.doped.json"])
+        XCTAssertEqual(second.pruned, ["persistence/billing"])
         XCTAssertFalse(FileManager.default.fileExists(
-            atPath: sandbox.domainsDirectory.appendingPathComponent("billing.doped.json").path))
-        XCTAssertEqual(try Data(contentsOf: sandbox.drawingConfigFile),
-                       Data("{\"zoom\": 2}".utf8))
+            atPath: sandbox.persistenceDirectory.appendingPathComponent("billing").path))
+    }
+
+    /// `.gmcc/` is NOT exclusively dope-owned — `.screenshots/` lives there
+    /// too. The old layout could replaceItemAt the whole `.gmcc/dope`
+    /// directory precisely because nothing else was in it; swapping `.gmcc/`
+    /// wholesale would delete its siblings, so the write swaps only the
+    /// dope-owned subtrees.
+    func testWritePreservesGmccSiblings() throws {
+        let sandbox = try DopeRepoSandbox.resolve(instanceRoot: repoRoot.path)
+        _ = try sandbox.writeAtomically(makeBundle())
+
+        let shots = sandbox.dopeRoot.appendingPathComponent(".screenshots", isDirectory: true)
+        try FileManager.default.createDirectory(at: shots, withIntermediateDirectories: true)
+        let keep = shots.appendingPathComponent("keep.png")
+        try Data("png".utf8).write(to: keep)
+
+        _ = try sandbox.writeAtomically(makeBundle(version: 2))
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: keep.path),
+                      ".gmcc siblings must survive a write-repo")
+    }
+
+    /// Pins the ACTUAL on-disk shape against the layout the prompt
+    /// specifies, so a refactor cannot quietly drift the file names.
+    func testOnDiskLayoutMatchesTheSpecifiedShape() throws {
+        let sandbox = try DopeRepoSandbox.resolve(instanceRoot: repoRoot.path)
+        let bundle = DopeDocumentBundle(
+            main: DopeScopeDocument(
+                version: 1,
+                scope: DopeScopeBody(code: "gmcc", name: "GMCC", description: ""),
+                persistence: ["core": DopeScopeDocument.expectedFile(forPersistenceCode: "core")]),
+            domainFiles: [DopePersistenceFileDocument(
+                version: 1,
+                body: DopePersistenceBody(code: "core", name: "Core",
+                                          description: "", sortOrder: 0),
+                entities: [DopeEntityDocument(
+                    body: DopeEntityBody(code: "user", name: "User", entityType: "MODEL",
+                                         description: "", sortOrder: 0,
+                                         repoRepresentativeFile: nil, baseComposableRef: nil),
+                    properties: [])],
+                enums: [DopeEnumDocument(
+                    body: DopeEnumBody(code: "status", name: "Status", description: "",
+                                       sortOrder: 0, repoRepresentativeFile: nil),
+                    options: [])])])
+        let result = try sandbox.writeAtomically(bundle)
+
+        XCTAssertEqual(result.written, [
+            ".gmcc/persistence/core/core.entity.user.persistence.doped.json",
+            ".gmcc/persistence/core/core.enum.status.persistence.doped.json",
+            ".gmcc/persistence/core/core.index.persistence.doped.json",
+            ".gmcc/scope.doped.json",
+        ])
+
+        // No dope/ level, and the old names are gone.
+        let fm = FileManager.default
+        XCTAssertFalse(fm.fileExists(atPath: sandbox.dopeRoot
+            .appendingPathComponent("dope").path))
+        XCTAssertFalse(fm.fileExists(atPath: sandbox.dopeRoot
+            .appendingPathComponent("main.doped.json").path))
+        XCTAssertFalse(fm.fileExists(atPath: sandbox.dopeRoot
+            .appendingPathComponent("drawing_config.doped.json").path))
+
+        // And it reads back to exactly what went in.
+        let read = try sandbox.readBundle()
+        XCTAssertEqual(read.bundle.main, bundle.main)
+        XCTAssertEqual(read.bundle.domainFiles, bundle.domainFiles)
+        XCTAssertTrue(read.warnings.isEmpty)
     }
 
     func testPeekRevision() throws {
@@ -145,9 +217,11 @@ final class DopeSandboxTests: XCTestCase {
         XCTAssertTrue(leftovers.isEmpty, "staging directory leaked: \(leftovers)")
     }
 
-    /// Review fix [45]: containment must resolve symlinks — a symlinked
-    /// .gmcc/dope (or .gmcc) would otherwise redirect the atomic swap
-    /// outside the repo while every lexical prefix check passes.
+    /// Containment must resolve symlinks — a symlinked `.gmcc` would
+    /// redirect every contained path (and the subtree swap) outside the repo
+    /// while every lexical prefix check still passed. The guard moved up a
+    /// level with the layout: `.gmcc` IS the dope root now, so `.gmcc`
+    /// itself is what must be refused.
     func testSymlinkedDopeRootRefused() throws {
         let fm = FileManager.default
         let outside = fm.temporaryDirectory
@@ -155,10 +229,8 @@ final class DopeSandboxTests: XCTestCase {
         try fm.createDirectory(at: outside, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: outside) }
 
-        let gmcc = repoRoot.appendingPathComponent(".gmcc", isDirectory: true)
-        try fm.createDirectory(at: gmcc, withIntermediateDirectories: true)
         try fm.createSymbolicLink(
-            at: gmcc.appendingPathComponent("dope"),
+            at: repoRoot.appendingPathComponent(".gmcc"),
             withDestinationURL: outside)
 
         XCTAssertThrowsError(

@@ -128,7 +128,7 @@ final class DiagramRenderSmokeTests: XCTestCase {
             base: DiagramElementBase(code: "scope", name: "Scope", description: "",
                                      sortOrder: 0, centerX: 0, centerY: 0,
                                      elementZ: 0, scale: 1),
-            payload: .dopeScope(DopeScopePayload(dopeScopeCode: "gmcc")),
+            payload: .dopeScopePersistenceLayer(DopeScopePersistenceLayerPayload(dopeScopeCode: "gmcc")),
             children: [entity("el-user", code: "user", entityCode: "core.user", centerX: 0),
                        entity("el-profile", code: "profile", entityCode: "core.profile",
                               centerX: 420)])

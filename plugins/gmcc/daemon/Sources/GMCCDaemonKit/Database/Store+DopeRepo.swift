@@ -15,6 +15,25 @@ import GRDB
 /// user's repo.
 extension Store {
 
+    /// The repo verbs are SESSION-BASE ONLY.
+    ///
+    /// `requireSessionUuid()` is not the gate it looks like: it succeeds for
+    /// BOTH `.sessionInstance` and `.sessionInstanceItem`, because
+    /// `isSessionOwned` covers the overlay tier too. Without this guard,
+    /// `gm dope write-repo --scope-uuid <a PROMPT scope>` resolves the same
+    /// instance root a session-base write resolves and overwrites the shared
+    /// {instance_root}/.gmcc tree — and an overlay carries soft-delete
+    /// tombstones, which must never reach a committed .doped.json.
+    ///
+    /// Stated once here rather than three times inline, so the three verbs
+    /// cannot drift apart.
+    static func requireRepoWritableScope(_ scope: DopeScopeRow, verb: String) throws {
+        guard scope.tier == .sessionInstance else {
+            throw StoreError.dopeScopeNotRepoWritable(
+                scopeUuid: scope.uuid, scopeType: scope.scopeType, verb: verb)
+        }
+    }
+
     // MARK: - read-repo
 
     public func dopeReadRepo(_ req: DopeReadRepoRequest) throws -> DopeReadRepoResponse {
@@ -28,6 +47,7 @@ extension Store {
                 guard let scope = try self.fetchDopeScope(db, uuid: scopeUuid) else {
                     throw StoreError.notFound(entity: "dope_scope", key: scopeUuid)
                 }
+                try Store.requireRepoWritableScope(scope, verb: "read-repo")
                 return (try self.instanceRoot(db, sessionUuid: try scope.requireSessionUuid()),
                         scope.revision)
             }
@@ -75,8 +95,11 @@ extension Store {
             guard let scope = try self.fetchDopeScope(db, uuid: req.scopeUuid) else {
                 throw StoreError.notFound(entity: "dope_scope", key: req.scopeUuid)
             }
+            try Store.requireRepoWritableScope(scope, verb: "write-repo")
             let root = try self.instanceRoot(db, sessionUuid: try scope.requireSessionUuid())
-            let tree = try self.fetchDopeTree(db, scope: scope)
+            // forProjection: tombstones are overlay-tier personal state and
+            // must never reach a committed .doped.json.
+            let tree = try self.fetchDopeTree(db, scope: scope, forProjection: true)
             return (scope, root, tree)
         }
 
@@ -128,6 +151,7 @@ extension Store {
             guard let scope = try self.fetchDopeScope(db, uuid: req.scopeUuid) else {
                 throw StoreError.notFound(entity: "dope_scope", key: req.scopeUuid)
             }
+            try Store.requireRepoWritableScope(scope, verb: "ingest")
             return (scope, try self.instanceRoot(db, sessionUuid: try scope.requireSessionUuid()))
         }
 
@@ -209,6 +233,10 @@ extension Store {
             try self.wipeDopeTree(db, scopeUuid: req.scopeUuid)
             let counts = try self.insertDopeTree(
                 db, scopeUuid: req.scopeUuid, domainFiles: bundle.domainFiles)
+            // This tree just came FROM the files, so it IS the new merge
+            // base: record every element's hash and clear the dirty flags.
+            try self.stampProvenanceFromFiles(
+                db, scopeUuid: req.scopeUuid, bundle: bundle)
 
             guard let scope = try self.fetchDopeScope(db, uuid: req.scopeUuid) else {
                 throw StoreError.corruptState(entity: "dope_scope", detail: "vanished during ingest")

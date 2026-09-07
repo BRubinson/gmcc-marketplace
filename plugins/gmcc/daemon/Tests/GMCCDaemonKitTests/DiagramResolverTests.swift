@@ -160,11 +160,11 @@ final class DiagramResolverTests: XCTestCase {
             DopeEntityPayload(entityCode: "core.user")), centerX: 0)
         let entityMissing = element("e-missing", code: "missing", payload: .dopeEntity(
             DopeEntityPayload(entityCode: "core.no_such")), centerX: 400)
-        let scope = element("e-scope", code: "sc", payload: .dopeScope(
-            DopeScopePayload(dopeScopeCode: "gmcc")),
+        let scope = element("e-scope", code: "sc", payload: .dopeScopePersistenceLayer(
+            DopeScopePersistenceLayerPayload(dopeScopeCode: "gmcc")),
                             children: [entityKnown, entityMissing])
-        let danglingScope = element("e-ghost", code: "gs", payload: .dopeScope(
-            DopeScopePayload(dopeScopeCode: "nope")), centerX: 900,
+        let danglingScope = element("e-ghost", code: "gs", payload: .dopeScopePersistenceLayer(
+            DopeScopePersistenceLayerPayload(dopeScopeCode: "nope")), centerX: 900,
                                     children: [element("e-ghost-child", code: "gc",
                                                        payload: .dopeEntity(DopeEntityPayload(
                                                         entityCode: "core.user")))])
@@ -200,8 +200,8 @@ final class DiagramResolverTests: XCTestCase {
             DopeEntityPayload(entityCode: "core.user")), centerX: 0)
         let profileCard = element("e-profile", code: "p", payload: .dopeEntity(
             DopeEntityPayload(entityCode: "core.profile")), centerX: 500)
-        let scope = element("e-scope", code: "sc", payload: .dopeScope(
-            DopeScopePayload(dopeScopeCode: "gmcc")),
+        let scope = element("e-scope", code: "sc", payload: .dopeScopePersistenceLayer(
+            DopeScopePersistenceLayerPayload(dopeScopeCode: "gmcc")),
                             children: [userCard, profileCard])
         let resolved = DiagramResolver.resolve(tree([scope]), dope: context())
 
@@ -218,8 +218,8 @@ final class DiagramResolverTests: XCTestCase {
         // no card, so no edge (and no error).
         let userCard = element("e-user", code: "u", payload: .dopeEntity(
             DopeEntityPayload(entityCode: "core.user")))
-        let scope = element("e-scope", code: "sc", payload: .dopeScope(
-            DopeScopePayload(dopeScopeCode: "gmcc")), children: [userCard])
+        let scope = element("e-scope", code: "sc", payload: .dopeScopePersistenceLayer(
+            DopeScopePersistenceLayerPayload(dopeScopeCode: "gmcc")), children: [userCard])
         let resolved = DiagramResolver.resolve(tree([scope]), dope: context())
         XCTAssertTrue(resolved.edges.isEmpty)
     }
@@ -233,8 +233,8 @@ final class DiagramResolverTests: XCTestCase {
             DopeEntityPayload(entityCode: "core.user")), centerX: 0)
         let profileCard = element("e-profile", code: "p", payload: .dopeEntity(
             DopeEntityPayload(entityCode: "core.profile")), centerX: 500)
-        let scope = element("e-scope", code: "sc", payload: .dopeScope(
-            DopeScopePayload(dopeScopeCode: "gmcc")),
+        let scope = element("e-scope", code: "sc", payload: .dopeScopePersistenceLayer(
+            DopeScopePersistenceLayerPayload(dopeScopeCode: "gmcc")),
                             children: [userCard, profileCard])
         let resolved = DiagramResolver.resolve(tree([scope]), dope: context())
 
@@ -255,8 +255,8 @@ final class DiagramResolverTests: XCTestCase {
             DopeEntityPayload(entityCode: "core.user")), centerX: 0, scale: 2)
         let profileCard = element("e-profile", code: "p", payload: .dopeEntity(
             DopeEntityPayload(entityCode: "core.profile")), centerX: 900)
-        let scope = element("e-scope", code: "sc", payload: .dopeScope(
-            DopeScopePayload(dopeScopeCode: "gmcc")),
+        let scope = element("e-scope", code: "sc", payload: .dopeScopePersistenceLayer(
+            DopeScopePersistenceLayerPayload(dopeScopeCode: "gmcc")),
                             children: [userCard, profileCard])
         let resolved = DiagramResolver.resolve(tree([scope]), dope: context())
 
@@ -277,8 +277,8 @@ final class DiagramResolverTests: XCTestCase {
             DopeEntityPayload(entityCode: "core.no_such")), centerX: 320, centerY: 10)
         let profileCard = element("e-profile", code: "p", payload: .dopeEntity(
             DopeEntityPayload(entityCode: "core.profile")), centerX: 640)
-        let scope = element("e-scope", code: "sc", payload: .dopeScope(
-            DopeScopePayload(dopeScopeCode: "gmcc")),
+        let scope = element("e-scope", code: "sc", payload: .dopeScopePersistenceLayer(
+            DopeScopePersistenceLayerPayload(dopeScopeCode: "gmcc")),
                             children: [userCard, ghost, profileCard])
         let resolved = DiagramResolver.resolve(tree([scope]), dope: context())
 
@@ -310,8 +310,8 @@ final class DiagramResolverTests: XCTestCase {
             DopeEntityPayload(entityCode: "core.no_such")), centerX: 320, centerY: 10)
         let profileCard = element("e-profile", code: "p", payload: .dopeEntity(
             DopeEntityPayload(entityCode: "core.profile")), centerX: 640)
-        let scope = element("e-scope", code: "sc", payload: .dopeScope(
-            DopeScopePayload(dopeScopeCode: "gmcc")),
+        let scope = element("e-scope", code: "sc", payload: .dopeScopePersistenceLayer(
+            DopeScopePersistenceLayerPayload(dopeScopeCode: "gmcc")),
                             children: [userCard, ghost, profileCard])
         let resolved = DiagramResolver.resolve(tree([scope]), dope: context())
 
@@ -335,8 +335,8 @@ final class DiagramResolverTests: XCTestCase {
             DopeEntityPayload(entityCode: "core.ghost_r")), centerX: 266)
         let profileCard = element("e-profile", code: "p", payload: .dopeEntity(
             DopeEntityPayload(entityCode: "core.profile")), centerX: 1200)
-        let scope = element("e-scope", code: "sc", payload: .dopeScope(
-            DopeScopePayload(dopeScopeCode: "gmcc")),
+        let scope = element("e-scope", code: "sc", payload: .dopeScopePersistenceLayer(
+            DopeScopePersistenceLayerPayload(dopeScopeCode: "gmcc")),
                             children: [userCard, wallL, wallR, profileCard])
         let resolved = DiagramResolver.resolve(tree([scope]), dope: context())
 
@@ -357,8 +357,8 @@ final class DiagramResolverTests: XCTestCase {
             DopeEntityPayload(entityCode: "core.no_such")), centerX: 320, centerY: 10)
         let profileCard = element("e-profile", code: "p", payload: .dopeEntity(
             DopeEntityPayload(entityCode: "core.profile")), centerX: 640)
-        let scope = element("e-scope", code: "sc", payload: .dopeScope(
-            DopeScopePayload(dopeScopeCode: "gmcc")),
+        let scope = element("e-scope", code: "sc", payload: .dopeScopePersistenceLayer(
+            DopeScopePersistenceLayerPayload(dopeScopeCode: "gmcc")),
                             children: [userCard, ghost, profileCard])
         let first = DiagramResolver.resolve(tree([scope]), dope: context())
         let second = DiagramResolver.resolve(tree([scope]), dope: context())

@@ -52,7 +52,7 @@ final class DopeCogTests: XCTestCase {
                              ("gm_bot", "plugins/gmcc/skills/"),
                              ("gm_daemon", "plugins/gmcc/daemon/")] {
             _ = try store.dopeCogElementAdd(DopeCogElementAddRequest(
-                cogUuid: cog.cog.uuid, elementType: "Primary_System",
+                cogUuid: cog.cog.uuid, elementType: "Hull",
                 code: code, name: code, primaryPath: path))
         }
         let got = try store.dopeCogGet(DopeCogGetRequest(scopeUuid: scopeUuid))
@@ -68,11 +68,81 @@ final class DopeCogTests: XCTestCase {
     func testSeededSystemsCarryTheirPaths() throws {
         let cog = try addCog()
         _ = try store.dopeCogElementAdd(DopeCogElementAddRequest(
-            cogUuid: cog.cog.uuid, elementType: "Primary_System",
+            cogUuid: cog.cog.uuid, elementType: "Hull",
             code: "gm_daemon", name: "GM Daemon", primaryPath: "plugins/gmcc/daemon/"))
         let got = try store.dopeCogGet(DopeCogGetRequest(scopeUuid: scopeUuid))
         XCTAssertEqual(got.cogs[0].elements[0].primaryPath, "plugins/gmcc/daemon/")
-        XCTAssertEqual(got.cogs[0].elements[0].elementType, "Primary_System")
+        XCTAssertEqual(got.cogs[0].elements[0].elementType, "Hull")
+    }
+
+    // MARK: - PersistenceOwner
+
+    /// One PersistenceOwner element per owned domain, parented to a Hull.
+    /// Multiplicity is sibling elements rather than a many-valued field,
+    /// which is what lets the registry keep its
+    /// one-type-one-subtype-table shape.
+    func testHullOwnsPersistenceDomainsViaSiblingElements() throws {
+        let cog = try addCog()
+        let hull = try store.dopeCogElementAdd(DopeCogElementAddRequest(
+            cogUuid: cog.cog.uuid, elementType: "Hull",
+            code: "gm_daemon", name: "GM Daemon", primaryPath: "plugins/gmcc/daemon/"))
+
+        for domain in ["doped", "agentics"] {
+            _ = try store.dopeCogElementAdd(DopeCogElementAddRequest(
+                cogUuid: cog.cog.uuid, elementType: "PersistenceOwner",
+                code: "owns_\(domain)", name: "Owns \(domain)",
+                parentElementUuid: hull.element.uuid,
+                dopePersistenceCode: domain))
+        }
+
+        let got = try store.dopeCogGet(DopeCogGetRequest(scopeUuid: scopeUuid))
+        let owners = got.cogs[0].elements.filter { $0.elementType == "PersistenceOwner" }
+        XCTAssertEqual(owners.count, 2)
+        XCTAssertEqual(Set(owners.compactMap { $0.dopePersistenceCode }), ["doped", "agentics"])
+    }
+
+    /// Links may live on a Hull and nowhere else.
+    func testPersistenceOwnerRefusesTopLevelAndNonHullParents() throws {
+        let cog = try addCog()
+
+        // Top level: refused, because allowedParentTypes is [.hull].
+        XCTAssertThrowsError(try store.dopeCogElementAdd(DopeCogElementAddRequest(
+            cogUuid: cog.cog.uuid, elementType: "PersistenceOwner",
+            code: "orphan", name: "Orphan", dopePersistenceCode: "doped")))
+
+        // Parented under another PersistenceOwner: also refused.
+        let hull = try store.dopeCogElementAdd(DopeCogElementAddRequest(
+            cogUuid: cog.cog.uuid, elementType: "Hull",
+            code: "gm_daemon", name: "GM Daemon", primaryPath: "plugins/gmcc/daemon/"))
+        let owner = try store.dopeCogElementAdd(DopeCogElementAddRequest(
+            cogUuid: cog.cog.uuid, elementType: "PersistenceOwner",
+            code: "owns_doped", name: "Owns doped",
+            parentElementUuid: hull.element.uuid, dopePersistenceCode: "doped"))
+        XCTAssertThrowsError(try store.dopeCogElementAdd(DopeCogElementAddRequest(
+            cogUuid: cog.cog.uuid, elementType: "PersistenceOwner",
+            code: "nested", name: "Nested",
+            parentElementUuid: owner.element.uuid, dopePersistenceCode: "agentics")))
+    }
+
+    /// Required fields are per-type now. The old code checked primary_path
+    /// literally, which a PersistenceOwner — which has no primary_path at
+    /// all — could never satisfy.
+    func testRequiredFieldsAreValidatedPerType() throws {
+        let cog = try addCog()
+        // Hull without --primary-path.
+        XCTAssertThrowsError(try store.dopeCogElementAdd(DopeCogElementAddRequest(
+            cogUuid: cog.cog.uuid, elementType: "Hull", code: "h", name: "H")))
+        let hull = try store.dopeCogElementAdd(DopeCogElementAddRequest(
+            cogUuid: cog.cog.uuid, elementType: "Hull",
+            code: "gm_daemon", name: "GM Daemon", primaryPath: "plugins/gmcc/daemon/"))
+        // PersistenceOwner without --dope-persistence-code.
+        XCTAssertThrowsError(try store.dopeCogElementAdd(DopeCogElementAddRequest(
+            cogUuid: cog.cog.uuid, elementType: "PersistenceOwner", code: "o", name: "O",
+            parentElementUuid: hull.element.uuid)))
+        // A PersistenceOwner does NOT need a primary_path.
+        XCTAssertNoThrow(try store.dopeCogElementAdd(DopeCogElementAddRequest(
+            cogUuid: cog.cog.uuid, elementType: "PersistenceOwner", code: "o", name: "O",
+            parentElementUuid: hull.element.uuid, dopePersistenceCode: "doped")))
     }
 
     /// The registry IS the constraint, because the column deliberately has no
@@ -107,16 +177,16 @@ final class DopeCogTests: XCTestCase {
     func testPrimarySystemRequiresAPath() throws {
         let cog = try addCog()
         XCTAssertThrowsError(try store.dopeCogElementAdd(DopeCogElementAddRequest(
-            cogUuid: cog.cog.uuid, elementType: "Primary_System", code: "x", name: "x")))
+            cogUuid: cog.cog.uuid, elementType: "Hull", code: "x", name: "x")))
     }
 
     func testPrimarySystemIsTopLevelOnly() throws {
         let cog = try addCog()
         let parent = try store.dopeCogElementAdd(DopeCogElementAddRequest(
-            cogUuid: cog.cog.uuid, elementType: "Primary_System",
+            cogUuid: cog.cog.uuid, elementType: "Hull",
             code: "a", name: "A", primaryPath: "a/"))
         XCTAssertThrowsError(try store.dopeCogElementAdd(DopeCogElementAddRequest(
-            cogUuid: cog.cog.uuid, elementType: "Primary_System", code: "b", name: "B",
+            cogUuid: cog.cog.uuid, elementType: "Hull", code: "b", name: "B",
             parentElementUuid: parent.element.uuid, primaryPath: "b/")))
     }
 
@@ -125,7 +195,7 @@ final class DopeCogTests: XCTestCase {
     func testDanglingDopeScopeCodeIsLegal() throws {
         let cog = try addCog()
         let e = try store.dopeCogElementAdd(DopeCogElementAddRequest(
-            cogUuid: cog.cog.uuid, elementType: "Primary_System", code: "a", name: "A",
+            cogUuid: cog.cog.uuid, elementType: "Hull", code: "a", name: "A",
             dopeScopeCode: "no_such_scope", primaryPath: "a/"))
         XCTAssertEqual(e.element.dopeScopeCode, "no_such_scope")
         let got = try store.dopeCogGet(DopeCogGetRequest(scopeUuid: scopeUuid))
@@ -149,7 +219,7 @@ final class DopeCogTests: XCTestCase {
     func testDeleteCascadesElements() throws {
         let cog = try addCog()
         _ = try store.dopeCogElementAdd(DopeCogElementAddRequest(
-            cogUuid: cog.cog.uuid, elementType: "Primary_System",
+            cogUuid: cog.cog.uuid, elementType: "Hull",
             code: "a", name: "A", primaryPath: "a/"))
         let r = try store.dopeCogDelete(DopeCogDeleteRequest(
             uuid: cog.cog.uuid, expectedVersion: cog.cog.version))

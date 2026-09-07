@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import GMCCDaemonKit
 
 /// The ONE dope surface, mounted at both levels: the session view's dope tab
@@ -471,7 +472,8 @@ private struct DomainCard: View {
                         .foregroundStyle(.secondary)
                 }
                 ForEach(visibleEntities, id: \.identity.uuid) { entity in
-                    EntityRow(entity: entity, query: query,
+                    EntityRow(entity: entity, domainCode: domain.body.code,
+                              query: query,
                               expansion: expansion, inspector: inspector,
                               baseCatalog: baseCatalog)
                 }
@@ -515,6 +517,9 @@ private struct DomainCard: View {
 
 private struct EntityRow: View {
     let entity: DopeEntityNode
+    /// The owning domain's code — held only so this row can format the
+    /// `domain.entity` dot-path it copies (the node itself doesn't carry it).
+    let domainCode: String
     let query: String
     let expansion: DopeExpansion
     let inspector: DopeEnumInspector
@@ -550,19 +555,36 @@ private struct EntityRow: View {
             || entity.properties.contains { $0.body.baseOriginRef != nil }
     }
 
+    /// `domain.entity` — the same greppable dot-path the daemon writes into
+    /// `.doped.json` (kit formatter, never string-built here).
+    private var entityRef: String {
+        DopeCode.formatEntityRef(domain: domainCode, entity: entity.body.code)
+    }
+
+    private func propertyRef(_ property: DopePropertyNode) -> String {
+        DopeCode.formatPropertyRef(domain: domainCode, entity: entity.body.code,
+                                   property: property.body.code)
+    }
+
     var body: some View {
         DisclosureGroup(isExpanded: query.isEmpty ? $expanded : .constant(true)) {
             VStack(alignment: .leading, spacing: 3) {
                 ForEach(renderedProperties, id: \.identity.uuid) { property in
                     if let origin = property.body.baseOriginRef {
                         PropertyRow(property: property, inspector: inspector,
+                                    ref: propertyRef(property),
                                     mode: .materialized(origin: origin))
                     } else {
-                        PropertyRow(property: property, inspector: inspector)
+                        PropertyRow(property: property, inspector: inspector,
+                                    ref: propertyRef(property))
                     }
                 }
                 ForEach(inheritedProperties) { inherited in
+                    // An inherited row is synthetic here — the field is
+                    // declared on the base entity, so the ORIGIN path is the
+                    // one that actually resolves.
                     PropertyRow(property: inherited.node, inspector: inspector,
+                                ref: inherited.originRef,
                                 mode: .inherited(origin: inherited.originRef))
                 }
                 if entity.properties.isEmpty && inheritedProperties.isEmpty {
@@ -588,8 +610,15 @@ private struct EntityRow: View {
             .padding(.leading, 4)
         } label: {
             HStack(spacing: 6) {
-                Label(entity.body.name, systemImage: "tablecells")
-                    .font(.callout)
+                // Table name FIRST: `entity.body.code` IS the table name
+                // (dope_persistence_entity is the table level — dope_persistence
+                // above it is the domain grouping). The display name trails it
+                // as secondary prose.
+                Label(entity.body.code, systemImage: "tablecells")
+                    .font(.callout.monospaced())
+                Text(entity.body.name)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Text(entity.body.entityType)
                     .font(.caption2)
                     .padding(.horizontal, 5)
@@ -606,7 +635,13 @@ private struct EntityRow: View {
                 Text("\(entity.properties.count)")
                     .font(.caption2.monospaced())
                     .foregroundStyle(.tertiary)
+                DopeCopyButton(ref: entityRef)
             }
+            // The chevron still owns expand/collapse; a click anywhere on the
+            // label copies instead of toggling.
+            .contentShape(.rect)
+            .onTapGesture { copyDopeRef(entityRef) }
+            .help("Click to copy \(entityRef)")
         }
         .onChange(of: expansion) { _, command in
             expanded = command.expanded
@@ -627,6 +662,10 @@ private struct PropertyRow: View {
 
     let property: DopePropertyNode
     let inspector: DopeEnumInspector
+    /// `domain.entity.property` — the dot-path this row copies. Inherited rows
+    /// are handed their ORIGIN path: the field is declared on the base entity
+    /// and does not resolve under the hosting entity's code.
+    let ref: String
     var mode: Mode = .local
     @State private var hovering = false
 
@@ -636,20 +675,15 @@ private struct PropertyRow: View {
     }
 
     var body: some View {
-        if let ref = property.body.enumRef, let enumNode {
-            Button {
-                inspector.inspect(ref, property.identity.uuid)
-            } label: {
-                row(enumNode: enumNode)
-            }
-            .buttonStyle(.plain)
-            .onHover { hovering = $0 }
-            .help("Inspect \(enumNode.body.name) — its options and every property using it")
-        } else {
-            // A non-enum (or dangling-ref) property renders exactly as before:
-            // not a button, no hover, no badges.
-            row(enumNode: nil)
+        HStack(spacing: 6) {
+            // The row body is the copy target; enum inspection lives on the
+            // enum chip inside it so both actions stay reachable.
+            row(enumNode: enumNode)
+                .onTapGesture { copyDopeRef(ref) }
+                .help("Click to copy \(ref)")
+            DopeCopyButton(ref: ref)
         }
+        .onHover { hovering = $0 }
     }
 
     private func row(enumNode: DopeEnumNode?) -> some View {
@@ -657,7 +691,12 @@ private struct PropertyRow: View {
             Image(systemName: "circle.fill")
                 .font(.system(size: 4))
                 .foregroundStyle(.tertiary)
-            Text(property.body.name).font(.callout)
+            // Column name FIRST, and only the property's OWN code — never a
+            // dot-path. The display name trails it as secondary prose.
+            Text(property.body.code).font(.callout.monospaced())
+            Text(property.body.name)
+                .font(.caption)
+                .foregroundStyle(.secondary)
             Text(property.body.dataType)
                 .font(.caption.monospaced())
                 .foregroundStyle(.blue)
@@ -668,10 +707,23 @@ private struct PropertyRow: View {
                 Text("unique").font(.caption2).foregroundStyle(.purple)
             }
             if let enumRef = property.body.enumRef {
-                Text("→ \(enumRef)").font(.caption2.monospaced()).foregroundStyle(.secondary)
-            }
-            if let enumNode, !enumNode.options.isEmpty {
-                DopeEnumBadgeStrip(options: enumNode.options)
+                if let enumNode {
+                    Button {
+                        inspector.inspect(enumRef, property.identity.uuid)
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text("→ \(enumRef)").font(.caption2.monospaced()).foregroundStyle(.secondary)
+                            if !enumNode.options.isEmpty {
+                                DopeEnumBadgeStrip(options: enumNode.options)
+                            }
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .help("Inspect \(enumNode.body.name) — its options and every property using it")
+                } else {
+                    // Dangling ref: text only, exactly as before.
+                    Text("→ \(enumRef)").font(.caption2.monospaced()).foregroundStyle(.secondary)
+                }
             }
             if let related = property.body.relationshipTargetRef {
                 Text("→ \(related)").font(.caption2.monospaced()).foregroundStyle(.secondary)
@@ -710,6 +762,40 @@ private struct PropertyRow: View {
                     .padding(.vertical, -2)     // so row metrics are unchanged
             }
         }
+    }
+}
+
+/// Copies `ref` to the general pasteboard. The one write this read-only
+/// surface performs — nothing daemon-side is touched.
+@MainActor
+private func copyDopeRef(_ ref: String) {
+    NSPasteboard.general.clearContents()
+    NSPasteboard.general.setString(ref, forType: .string)
+}
+
+/// Trailing copy affordance on entity + property rows: copies the dot-path and
+/// flashes a checkmark so the copy is visibly acknowledged. View state only.
+private struct DopeCopyButton: View {
+    let ref: String
+    @State private var copied = false
+
+    var body: some View {
+        Button {
+            copyDopeRef(ref)
+            copied = true
+            Task {
+                try? await Task.sleep(for: .seconds(1.2))
+                copied = false
+            }
+        } label: {
+            Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                .font(.caption)
+                .foregroundStyle(copied ? Color.green : Color.secondary)
+                .frame(width: 16, height: 14)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .help("Copy \(ref)")
     }
 }
 

@@ -161,7 +161,7 @@ and proceed to Phase 2.
 scope, `gm dope get --session-uuid U --json` and keep the tree in primary
 context through Phase 2 (this tier has no explore spawns, so primary
 context IS the injection). The dump is always the persistence layer's
-source of truth, boot-synced from `.gmcc/dope`. No scope → note it and
+source of truth, boot-synced from `.gmcc`. No scope → note it and
 move on. Full protocol: `skills/gmcc/ref/bot_workflows.md`.
 
 ---

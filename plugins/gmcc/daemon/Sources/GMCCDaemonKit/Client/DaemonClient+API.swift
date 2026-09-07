@@ -389,6 +389,14 @@ extension DaemonClient {
         try request(type: .dopeNodeDelete, payload: req, responseType: DopeNodeDeleteResponse.self)
     }
 
+    public func dopeMergePlan(_ req: DopeMergePlanRequest) throws -> DopeMergePlanResponse {
+        try request(type: .dopeMergePlan, payload: req, responseType: DopeMergePlanResponse.self)
+    }
+
+    public func dopeResolve(_ req: DopeResolveRequest) throws -> DopeResolveResponse {
+        try request(type: .dopeResolve, payload: req, responseType: DopeResolveResponse.self)
+    }
+
     public func dopeReadRepo(_ req: DopeReadRepoRequest) throws -> DopeReadRepoResponse {
         try request(type: .dopeReadRepo, payload: req, responseType: DopeReadRepoResponse.self)
     }

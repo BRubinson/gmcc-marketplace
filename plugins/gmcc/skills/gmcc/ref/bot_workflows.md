@@ -203,7 +203,7 @@ spawned agents.
 
 **DOPE = Domain Optimized Project Essence** — the session's domain model
 and always the PERSISTENCE LAYER's source of truth. Boot seeds it from the
-repo's `.gmcc/dope` tree (`gm context ensure` / `gm dope sync`), so it is
+repo's `.gmcc` tree (`gm context ensure` / `gm dope sync`), so it is
 populated from the first prompt of a fresh branch.
 
 Before spawning explore agents, every tier runs

@@ -39,6 +39,15 @@ public enum StoreError: Error, Sendable {
     /// Same wire code as summaryAbsent (the dopeScopeAbsent precedent) so a
     /// pinned-Kit GMVibes always decodes it; the remediation hint differs.
     case diagramAbsent(ownerKind: String, ownerUuid: String, code: String?)
+    /// A repo verb (read-repo / write-repo / ingest) was pointed at a scope
+    /// that is not the session's base tier. `requireSessionUuid()` alone
+    /// admits SESSION_INSTANCE_ITEM as well, so without this guard a
+    /// prompt-scoped tree writes straight into the shared
+    /// {instance_root}/.gmcc — and an overlay's soft-delete tombstones would
+    /// reach committed files, which the format explicitly forbids. Mapped onto
+    /// the badRequest wire code (no new ErrorCode), so a pinned-Kit GMVibes
+    /// still decodes it.
+    case dopeScopeNotRepoWritable(scopeUuid: String, scopeType: String, verb: String)
 
     public var errorPayload: ErrorPayload {
         switch self {
@@ -107,6 +116,12 @@ public enum StoreError: Error, Sendable {
             return ErrorPayload(
                 code: .summaryAbsent,
                 message: "\(target) has no diagram yet — initialize one (\(initHint))")
+        case .dopeScopeNotRepoWritable(let scopeUuid, let scopeType, let verb):
+            return ErrorPayload(
+                code: .badRequest,
+                message: "dope \(verb) is session-base only: scope \(scopeUuid) is "
+                    + "\(scopeType). Only a SESSION_INSTANCE tree is read from or "
+                    + "written to {instance_root}/.gmcc")
         }
     }
 }

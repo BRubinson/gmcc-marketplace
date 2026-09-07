@@ -221,7 +221,7 @@ schema_migrations (unwrapped ledger).
 `gm dope` models a codebase's persistence layer as a tree:
 scope → domain → { entity → property, enum → option }. `dope_scope.revision`
 is the whole-tree content counter and IS the `version` field of
-`main.doped.json`; every granular verb bumps it by exactly 1 and leaves row
+`scope.doped.json`; every granular verb bumps it by exactly 1 and leaves row
 `version` to `--expected-version`.
 
 | Subcommand | Purpose |
@@ -229,7 +229,7 @@ is the whole-tree content counter and IS the `version` field of
 | `gm dope init` | Create-or-return a scope. PROMPT-typed iff `--prompt-uuid`; `--clone-from-session-base` forks the session's tree. |
 | `gm dope list` / `get` | Picker enumeration (SESSION_BASE scopes, or ONLY a prompt's PROMPT scopes — never a union) / the full tree (PROMPT preferred, SESSION_BASE fallback). No scope ⇒ `SUMMARY_ABSENT` ⇒ `gm dope init`. |
 | `gm dope {domain,entity,property,enum,option}-{add,update,delete}` | Granular db-native edits. Uuids + `--expected-version`; deletes cascade the subtree and refuse still-referenced targets by naming the referrer. |
-| `gm dope read-repo` / `write-repo` / `ingest` | Whole-tree JSON I/O against `{instance_root}/.gmcc/dope/`. `ingest` requires the on-disk version to be EXACTLY db revision + 1 and mints fresh child uuids (no smart diff). |
+| `gm dope read-repo` / `write-repo` / `ingest` | Whole-tree JSON I/O against `{instance_root}/.gmcc/`. `ingest` requires the on-disk version to be EXACTLY db revision + 1 and mints fresh child uuids (no smart diff). |
 
 **References are dot-path CODES in the JSON, uuids in the verbs.** Three ref
 shapes: `domain.entity.property` (relationship targets), `domain.enums.code`
@@ -277,7 +277,7 @@ carries) that other entities point at via `--base-composable-uuid`
 ### Boot-time sync and session env
 
 `gm dope sync` reconciles the session's SESSION_BASE scope from the on-disk
-files at `{instance_root}/.gmcc/dope` into the db: it seeds a virgin scope,
+files at `{instance_root}/.gmcc` into the db: it seeds a virgin scope,
 re-adopts when the files are ahead (any forward gap), and WARNS ONLY when the
 db is ahead. It runs automatically at boot via `gm context ensure`; the
 underlying `gm dope ingest --adopt` is the boot-sync-only files-win mode —

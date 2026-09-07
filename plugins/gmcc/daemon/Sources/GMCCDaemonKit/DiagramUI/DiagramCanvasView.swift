@@ -302,14 +302,17 @@ public struct DopeEntityCardView: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Text(model?.entityName ?? "⌀ missing")
-                    .font(.system(size: 12, weight: .bold))
+            HStack(spacing: 5) {
+                // Table name FIRST — the schema truth. A ghost has no model,
+                // so it falls back to the 2-segment binding code that failed
+                // to resolve (that path IS the diagnostic there).
+                Text(model?.tableName ?? ghostCode ?? element.code)
+                    .font(.system(size: 12, weight: .bold, design: .monospaced))
                     .foregroundStyle(.white)
-                Spacer(minLength: 4)
-                Text(model?.entityCode ?? ghostCode ?? element.code)
-                    .font(.system(size: 10, design: .monospaced))
+                Text(model?.entityName ?? "⌀ missing")
+                    .font(.system(size: 10))
                     .foregroundStyle(.white.opacity(0.85))
+                Spacer(minLength: 4)
             }
             .padding(.horizontal, 8)
             .frame(height: environment.cardHeaderHeight - 12)

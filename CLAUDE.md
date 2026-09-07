@@ -13,7 +13,7 @@ gmcc-booted repo gets them, not just this one.
 - `gmvibes/` — the GMVibes macOS app (Swift/SwiftUI), building against the
   daemon package via a direct local package reference. Release via the
   `release-dmg` skill.
-- `.gmcc/dope/` — this repo's committed DOPE tree (Domain Optimized
+- `.gmcc/` — this repo's committed DOPE tree (Domain Optimized
   Project Essence); sessions boot-sync their dope scope from it.
 
 ## Build / test loop

@@ -78,7 +78,7 @@ private func dopeContext() -> DiagramDopeContext {
 private func cardTree() -> DiagramTree {
     let scope = element(
         "el-scope", code: "scope",
-        payload: .dopeScope(DopeScopePayload(dopeScopeCode: "gmcc")),
+        payload: .dopeScopePersistenceLayer(DopeScopePersistenceLayerPayload(dopeScopeCode: "gmcc")),
         children: [
             element("el-user", code: "user",
                     payload: .dopeEntity(DopeEntityPayload(entityCode: "core.user")),
@@ -128,7 +128,7 @@ final class DiagramHitTestTests: XCTestCase {
         // Two cards stacked at the same center; higher elementZ paints later.
         let scope = element(
             "el-scope", code: "scope",
-            payload: .dopeScope(DopeScopePayload(dopeScopeCode: "gmcc")),
+            payload: .dopeScopePersistenceLayer(DopeScopePersistenceLayerPayload(dopeScopeCode: "gmcc")),
             children: [
                 element("el-a", code: "a",
                         payload: .dopeEntity(DopeEntityPayload(entityCode: "core.user")),
@@ -191,7 +191,7 @@ final class DiagramGeometryTests: XCTestCase {
         // scale is 2, element accumulated scale is 1.
         let scope = element(
             "el-scope", code: "scope",
-            payload: .dopeScope(DopeScopePayload(dopeScopeCode: "gmcc")),
+            payload: .dopeScopePersistenceLayer(DopeScopePersistenceLayerPayload(dopeScopeCode: "gmcc")),
             scale: 2,
             children: [
                 element("el-user", code: "user",
@@ -215,7 +215,7 @@ final class DiagramGeometryTests: XCTestCase {
 
     private func cardTreeWithScaledScope() -> [DiagramElementNode] {
         [element("el-scope", code: "scope",
-                 payload: .dopeScope(DopeScopePayload(dopeScopeCode: "gmcc")),
+                 payload: .dopeScopePersistenceLayer(DopeScopePersistenceLayerPayload(dopeScopeCode: "gmcc")),
                  scale: 2,
                  children: [element("el-user", code: "user",
                                     payload: .dopeEntity(DopeEntityPayload(entityCode: "core.user")),
@@ -412,7 +412,7 @@ final class DiagramTreeReducerParityTests: XCTestCase {
                     vertices: [DiagramVertex(x: 0, y: 0), DiagramVertex(x: 30, y: 0)])))),
             .elementAdd(DiagramElementAdd(
                 clientRef: "S", code: "scope_main", name: "Scope",
-                payload: .dopeScope(DopeScopePayload(dopeScopeCode: "gmcc")))),
+                payload: .dopeScopePersistenceLayer(DopeScopePersistenceLayerPayload(dopeScopeCode: "gmcc")))),
             .elementAdd(DiagramElementAdd(
                 parentClientRef: "S", centerX: 100,
                 payload: .dopeEntity(DopeEntityPayload(entityCode: "core.user")))),
@@ -572,7 +572,7 @@ final class DiagramOrganizerTests: XCTestCase {
     private func piledResolved() -> (ResolvedDiagram, DiagramTree) {
         let scope = element(
             "el-scope", code: "scope",
-            payload: .dopeScope(DopeScopePayload(dopeScopeCode: "gmcc")),
+            payload: .dopeScopePersistenceLayer(DopeScopePersistenceLayerPayload(dopeScopeCode: "gmcc")),
             children: [
                 element("el-a", code: "a",
                         payload: .dopeEntity(DopeEntityPayload(entityCode: "core.user")),

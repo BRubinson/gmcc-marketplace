@@ -19,7 +19,24 @@ public enum GMCCWireProtocol {
     ///   CHECK ((data_type = 'relationship') = (relationship_target_uuid IS NOT NULL))
     /// at write time — or worse, writes nothing where a reference was meant.
     /// The handshake has to reject that peer instead of letting it through.
-    public static let version = 18
+    ///
+    /// v19 — m0018 RENAMED a payload TAG on an existing message: the
+    /// diagram element type `dope_scope` became
+    /// `dope_scope_persistence_layer`, and DiagramElementPayload's
+    /// `dopeScope(DopeScopePayload)` case renamed with it.
+    ///
+    /// Incompatible for the same reason v18 was, and louder about it: the tag
+    /// IS the discriminator, so a stale peer sending `dope_scope` decodes to
+    /// an unknown case, and one receiving `dope_scope_persistence_layer`
+    /// cannot map it onto any case it knows. The db CHECK now names only the
+    /// new value too, so a stale writer's rows would be rejected outright.
+    /// Reject the peer at the handshake instead.
+    ///
+    /// (The additive OPTIONAL fields that landed alongside it —
+    /// DopeCogElementAddRequest.dope_persistence_code and
+    /// DopeCogElementNode.dope_persistence_code — would NOT have bumped this
+    /// on their own; they decode safely in both directions.)
+    public static let version = 19
 }
 
 /// Discriminator for every NDJSON message on the socket. One case per spec
@@ -122,6 +139,8 @@ public enum MessageType: String, Codable, Hashable, CaseIterable, Sendable {
     case dopeNodeUpdate = "DOPE_NODE_UPDATE"
     case dopeNodeDelete = "DOPE_NODE_DELETE"
     case dopeReadRepo = "DOPE_READ_REPO"
+    case dopeMergePlan = "DOPE_MERGE_PLAN"
+    case dopeResolve = "DOPE_RESOLVE"
     case dopeWriteRepo = "DOPE_WRITE_REPO"
     case dopeIngest = "DOPE_INGEST"
     // DIAGRAM domain modeling (v15). BATCH_APPLY is the primary interactive
