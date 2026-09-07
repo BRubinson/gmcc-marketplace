@@ -11,6 +11,6 @@
     "description" : "The internal data model driving gmcc",
     "name" : "Green Mountain Compiler Collection (GMCC)"
   },
-  "scope_type" : "SESSION_BASE",
+  "scope_type" : "SESSION_INSTANCE",
   "version" : 481
 }
