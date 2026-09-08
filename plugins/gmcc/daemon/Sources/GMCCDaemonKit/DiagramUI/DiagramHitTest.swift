@@ -83,8 +83,14 @@ extension ResolvedDiagram {
             if let hit = hitElement(child, at: point, cardsOnly: cardsOnly) { return hit }
         }
         switch element.kind {
-        case .layer, .stroke, .shape:
+        case .layer, .stroke, .shape, .connector:
             return nil
+        case .text:
+            // A text box is a real bounded target — you click it to edit —
+            // but it is drawing content, not a card, so it answers to the
+            // same pass strokes and shapes would if they were hittable.
+            guard !cardsOnly else { return nil }
+            return element.frame.contains(point) ? element : nil
         case .entityCard, .absentEntity:
             guard cardsOnly else { return nil }
             return element.frame.contains(point) ? element : nil

@@ -146,6 +146,44 @@ public enum DiagramTreeReducer {
         }
         try validateShape(type: type, parentType: parentType, payload: add.payload)
 
+        // Resolve the connector's second endpoint, which may name an element
+        // created earlier in THIS batch — the exact parallel of
+        // parentClientRef, and the reason the ref rides on the mutation
+        // rather than inside the payload.
+        var payload = DiagramStrokeCodec.normalizedForStorage(add.payload)
+        if case .connector(let connector) = payload {
+            if connector.targetElementUuid != nil, add.targetClientRef != nil {
+                throw DiagramReducerError.badRequest(
+                    detail: "pass targetElementUuid OR targetClientRef, not both")
+            }
+            var targetUuid = connector.targetElementUuid
+            if let ref = add.targetClientRef {
+                guard let resolved = ledger[ref] else {
+                    throw DiagramReducerError.badRequest(detail:
+                        "targetClientRef '\(ref)' does not name an earlier elementAdd in this batch")
+                }
+                targetUuid = resolved
+            }
+            if let targetUuid {
+                // The referrer's own uuid is minted below, so self-reference
+                // is impossible here by construction; the rest of the rule
+                // still needs checking.
+                try validateConnectorTarget(
+                    referrerUuid: "(new connector)", parentOfReferrer: parentUuid,
+                    targetUuid: targetUuid, elements: elements)
+                payload = .connector(ConnectorPayload(
+                    targetElementUuid: targetUuid,
+                    strokeColor: connector.strokeColor,
+                    strokeWidth: connector.strokeWidth,
+                    lineStyle: connector.lineStyle,
+                    headKind: connector.headKind,
+                    label: connector.label))
+            }
+        } else if add.targetClientRef != nil {
+            throw DiagramReducerError.badRequest(
+                detail: "targetClientRef is only meaningful for a connector element")
+        }
+
         let code: String
         if let requested = add.code {
             try mapValidation { try DopeCode.validateCode(requested, field: "element code") }
@@ -174,7 +212,7 @@ public enum DiagramTreeReducer {
                 description: add.description ?? "", sortOrder: sortOrder,
                 centerX: add.centerX ?? 0, centerY: add.centerY ?? 0,
                 elementZ: add.elementZ ?? 0, scale: add.scale ?? 1),
-            payload: add.payload, children: [])
+            payload: payload, children: [])
 
         if let parentUuid {
             guard insertChild(node, under: parentUuid, in: &elements) else {
@@ -276,7 +314,8 @@ public enum DiagramTreeReducer {
                 centerY: update.centerY ?? node.base.centerY,
                 elementZ: update.elementZ ?? node.base.elementZ,
                 scale: update.scale ?? node.base.scale),
-            payload: update.payload ?? node.payload,
+            payload: update.payload.map(DiagramStrokeCodec.normalizedForStorage)
+                ?? node.payload,
             children: node.children)
     }
 
@@ -368,8 +407,58 @@ public enum DiagramTreeReducer {
                 throw DiagramReducerError.badRequest(
                     detail: "corner_radius is only legal on rectangles")
             }
+        case .drawingText(let p):
+            guard p.width > 0, p.height > 0 else {
+                throw DiagramReducerError.badRequest(
+                    detail: "a text box needs a positive width and height")
+            }
+            guard p.fontSize > 0 else {
+                throw DiagramReducerError.badRequest(
+                    detail: "a text box needs a positive font size")
+            }
+        case .connector(let p):
+            guard p.strokeWidth > 0 else {
+                throw DiagramReducerError.badRequest(
+                    detail: "a connector needs a positive stroke width")
+            }
+            // The endpoint's CONTAINMENT rule is not checkable here: it
+            // needs the target's parentage, which is tree context this
+            // payload-only pass does not have. validateConnectorTarget below
+            // is where it lands, called with the tree in hand.
+            _ = p.targetElementUuid
         case .drawingLayer:
             break
+        }
+    }
+
+    /// The connector containment rule, evaluated against the in-memory tree.
+    ///
+    /// The daemon answers the same question with SQL lookups; both call
+    /// DiagramContainment so the RULE cannot drift even though the lookups
+    /// do. This is the half of the parity contract a fixture alone would not
+    /// guarantee.
+    private static func validateConnectorTarget(
+        referrerUuid: String, parentOfReferrer: String?,
+        targetUuid: String, elements: [DiagramElementNode]
+    ) throws {
+        let spec = DiagramElementTypeSpec.spec(for: .connector)
+        guard let ref = spec.elementRefs.first else { return }
+        let grandparent = parentOfReferrer.flatMap {
+            findParentUuid(of: $0, in: elements)
+        }
+        let targetExists = findNode(targetUuid, in: elements) != nil
+        if let violation = DiagramContainment.validateReference(
+            rule: ref.rule,
+            referrerUuid: referrerUuid,
+            parentOfReferrer: parentOfReferrer,
+            grandparentOfReferrer: grandparent,
+            targetUuid: targetUuid,
+            parentOfTarget: findParentUuid(of: targetUuid, in: elements),
+            targetExists: targetExists
+        ) {
+            throw DiagramReducerError.badRequest(
+                detail: violation.message(role: "connector \(ref.role)",
+                                          referrer: referrerUuid, target: targetUuid))
         }
     }
 

@@ -1,0 +1,89 @@
+{
+  "base_composable_ref" : "base.base_entity",
+  "code" : "clarification",
+  "description" : "One clarifying question and its answer within a summary",
+  "entity_type" : "MODEL",
+  "name" : "Clarification",
+  "properties" : [
+    {
+      "base_origin_ref" : "base.base_entity.uuid",
+      "code" : "uuid",
+      "data_type" : "uuid",
+      "description" : "Stable external identifier (base entity)",
+      "is_unique" : true,
+      "name" : "UUID",
+      "nullable" : false,
+      "sort_order" : 2
+    },
+    {
+      "code" : "clarification_summary_uuid",
+      "data_type" : "relationship",
+      "description" : "Owning summary; cascade on delete",
+      "is_unique" : false,
+      "name" : "Summary",
+      "nullable" : false,
+      "relationship_target_ref" : "agentics.clarification_summary.uuid",
+      "sort_order" : 6
+    },
+    {
+      "code" : "seq",
+      "data_type" : "int",
+      "description" : "Order within the summary; unique per summary",
+      "is_unique" : false,
+      "name" : "Sequence",
+      "nullable" : false,
+      "sort_order" : 7
+    },
+    {
+      "code" : "category",
+      "data_type" : "enum",
+      "description" : "goal or detail",
+      "enum_ref" : "agentics.enums.clarify_category",
+      "is_unique" : false,
+      "name" : "Category",
+      "nullable" : false,
+      "sort_order" : 8
+    },
+    {
+      "code" : "question",
+      "data_type" : "text",
+      "description" : "The clarifying question",
+      "is_unique" : false,
+      "name" : "Question",
+      "nullable" : false,
+      "sort_order" : 9
+    },
+    {
+      "code" : "answer",
+      "data_type" : "text",
+      "description" : "Required once status is answered",
+      "is_unique" : false,
+      "name" : "Answer",
+      "nullable" : true,
+      "sort_order" : 10
+    },
+    {
+      "code" : "answer_source",
+      "data_type" : "enum",
+      "description" : "user or bot_inferred",
+      "enum_ref" : "agentics.enums.clarify_answer_source",
+      "is_unique" : false,
+      "name" : "Answer Source",
+      "nullable" : true,
+      "sort_order" : 11
+    },
+    {
+      "code" : "status",
+      "data_type" : "enum",
+      "description" : "open, answered, skipped",
+      "enum_ref" : "agentics.enums.clarify_status",
+      "is_unique" : false,
+      "name" : "Status",
+      "nullable" : false,
+      "sort_order" : 12
+    }
+  ],
+  "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
+  "sort_order" : 2,
+  "version" : 736
+}

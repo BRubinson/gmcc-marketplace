@@ -67,6 +67,13 @@ public struct DiagramElementAdd: Codable, Hashable, Sendable {
     /// Exactly one of these for child types; both nil for top-level types.
     public let parentElementUuid: String?
     public let parentClientRef: String?
+    /// In-batch temp id for a connector's TARGET, the exact parallel of
+    /// `parentClientRef`: a connector can point at an element created
+    /// earlier in the same batch, before that element has a real uuid.
+    /// Resolution is a batch concern, which is why it rides on the mutation
+    /// and not inside ConnectorPayload. Setting both this and the payload's
+    /// `targetElementUuid` is refused.
+    public let targetClientRef: String?
     public let code: String?
     public let name: String?
     public let description: String?
@@ -81,6 +88,7 @@ public struct DiagramElementAdd: Codable, Hashable, Sendable {
         clientRef: String? = nil,
         parentElementUuid: String? = nil,
         parentClientRef: String? = nil,
+        targetClientRef: String? = nil,
         code: String? = nil,
         name: String? = nil,
         description: String? = nil,
@@ -94,6 +102,7 @@ public struct DiagramElementAdd: Codable, Hashable, Sendable {
         self.clientRef = clientRef
         self.parentElementUuid = parentElementUuid
         self.parentClientRef = parentClientRef
+        self.targetClientRef = targetClientRef
         self.code = code
         self.name = name
         self.description = description
@@ -127,6 +136,13 @@ public struct DiagramElementUpdate: Codable, Hashable, Sendable {
     public let elementZ: Double?
     public let scale: Double?
     public let parentElementUuid: String?
+    /// In-batch temp id for a connector's TARGET, the exact parallel of
+    /// `parentClientRef`: a connector can point at an element created
+    /// earlier in the same batch, before that element has a real uuid.
+    /// Resolution is a batch concern, which is why it rides on the mutation
+    /// and not inside ConnectorPayload. Setting both this and the payload's
+    /// `targetElementUuid` is refused.
+    public let targetClientRef: String?
     public let payload: DiagramElementPayload?
 
     public init(
@@ -141,6 +157,7 @@ public struct DiagramElementUpdate: Codable, Hashable, Sendable {
         elementZ: Double? = nil,
         scale: Double? = nil,
         parentElementUuid: String? = nil,
+        targetClientRef: String? = nil,
         payload: DiagramElementPayload? = nil
     ) {
         self.elementUuid = elementUuid
@@ -154,6 +171,7 @@ public struct DiagramElementUpdate: Codable, Hashable, Sendable {
         self.elementZ = elementZ
         self.scale = scale
         self.parentElementUuid = parentElementUuid
+        self.targetClientRef = targetClientRef
         self.payload = payload
     }
 }

@@ -91,7 +91,8 @@ extension Store {
 
     public func dopeWriteRepo(_ req: DopeWriteRepoRequest) throws -> DopeWriteRepoResponse {
         // Phase 1 — scope + root + full tree.
-        let (scope, root, tree) = try dbQueue.read { db -> (DopeScopeRow, String, DopeScopeTree) in
+        let (scope, root, tree, cogs) = try dbQueue.read {
+            db -> (DopeScopeRow, String, DopeScopeTree, [DopeCogNode]) in
             guard let scope = try self.fetchDopeScope(db, uuid: req.scopeUuid) else {
                 throw StoreError.notFound(entity: "dope_scope", key: req.scopeUuid)
             }
@@ -100,11 +101,12 @@ extension Store {
             // forProjection: tombstones are overlay-tier personal state and
             // must never reach a committed .doped.json.
             let tree = try self.fetchDopeTree(db, scope: scope, forProjection: true)
-            return (scope, root, tree)
+            let cogs = try self.fetchDopeCogs(db, scopeUuid: req.scopeUuid)
+            return (scope, root, tree, cogs)
         }
 
         // Phase 2 — project.
-        let bundle = DopeProjection.documents(from: tree)
+        let bundle = DopeProjection.documents(from: tree, cogs: cogs)
 
         // Phase 3 — gate + atomic write, no lock held.
         let sandbox: DopeRepoSandbox
@@ -176,7 +178,7 @@ extension Store {
         // updateBase idiom), ordered wipe, dependency-ordered re-insert.
         // Every child uuid changes — the locked no-smart-diff consequence.
         //
-        // The file is the whole truth, so main.doped.json's scope
+        // The file is the whole truth, so scope.doped.json's scope
         // name/description are APPLIED to the row (a hand-edit must never be
         // silently reverted by the next write-repo). The row's optimistic
         // lock `version` bumps ONLY when those fields actually change — SET
@@ -185,7 +187,7 @@ extension Store {
         // invariant. The scope CODE is identity, never ingested.
         guard bundle.main.scope.code == scopeBefore.code else {
             throw StoreError.badRequest(detail:
-                "main.doped.json names scope code '\(bundle.main.scope.code)' but the target scope is '\(scopeBefore.code)' — the code is identity and cannot be changed by ingest")
+                "\(DopeDocumentCodec.scopeFileName) names scope code '\(bundle.main.scope.code)' but the target scope is '\(scopeBefore.code)' — the code is identity and cannot be changed by ingest")
         }
         // The gate is PARAMETERIZED, never weakened: the strict path binds
         // `incoming - 1` (the lost-update detector); adopt binds the OBSERVED
@@ -233,6 +235,8 @@ extension Store {
             try self.wipeDopeTree(db, scopeUuid: req.scopeUuid)
             let counts = try self.insertDopeTree(
                 db, scopeUuid: req.scopeUuid, domainFiles: bundle.domainFiles)
+            try self.insertDopeCogs(
+                db, scopeUuid: req.scopeUuid, cogFiles: bundle.cogFiles)
             // This tree just came FROM the files, so it IS the new merge
             // base: record every element's hash and clear the dirty flags.
             try self.stampProvenanceFromFiles(

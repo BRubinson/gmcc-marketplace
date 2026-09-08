@@ -273,6 +273,16 @@ extension Store {
         }
     }
 
+    /// Every cog of a scope, hydrated, for callers already inside a
+    /// transaction — the repo write path needs cogs alongside the
+    /// persistence tree. Extracted from dopeCogGet rather than duplicated.
+    func fetchDopeCogs(_ db: Database, scopeUuid: String) throws -> [DopeCogNode] {
+        let rows = try Row.fetchAll(db, sql: """
+            SELECT * FROM dope_cog WHERE dope_scope_uuid = ? ORDER BY sort_order, code
+            """, arguments: [scopeUuid])
+        return try rows.map { try self.hydrateCog(db, row: $0) }
+    }
+
     // MARK: - Helpers
 
     private func cogOwningScope(_ db: Database, cogUuid: String) throws -> DopeScopeRow {

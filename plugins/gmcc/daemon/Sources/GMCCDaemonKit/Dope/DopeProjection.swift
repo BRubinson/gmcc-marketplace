@@ -9,7 +9,14 @@ import Foundation
 /// changes on every ingest, the locked no-smart-diff consequence).
 public enum DopeProjection {
 
-    public static func documents(from tree: DopeScopeTree) -> DopeDocumentBundle {
+    /// - Parameter cogs: the scope's cog rows. Defaulted so every existing
+    ///   caller (validator fixtures, tests) keeps compiling; only the repo
+    ///   write path passes them.
+    public static func documents(
+        from tree: DopeScopeTree, cogs: [DopeCogNode] = []
+    ) -> DopeDocumentBundle {
+        let liveCogs = cogs.filter { $0.deletedOn == nil }
+            .sorted { ($0.sortOrder, $0.code) < ($1.sortOrder, $1.code) }
         // scope_type is deliberately absent: only a SESSION_INSTANCE tree is
         // writable, so persisting it would store a constant.
         let main = DopeScopeDocument(
@@ -17,6 +24,9 @@ public enum DopeProjection {
             scope: tree.body,
             persistence: Dictionary(uniqueKeysWithValues: tree.domains.map {
                 ($0.body.code, DopeScopeDocument.expectedFile(forPersistenceCode: $0.body.code))
+            }),
+            cogs: Dictionary(uniqueKeysWithValues: liveCogs.map {
+                ($0.code, DopeScopeDocument.expectedCogFile(forCogCode: $0.code))
             })
         )
         let files = tree.domains.map { domain in
@@ -37,6 +47,8 @@ public enum DopeProjection {
                 }
             )
         }
-        return DopeDocumentBundle(main: main, domainFiles: files)
+        return DopeDocumentBundle(
+            main: main, domainFiles: files,
+            cogFiles: liveCogs.map(DopeCogProjection.document(from:)))
     }
 }

@@ -274,6 +274,9 @@ final class DaemonConnectionModel {
     private struct EventPayloadUuids: Decodable {
         let sessionUuid: String?
         let promptUuid: String?
+        /// DIAGRAM_CHANGE only: the tier owner chain, so the rails that list
+        /// a tier can be woken without a re-list of every other tier.
+        let projectUuid: String?
     }
 
     private func payloadUuids(_ event: EventNotification) -> EventPayloadUuids? {
@@ -373,10 +376,19 @@ final class DaemonConnectionModel {
                 hub.invalidateAllPrompts()
             }
         case .diagramChange:
-            // No diagram surface in GMVibes yet — nothing subscribes. Payload
-            // carries session_uuid/prompt_uuid when the diagram is owned that
-            // deep; route there once a pane renders diagrams.
-            break
+            // Subject IS the diagram uuid — the open editor's key. The
+            // payload's owner chain (project always, session/prompt when the
+            // diagram is owned that deep) wakes the tier-scoped rails; each
+            // is a separate domain so one drag commit repaints one canvas
+            // instead of re-listing every rail in the app.
+            if let uuid = event.subjectUuid?.lowercased() {
+                hub.invalidate(.diagram(uuid))
+            }
+            if let uuids = payloadUuids(event) {
+                for owner in [uuids.projectUuid, uuids.sessionUuid, uuids.promptUuid] {
+                    if let owner { hub.invalidate(.diagramList(owner.lowercased())) }
+                }
+            }
         case .dopeChange:
             // subject_uuid is the SCOPE uuid — a value no surface holds until
             // AFTER a successful DOPE_GET, so it cannot be a routing key.
@@ -394,6 +406,15 @@ final class DaemonConnectionModel {
             // SESSION_GET + PROMPT_LIST + prefetch on every node of a bot's
             // tree build.
             hub.invalidate(.changes)
+        case .promptDiagramQualified:
+            // A prompt qualified a RENDER, not a canvas: nothing about the
+            // diagram tree moved, so diagram listeners must not refetch. The
+            // prompt surface is the one that shows the qualification.
+            if let prompt = payloadUuids(event)?.promptUuid?.lowercased() {
+                hub.invalidate(.prompt(prompt))
+            } else if let uuid = event.subjectUuid?.lowercased() {
+                hub.invalidate(.prompt(uuid))
+            }
         case .configSet:
             // A root moved daemon-side — the env's PATHS_GET snapshot is stale.
             hub.invalidate(.paths)

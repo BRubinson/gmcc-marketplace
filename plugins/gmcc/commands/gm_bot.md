@@ -157,7 +157,7 @@ and proceed to Phase 2.
 
 ### Phase 1b: DOPE Dump
 
-`gm dope list --session-uuid U` — if the session carries a SESSION_BASE
+`gm dope list --session-uuid U` — if the session carries a SESSION_INSTANCE
 scope, `gm dope get --session-uuid U --json` and keep the tree in primary
 context through Phase 2 (this tier has no explore spawns, so primary
 context IS the injection). The dump is always the persistence layer's

@@ -44,6 +44,16 @@ The retired path family (`GMCC_PROJECTS`, `GMCC_PROJECT_PATH`,
 3. Record significant prompts as db rows (`gm prompt create`) and record file edits with `gm file-change add --prompt-uuid U` as you make them
 4. Register any file you write under a prompt's `memory/` with `gm artifact add` (pointer + one-sentence note)
 5. Load and explore KBites for relevant concepts — registry from `gm context get --json`, content via `gm kbite search` / `gm kbite file-get` (see `ref/kbite_awareness.md`)
+6. On a prompt's INITIAL run, close the loop on every diagram attached to it:
+   `gm render` each one (it re-renders only when the fingerprint says the
+   picture actually moved), **read the resulting image**, and record what you
+   make of it with `gm prompt-diagram qualify` — the rendered path, the
+   revision it came from, the fingerprint sidecar verbatim, and your
+   qualification. An image tells a later reader what the shapes are; only the
+   qualification tells them what this prompt concluded they mean, and it must
+   be written from THIS prompt's context, not from a generic description of
+   the canvas. Re-qualifying replaces the previous reading. On resume, read
+   `gm prompt-diagram list` before re-rendering anything.
 
 ### Never Do
 1. Modify a prompt row's content after it leaves `draft` (the daemon enforces CONTENT_LOCKED) — author a new prompt instead
@@ -75,6 +85,7 @@ Re-run `gm session get --json`, re-read the active prompt's reports
 | `ref/ckfs_details.md` | Full ckfs structure, projects/instances/sessions layout, slugification rules | ckfs operations, project setup |
 | `ref/kbite_awareness.md` | KBite load protocol (inherited via registries), when to create kbites | Loading registered kbites, kbite operations |
 | `ref/bot_workflows.md` | Bot workflow system, prompts lifecycle, DOPE dump injection, command reference | Running /gm_bot* commands |
+| `ref/doped_files.md` | On-disk `.gmcc` layout: file shape, the rules that refuse a write, cogs, merge reconciliation | Building or editing the repo's `.doped.json` files directly |
 
 ---
 

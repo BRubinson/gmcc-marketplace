@@ -303,10 +303,27 @@ public struct DopePersistenceFileDocument: Codable, Hashable, Sendable {
 public struct DopeDocumentBundle: Codable, Hashable, Sendable {
     public let main: DopeScopeDocument
     public let domainFiles: [DopePersistenceFileDocument]
+    /// The cogs area. Defaulted and decoded with decodeIfPresent so a tree
+    /// written before cogs had a file layer still parses.
+    public let cogFiles: [DopeCogDocument]
 
-    public init(main: DopeScopeDocument, domainFiles: [DopePersistenceFileDocument]) {
+    private enum CodingKeys: String, CodingKey { case main, domainFiles, cogFiles }
+
+    public init(
+        main: DopeScopeDocument,
+        domainFiles: [DopePersistenceFileDocument],
+        cogFiles: [DopeCogDocument] = []
+    ) {
         self.main = main
         self.domainFiles = domainFiles
+        self.cogFiles = cogFiles
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        main = try c.decode(DopeScopeDocument.self, forKey: .main)
+        domainFiles = try c.decode([DopePersistenceFileDocument].self, forKey: .domainFiles)
+        cogFiles = try c.decodeIfPresent([DopeCogDocument].self, forKey: .cogFiles) ?? []
     }
 }
 

@@ -10,6 +10,7 @@ struct DiagramToolStrip: View {
     let onCenter: (CGPoint) -> Void
     let onFit: () -> Void
     let onOrganize: () -> Void
+    let onCopy: () -> Void
 
     var body: some View {
         // Tool picker: only `select` can drag nodes; rect/line draw on the
@@ -23,7 +24,7 @@ struct DiagramToolStrip: View {
             }
         }
         .pickerStyle(.segmented)
-        .frame(width: 110)
+        .frame(width: 200)
 
         domainPills
 
@@ -43,10 +44,18 @@ struct DiagramToolStrip: View {
             Label("Fit", systemImage: "arrow.down.left.and.arrow.up.right")
         }
         .help("Fit the whole diagram in the window")
+
+        Button {
+            onCopy()
+        } label: {
+            Label("Copy", systemImage: "doc.on.doc")
+        }
+        .help("Copy the rendered diagram to the clipboard")
     }
 
-    /// Multi-select domain pills: rebuild-the-tree filtering with the
-    /// code→center carryover (positions survive toggles and dope reloads).
+    /// Multi-select domain pills. RENDER-TIME filtering (see
+    /// DiagramDomainFilter): toggling hides cards in the resolved output and
+    /// never touches the tree, so a pill click costs no write and no re-mint.
     @ViewBuilder
     private var domainPills: some View {
         if let dope = workspace.dope, dope.tree.domains.count > 1 {

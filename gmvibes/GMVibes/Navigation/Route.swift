@@ -11,11 +11,12 @@ enum Route: Codable, Hashable {
     /// prompt identity (nil degrades to the newest-prompt rule). The route IS
     /// the deep link — there is no side channel.
     case sessionPrompt(SessionWindowID)
-    /// The full-window Doped Viewer on one dope scope (session scope,
-    /// non-persisted). Carries the scope CODE because one session may hold
-    /// several dope scopes (DopePane's picker) and the workspace store is
-    /// keyed by (session, scope code).
-    case diagram(SessionWindowID, scopeCode: String)
+    /// The full-window diagram editor. Carries the DIAGRAM's identity, not
+    /// the session's: a PROJECT-tier diagram has no session at all, and one
+    /// dope scope can own many saved diagrams — neither fits a (session,
+    /// scope code) key. The session, where there is one, rides inside the
+    /// payload for the window lease below.
+    case diagram(DiagramWindowID)
     case project(projectUuid: String)
     case instance(instanceUuid: String)
     case projects
@@ -30,12 +31,16 @@ enum Route: Codable, Hashable {
     /// scope structurally cannot retire mid-navigation.
     var sessionScopeUuid: String? {
         switch self {
-        case .session(let windowID), .sessionPrompt(let windowID),
-             .diagram(let windowID, _):
-            // .diagram MUST join this arm: the diagram screen reads the
-            // session's DopeStore, and dropping the lease on the session →
-            // diagram hop would let the scope retire mid-navigation.
+        case .session(let windowID), .sessionPrompt(let windowID):
             windowID.sessionUUID.wireString
+        case .diagram(let diagramID):
+            // .diagram MUST keep answering here wherever a session exists:
+            // a session-owned diagram resolves its dope bindings through the
+            // session's scope, and dropping the lease on the session →
+            // diagram hop would let that scope retire mid-navigation. A
+            // PROJECT-tier diagram has no session to lease, and nil is the
+            // honest answer — the lease task simply does not run.
+            diagramID.session?.sessionUUID.wireString
         default:
             nil
         }

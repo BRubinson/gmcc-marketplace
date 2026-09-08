@@ -69,6 +69,10 @@ public enum DaemonEventKind: String, Codable, Hashable, CaseIterable, Sendable {
     // v15 — durable rows: the DIAGRAM machine (GMVibes' live-refresh signal;
     // one event per granular mutation OR per whole batch).
     case diagramChange = "DIAGRAM_CHANGE"
+    // v20 — durable rows: a prompt qualified a rendered diagram. Distinct
+    // from diagramChange on purpose — nothing about the CANVAS moved, so a
+    // diagram listener must not be told to refetch a tree.
+    case promptDiagramQualified = "PROMPT_DIAGRAM_QUALIFIED"
     /// Ephemeral broadcast only (id 0, never a daemon_event row, never a
     /// replay cursor) — emitted by MemoryWatcher when a prompt's memory/
     /// directory changes on disk.
@@ -933,6 +937,96 @@ public struct ArtifactListResponse: Codable, Hashable, Sendable {
 
     public init(artifacts: [ArtifactRow]) {
         self.artifacts = artifacts
+    }
+}
+
+// MARK: - PROMPT_DIAGRAM_QUALIFY / _GET / _LIST
+
+/// A prompt's standing reading of one rendered diagram.
+///
+/// The three render columns are the staleness evidence. `renderFingerprint`
+/// is a serialized `DiagramRenderFingerprint` carried as opaque JSON text:
+/// the wire never re-shapes it, so a reader compares it against the sidecar
+/// beside a current PNG byte-for-byte and learns whether this qualification
+/// still describes the picture it was written about.
+public struct PromptQualifiedDiagramRow: Codable, Hashable, Sendable {
+    public let uuid: String
+    public let promptUuid: String
+    public let diagramUuid: String
+    public let renderedPath: String
+    public let renderedRevision: Int64
+    public let renderFingerprint: String
+    public let qualification: String
+    public let version: Int64
+    public let createdAt: String
+    public let updatedAt: String
+
+    public init(uuid: String, promptUuid: String, diagramUuid: String,
+                renderedPath: String, renderedRevision: Int64,
+                renderFingerprint: String, qualification: String,
+                version: Int64, createdAt: String, updatedAt: String) {
+        self.uuid = uuid
+        self.promptUuid = promptUuid
+        self.diagramUuid = diagramUuid
+        self.renderedPath = renderedPath
+        self.renderedRevision = renderedRevision
+        self.renderFingerprint = renderFingerprint
+        self.qualification = qualification
+        self.version = version
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+}
+
+/// Record (or replace) what this prompt makes of this diagram. UPSERT on
+/// (prompt, diagram): no expected_version, because the pair is the identity
+/// and the newer reading is by definition the one that stands.
+public struct PromptDiagramQualifyRequest: Codable, Hashable, Sendable {
+    public let promptUuid: String
+    public let diagramUuid: String
+    public let renderedPath: String
+    public let renderedRevision: Int64
+    public let renderFingerprint: String
+    public let qualification: String
+
+    public init(promptUuid: String, diagramUuid: String, renderedPath: String,
+                renderedRevision: Int64, renderFingerprint: String,
+                qualification: String) {
+        self.promptUuid = promptUuid
+        self.diagramUuid = diagramUuid
+        self.renderedPath = renderedPath
+        self.renderedRevision = renderedRevision
+        self.renderFingerprint = renderFingerprint
+        self.qualification = qualification
+    }
+}
+
+/// One qualification. With `diagramUuid` it is the pair; without, it is the
+/// prompt's only qualification — and an ambiguous ask (several exist) is a
+/// badRequest pointing at the list verb rather than an arbitrary pick.
+public struct PromptDiagramGetRequest: Codable, Hashable, Sendable {
+    public let promptUuid: String
+    public let diagramUuid: String?
+
+    public init(promptUuid: String, diagramUuid: String? = nil) {
+        self.promptUuid = promptUuid
+        self.diagramUuid = diagramUuid
+    }
+}
+
+public struct PromptDiagramListRequest: Codable, Hashable, Sendable {
+    public let promptUuid: String
+
+    public init(promptUuid: String) {
+        self.promptUuid = promptUuid
+    }
+}
+
+public struct PromptDiagramListResponse: Codable, Hashable, Sendable {
+    public let qualifications: [PromptQualifiedDiagramRow]
+
+    public init(qualifications: [PromptQualifiedDiagramRow]) {
+        self.qualifications = qualifications
     }
 }
 
@@ -2189,8 +2283,8 @@ public struct ConfigSetResponse: Codable, Hashable, Sendable {
 
 /// Create-or-return a dope scope (idempotent, the archOpen precedent).
 /// scope_type is derived: PROMPT when promptUuid is present, else
-/// SESSION_BASE. `cloneFromSessionBase` forks the session's SESSION_BASE
-/// tree of the same code into a freshly created PROMPT scope.
+/// SESSION_INSTANCE. `cloneFromSessionBase` forks the session's
+/// SESSION_INSTANCE tree of the same code into a freshly created PROMPT scope.
 public struct DopeInitRequest: Codable, Hashable, Sendable {
     public let sessionUuid: String
     public let promptUuid: String?
@@ -2227,7 +2321,7 @@ public struct DopeScopeResponse: Codable, Hashable, Sendable {
 }
 
 /// Scope enumeration for pickers (v12). Without promptUuid: the session's
-/// SESSION_BASE scopes. With it: ONLY that prompt's PROMPT scopes — never a
+/// SESSION_INSTANCE scopes. With it: ONLY that prompt's PROMPT scopes — never a
 /// union, so a GUI never string-parses dopeGet's "several dope scopes match"
 /// BAD_REQUEST. Unknown session/prompt uuid is NOT_FOUND; a real target with
 /// no scopes is a normal empty list, never SUMMARY_ABSENT. No code filter:
@@ -2253,13 +2347,25 @@ public struct DopeListResponse: Codable, Hashable, Sendable {
 }
 
 /// Tree read. With promptUuid set, the PROMPT scope is preferred and the
-/// SESSION_BASE tree is the fallback (resolvedVia reports which). With
+/// SESSION_INSTANCE tree is the fallback (resolvedVia reports which). With
 /// several scopes matching and no code, the store answers BAD_REQUEST
 /// naming the candidate codes.
 public struct DopeGetRequest: Codable, Hashable, Sendable {
+    /// Empty ONLY when addressing by `projectUuid` instead.
+    ///
+    /// Kept non-optional so every existing caller and every older peer's
+    /// payload still decodes unchanged — a project-tier read passes "" here
+    /// and fills `projectUuid`. Making it Optional would have been a
+    /// breaking shape change on an existing message for no gain.
     public let sessionUuid: String
     public let promptUuid: String?
     public let code: String?
+    /// PROJECT-tier addressing: reads the PROJECT_ITEM overlay, else the
+    /// BASE_PROJECT scope that `gm dope promote` maintains.
+    ///
+    /// Additive OPTIONAL, so no wire bump: an older peer omits it and gets
+    /// exactly today's session-only behavior.
+    public let projectUuid: String?
     /// Merge the masking overlay over its base and return the resolved tree.
     /// OPT-IN, and deliberately so: without it every existing caller — the
     /// CLI, GMVibes, gm diagram from-dope, the screenshot path — keeps its
@@ -2268,11 +2374,34 @@ public struct DopeGetRequest: Codable, Hashable, Sendable {
     public let resolved: Bool?
 
     public init(sessionUuid: String, promptUuid: String? = nil, code: String? = nil,
-                resolved: Bool? = nil) {
+                resolved: Bool? = nil, projectUuid: String? = nil) {
         self.sessionUuid = sessionUuid
         self.promptUuid = promptUuid
         self.code = code
         self.resolved = resolved
+        self.projectUuid = projectUuid
+    }
+
+    /// PROJECT-tier convenience: reads a project's own scope ladder.
+    public init(projectUuid: String, code: String? = nil, resolved: Bool? = nil) {
+        self.sessionUuid = ""
+        self.promptUuid = nil
+        self.code = code
+        self.resolved = resolved
+        self.projectUuid = projectUuid
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case sessionUuid, promptUuid, code, resolved, projectUuid
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        sessionUuid = try c.decodeIfPresent(String.self, forKey: .sessionUuid) ?? ""
+        promptUuid = try c.decodeIfPresent(String.self, forKey: .promptUuid)
+        code = try c.decodeIfPresent(String.self, forKey: .code)
+        resolved = try c.decodeIfPresent(Bool.self, forKey: .resolved)
+        projectUuid = try c.decodeIfPresent(String.self, forKey: .projectUuid)
     }
 }
 
@@ -2990,10 +3119,34 @@ public struct DiagramGetResponse: Codable, Hashable, Sendable {
     public let tree: DiagramTree
     /// One row per dope_scope binding element (resolvedVia nil = ghost).
     public let bindings: [DiagramBindingResolution]
+    /// The OWNER's `ckfs_relative_storage_path` — the root a rendered
+    /// screenshot lands under, whichever tier owns the diagram.
+    ///
+    /// ADDITIVE OPTIONAL on an existing message, so it does not bump the
+    /// wire version (CLAUDE.md's rule) and an older peer simply ignores it.
+    /// It lives here rather than being fetched separately because the
+    /// alternative is three extra round trips — PROJECT_LIST / SESSION_GET /
+    /// PROMPT_GET — to learn something the daemon already had in hand while
+    /// resolving the owner.
+    public let ownerStoragePath: String?
 
-    public init(tree: DiagramTree, bindings: [DiagramBindingResolution]) {
+    public init(tree: DiagramTree, bindings: [DiagramBindingResolution],
+                ownerStoragePath: String? = nil) {
         self.tree = tree
         self.bindings = bindings
+        self.ownerStoragePath = ownerStoragePath
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case tree, bindings, ownerStoragePath
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        tree = try c.decode(DiagramTree.self, forKey: .tree)
+        bindings = try c.decode([DiagramBindingResolution].self, forKey: .bindings)
+        // decodeIfPresent: a peer built before this field existed omits it.
+        ownerStoragePath = try c.decodeIfPresent(String.self, forKey: .ownerStoragePath)
     }
 }
 

@@ -18,7 +18,8 @@ struct GM: ParsableCommand {
             Context.self, Project.self, Instance.self, Session.self, Catalog.self, Search.self,
             Prompt.self,
             Clarify.self, Arch.self, Explore.self, Review.self, Dope.self, Cog.self, Diagram.self,
-            Artifact.self, FileChange.self,
+            Render.self,
+            Artifact.self, PromptDiagram.self, FileChange.self,
             Kbite.self,
             PathsCmd.self, Config.self, Sandbox.self,
         ]

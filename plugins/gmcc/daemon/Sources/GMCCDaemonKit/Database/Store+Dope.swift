@@ -299,7 +299,36 @@ extension Store {
             .map(Self.dopeScopeRow)
     }
 
-    // MARK: - List (v12; picker enumeration — never a PROMPT/SESSION_BASE union)
+    /// Project-tier scope candidates — the rung the ladder never had.
+    ///
+    /// `dopeScopeCandidates` is `WHERE session_uuid = ?`, so BASE_PROJECT
+    /// scopes were unaddressable: `gm dope promote` has been populating them
+    /// all along and nothing could read one back. That was invisible while
+    /// every diagram was session-owned, and becomes a wall the moment a
+    /// PROJECT-tier diagram tries to bind a scope — it resolves nothing and
+    /// renders as a canvas of ghosts, which looks like a UI bug and is not.
+    ///
+    /// PROJECT_ITEM is the masking tier over BASE_PROJECT, mirroring
+    /// SESSION_INSTANCE_ITEM over SESSION_INSTANCE.
+    func dopeProjectScopeCandidates(
+        _ db: Database, projectUuid: String, scopeType: DopeScopeType,
+        code: String? = nil
+    ) throws -> [DopeScopeRow] {
+        var sql = """
+            SELECT * FROM dope_scope
+             WHERE project_uuid = ? AND scope_type = ? AND session_uuid IS NULL
+            """
+        var args: [(any DatabaseValueConvertible)?] = [projectUuid, scopeType.rawValue]
+        if let code {
+            sql += " AND code = ?"
+            args.append(code)
+        }
+        sql += " ORDER BY code"
+        return try Row.fetchAll(db, sql: sql, arguments: StatementArguments(args))
+            .map(Self.dopeScopeRow)
+    }
+
+    // MARK: - List (v12; picker enumeration — never a PROMPT/SESSION_INSTANCE union)
 
     public func dopeList(_ req: DopeListRequest) throws -> DopeListResponse {
         try dbQueue.read { db in
@@ -318,13 +347,10 @@ extension Store {
         }
     }
 
-    // MARK: - Get (PROMPT → SESSION_BASE fallback)
+    // MARK: - Get (PROMPT → SESSION_INSTANCE fallback)
 
     public func dopeGet(_ req: DopeGetRequest) throws -> DopeGetResponse {
         try dbQueue.read { db in
-            try self.requireDopeTarget(
-                db, sessionUuid: req.sessionUuid, promptUuid: req.promptUuid)
-
             func pick(_ rows: [DopeScopeRow]) throws -> DopeScopeRow? {
                 if rows.count > 1 {
                     throw StoreError.badRequest(detail:
@@ -333,6 +359,40 @@ extension Store {
                 }
                 return rows.first
             }
+
+            // PROJECT-tier addressing: its own two-rung ladder, mirroring
+            // the session one. Reached by a project-tier diagram's bindings
+            // and by `gm dope get --project-uuid`.
+            if let projectUuid = req.projectUuid {
+                guard req.sessionUuid.isEmpty else {
+                    throw StoreError.badRequest(
+                        detail: "pass --project-uuid OR --session-uuid, not both")
+                }
+                guard try Row.fetchOne(
+                    db, sql: "SELECT uuid FROM project WHERE uuid = ?",
+                    arguments: [projectUuid]) != nil else {
+                    throw StoreError.notFound(entity: "project", key: projectUuid)
+                }
+                var projectVia = "base_project"
+                var found = try pick(try self.dopeProjectScopeCandidates(
+                    db, projectUuid: projectUuid, scopeType: .projectItem, code: req.code))
+                if found != nil { projectVia = "project_item" }
+                if found == nil {
+                    found = try pick(try self.dopeProjectScopeCandidates(
+                        db, projectUuid: projectUuid, scopeType: .baseProject,
+                        code: req.code))
+                }
+                guard let scope = found else {
+                    throw StoreError.dopeProjectScopeAbsent(
+                        projectUuid: projectUuid, code: req.code)
+                }
+                return DopeGetResponse(
+                    tree: try self.fetchDopeTree(db, scope: scope),
+                    resolvedVia: projectVia)
+            }
+
+            try self.requireDopeTarget(
+                db, sessionUuid: req.sessionUuid, promptUuid: req.promptUuid)
 
             var resolvedVia = "session_base"
             var scope: DopeScopeRow?
@@ -839,6 +899,66 @@ extension Store {
         try db.execute(
             sql: "DELETE FROM dope_persistence WHERE dope_scope_uuid = ?",
             arguments: [scopeUuid])
+        // Cogs go in the SAME wipe: an ingest that replaced persistence but
+        // left cogs behind would leave the two areas describing different
+        // revisions of the tree.
+        try db.execute(
+            sql: "DELETE FROM dope_cog WHERE dope_scope_uuid = ?",
+            arguments: [scopeUuid])
+    }
+
+    /// Insert the cogs area of an ingested bundle, expanding each hull's
+    /// collapsed `links.persistence_owners` back into sibling
+    /// PersistenceOwner element rows.
+    func insertDopeCogs(
+        _ db: Database, scopeUuid: String, cogFiles: [DopeCogDocument]
+    ) throws {
+        for (cogIndex, cog) in cogFiles.enumerated() {
+            let cogUuid = try insertBase(db, table: "dope_cog", extra: [
+                "dope_scope_uuid": scopeUuid,
+                "code": cog.body.code, "name": cog.body.name,
+                "description": cog.body.description,
+                "sort_order": cog.body.sortOrder == 0 ? cogIndex : cog.body.sortOrder,
+                "content_revision": 0,
+            ])
+            for element in cog.elements {
+                let spec = try DopeCogElementSpec.spec(for: element.elementType)
+                let elementUuid = try insertBase(db, table: "dope_cog_element", extra: [
+                    "dope_cog_uuid": cogUuid,
+                    "parent_element_uuid": nil,
+                    "element_type": element.elementType,
+                    "code": element.code, "name": element.name,
+                    "description": element.description,
+                    "sort_order": element.sortOrder,
+                    "dope_scope_code": element.dopeScopeCode,
+                ])
+                var subtype: [String: (any DatabaseValueConvertible)?] = ["element_uuid": elementUuid]
+                if spec.ownedFields.contains(.primaryPath) {
+                    subtype["primary_path"] = element.primaryPath ?? ""
+                }
+                _ = try insertBase(db, table: spec.subtypeTable, extra: subtype)
+
+                // Expand the links block back into child rows, using the ONE
+                // synthesis both the reader and the seeder share.
+                for (i, owned) in (element.links?.persistenceOwners ?? []).enumerated() {
+                    let child = DopeCogProjection.ownerElement(
+                        parentCode: element.code, persistenceCode: owned, sortOrder: i)
+                    let childUuid = try insertBase(db, table: "dope_cog_element", extra: [
+                        "dope_cog_uuid": cogUuid,
+                        "parent_element_uuid": elementUuid,
+                        "element_type": DopeCogElementType.persistenceOwner.rawValue,
+                        "code": child.code, "name": child.name,
+                        "description": child.description,
+                        "sort_order": child.sortOrder,
+                        "dope_scope_code": nil,
+                    ])
+                    _ = try insertBase(db, table: "dope_cog_persistence_owner", extra: [
+                        "element_uuid": childUuid,
+                        "dope_persistence_code": owned,
+                    ])
+                }
+            }
+        }
     }
 
     // MARK: - Generic node mutations

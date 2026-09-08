@@ -216,7 +216,7 @@ schema_migrations (unwrapped ledger).
   `gm kbite file-get` for full content — not by browsing the digested
   filesystem tree.
 
-## DOPE — DOPED domain modeling (wire v14)
+## DOPE — DOPED domain modeling
 
 `gm dope` models a codebase's persistence layer as a tree:
 scope → domain → { entity → property, enum → option }. `dope_scope.revision`
@@ -227,9 +227,14 @@ is the whole-tree content counter and IS the `version` field of
 | Subcommand | Purpose |
 |------------|---------|
 | `gm dope init` | Create-or-return a scope. PROMPT-typed iff `--prompt-uuid`; `--clone-from-session-base` forks the session's tree. |
-| `gm dope list` / `get` | Picker enumeration (SESSION_BASE scopes, or ONLY a prompt's PROMPT scopes — never a union) / the full tree (PROMPT preferred, SESSION_BASE fallback). No scope ⇒ `SUMMARY_ABSENT` ⇒ `gm dope init`. |
-| `gm dope {domain,entity,property,enum,option}-{add,update,delete}` | Granular db-native edits. Uuids + `--expected-version`; deletes cascade the subtree and refuse still-referenced targets by naming the referrer. |
+| `gm dope list` / `get` | Picker enumeration (SESSION_INSTANCE scopes, or ONLY a prompt's PROMPT scopes — never a union) / the full tree (PROMPT preferred, SESSION_INSTANCE fallback). No scope ⇒ `SUMMARY_ABSENT` ⇒ `gm dope init`. |
+| `gm dope {persistence,entity,property,enum,option}-{add,update,delete}` | Granular db-native edits. Uuids + `--expected-version`; deletes cascade the subtree and refuse still-referenced targets by naming the referrer. |
 | `gm dope read-repo` / `write-repo` / `ingest` | Whole-tree JSON I/O against `{instance_root}/.gmcc/`. `ingest` requires the on-disk version to be EXACTLY db revision + 1 and mints fresh child uuids (no smart diff). |
+
+**Editing the `.gmcc` files directly?** Load
+`skills/gmcc/ref/doped_files.md` — the on-disk layout, file shape, and the
+rules that get a write refused. Not needed for a normal run: consuming the
+DOPE dump never touches the files.
 
 **References are dot-path CODES in the JSON, uuids in the verbs.** Three ref
 shapes: `domain.entity.property` (relationship targets), `domain.enums.code`
@@ -276,7 +281,7 @@ carries) that other entities point at via `--base-composable-uuid`
 
 ### Boot-time sync and session env
 
-`gm dope sync` reconciles the session's SESSION_BASE scope from the on-disk
+`gm dope sync` reconciles the session's SESSION_INSTANCE scope from the on-disk
 files at `{instance_root}/.gmcc` into the db: it seeds a virgin scope,
 re-adopts when the files are ahead (any forward gap), and WARNS ONLY when the
 db is ahead. It runs automatically at boot via `gm context ensure`; the
@@ -285,7 +290,7 @@ never for interactive use. Relatedly, `gm context env` is the SessionStart
 env owner: it emits the session environment (GMCC_BOOTED, GMCC_PLUGIN_ROOT,
 GMCC_CKFS_ROOT, PATH, plus GMCC_ROOT when sandboxed).
 
-## DIAGRAM — db-persisted canvases (wire v15)
+## DIAGRAM — db-persisted canvases
 
 `gm diagram` persists visual canvases over the dope subsystem:
 diagram → element → (joined subtype + vertex rows). Two element families:
@@ -308,13 +313,13 @@ always). `gmcc_diagram_path` is refused at PROJECT tier (no instance root).
 | `gm diagram element-add/-update/-delete` | Granular element edits — each is a ONE-MUTATION BATCH over the same daemon body as batch-apply, so semantics cannot drift. Subtype fields ride `--content` (`{"kind":"<element_type>","fields":{...}}`, vertices inside); a present content on update REPLACES the subtype row + vertex set wholesale (no clear flags anywhere). Omitted `--code`/`--name` are minted (`stroke_0007` style). |
 | `gm diagram update` | Diagram-row edits: rename/describe, path set/clear, tier promotion. |
 | `gm diagram batch-apply` | THE interactive write: many mutations, one transaction, ONE revision bump, ONE `DIAGRAM_CHANGE` event. Strict array order; all-or-nothing; `elementAdd.clientRef` temp ids are parentable by later mutations in the same batch (a gesture creates a layer + strokes atomically); `--expected-revision` is a whole-diagram CAS gate (`VERSION_CONFLICT` when stale) — GMVibes commits at gesture end. |
-| `gm diagram screenshot` | Headless render in the gm CLIENT process (never the daemon) to `{instance_root}/.gmcc/.screenshots/{code}_r{revision}.png` — a SELF-gitignored directory (`.screenshots/.gitignore` containing `*`; the user's root .gitignore is never touched). Zero db writes. The `/gm_screenshot_session_domain_diagram_state` slash command wraps it. |
+| `gm render` | Headless render in the gm CLIENT process (never the daemon — `ImageRenderer` is @MainActor and the daemon's serial write loop must not host one) to `{ckfs_root}/{owner ckfs path}/{gmcc_diagram_path or 'diagrams'}/screenshots/{code}.png`, printing the path for an agent to read. CKFS-rooted at EVERY tier, so a project-tier diagram renders too and no `.gitignore` is involved. ONE mutable file per code; freshness is a fingerprint sidecar covering the diagram revision AND every bound dope scope revision (a dope edit changes the picture without touching the diagram row, so a timestamp check would silently serve a stale image). `--force` overrides. Zero db writes unless `--artifact`. Replaced `gm diagram screenshot`, retired in prompt 9. The `/gm_screenshot_session_domain_diagram_state` slash command wraps it. |
 
 **fk-by-code bindings, ghost semantics.** Diagram→dope references are TEXT
 codes, never uuids or SQL FKs (`gm dope ingest` re-mints every child uuid,
 so uuid refs are structurally impossible). Resolution happens at READ time
 through the diagram's own session/prompt context via the dope ladder
-(PROMPT preferred, SESSION_BASE fallback), surfaced per binding as
+(PROMPT preferred, SESSION_INSTANCE fallback), surfaced per binding as
 `resolved_via`; PROJECT/INSTANCE-tier diagrams resolve all-absent by
 construction. A dangling code is a LEGAL state rendered as a ghost card —
 never an error, and never a delete guard: dope evolution is never blocked

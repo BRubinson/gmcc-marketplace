@@ -85,6 +85,23 @@ public struct ResolvedElement: Sendable {
         self.accumulatedCenter = accumulatedCenter
         self.accumulatedScale = accumulatedScale
     }
+
+    /// Value-semantics rebuilds used by the deferred pass, which has to
+    /// patch geometry into a tree phase 1 already built.
+    func replacingChildren(_ children: [ResolvedElement]) -> ResolvedElement {
+        ResolvedElement(uuid: uuid, code: code, name: name, frame: frame,
+                        elementZ: elementZ, kind: kind, children: children,
+                        accumulatedCenter: accumulatedCenter,
+                        accumulatedScale: accumulatedScale)
+    }
+
+    func replacing(kind: ResolvedElementKind, frame: CGRect,
+                   children: [ResolvedElement]) -> ResolvedElement {
+        ResolvedElement(uuid: uuid, code: code, name: name, frame: frame,
+                        elementZ: elementZ, kind: kind, children: children,
+                        accumulatedCenter: accumulatedCenter,
+                        accumulatedScale: accumulatedScale)
+    }
 }
 
 extension ResolvedElement {
@@ -122,6 +139,8 @@ public enum ResolvedElementKind: Sendable {
     case layer(LayerStyle)
     case stroke(ResolvedStroke)
     case shape(ResolvedShape)
+    case text(ResolvedText)
+    case connector(ResolvedConnector)
     case scopeCard(ResolvedScopeCard)
     case entityCard(EntityCardModel)
     /// The LEGAL dangling-binding state: a dope_scope code matching no scope,
@@ -129,6 +148,55 @@ public enum ResolvedElementKind: Sendable {
     /// never an error.
     case absentScope(code: String)
     case absentEntity(code: String)
+}
+
+/// A laid-out markdown text box. `width`/`height` come from the subtype row
+/// scaled by the accumulated tree scale — never from a vertex extent, so the
+/// wrapping width is known before layout rather than derived from it.
+public struct ResolvedText: Hashable, Sendable {
+    public let markdown: String
+    public let fontSize: Double
+    public let textColor: String
+    public let backgroundColor: String?
+
+    public init(markdown: String, fontSize: Double,
+                textColor: String, backgroundColor: String?) {
+        self.markdown = markdown
+        self.fontSize = fontSize
+        self.textColor = textColor
+        self.backgroundColor = backgroundColor
+    }
+}
+
+/// A resolved connector.
+///
+/// `target` carries the ghost doctrine one level down: a connector whose
+/// target was deleted (the column is ON DELETE SET NULL) or whose target
+/// never resolved is `.absent` and simply does not draw, rather than
+/// failing the diagram. Nothing about a missing endpoint is an error.
+public struct ResolvedConnector: Hashable, Sendable {
+    public enum Target: Hashable, Sendable {
+        case resolved(CGRect)
+        case absent
+    }
+
+    public let target: Target
+    public let strokeColor: String
+    public let lineWidth: Double
+    public let lineStyle: DiagramConnectorLineStyle
+    public let headKind: DiagramConnectorHead
+    public let label: String
+
+    public init(target: Target, strokeColor: String, lineWidth: Double,
+                lineStyle: DiagramConnectorLineStyle,
+                headKind: DiagramConnectorHead, label: String) {
+        self.target = target
+        self.strokeColor = strokeColor
+        self.lineWidth = lineWidth
+        self.lineStyle = lineStyle
+        self.headKind = headKind
+        self.label = label
+    }
 }
 
 public struct LayerStyle: Hashable, Sendable {
@@ -234,6 +302,19 @@ public struct EntityCardModel: Sendable {
     }
 }
 
+/// What produced an edge.
+///
+/// Both producers feed the SAME router call, so an edge has to say which it
+/// came from — a derived FK arrow and a hand-drawn connector look different
+/// and mean different things, but they route identically and must not be
+/// two parallel routing systems.
+public enum ResolvedEdgeOrigin: Sendable, Equatable {
+    /// Derived from a dope relationship property. Nothing persisted it.
+    case dopeForeignKey
+    /// A persisted `connector` element, carrying its own styling.
+    case connector(elementUuid: String, style: ResolvedConnector)
+}
+
 public struct ResolvedEdge: Sendable {
     /// Diagram-space anchor points on the two card borders. When `routed`,
     /// these are the routed polyline's real endpoints (`points.first/.last`).
@@ -241,17 +322,20 @@ public struct ResolvedEdge: Sendable {
     public let to: CGPoint
     public let fromElementUuid: String
     public let toElementUuid: String
-    /// `domain.entity.property` of the relationship property.
+    /// `domain.entity.property` of the relationship property. For a
+    /// connector this is its element code — the edge's human name either way.
     public let propertyRef: String
     /// Diagram-space orthogonal polyline, >= 2 points — `[from, to]` when
     /// routing declined (`routed == false`) and the view keeps the legacy
     /// cubic. Derived state: never persisted, never on the wire.
     public let points: [CGPoint]
     public let routed: Bool
+    public let origin: ResolvedEdgeOrigin
 
     public init(from: CGPoint, to: CGPoint, fromElementUuid: String,
                 toElementUuid: String, propertyRef: String,
-                points: [CGPoint]? = nil, routed: Bool = false) {
+                points: [CGPoint]? = nil, routed: Bool = false,
+                origin: ResolvedEdgeOrigin = .dopeForeignKey) {
         self.from = from
         self.to = to
         self.fromElementUuid = fromElementUuid
@@ -259,6 +343,7 @@ public struct ResolvedEdge: Sendable {
         self.propertyRef = propertyRef
         self.points = points ?? [from, to]
         self.routed = routed
+        self.origin = origin
     }
 }
 
@@ -284,16 +369,53 @@ public enum DiagramResolver {
                                     scopeCode: String, scale: Double)] = [:]
         var obstacles: [DiagramEdgeRouter.Obstacle] = []
 
+        // PHASE 1 — place every immediate element, recording EVERY frame by
+        // uuid (not just entity cards) and collecting the deferred ones.
+        var pass = ResolvePass()
         let sortedTop = tree.elements.sorted(by: siblingOrder)
-        let topLevel = sortedTop.map { node in
+        let placed = sortedTop.map { node in
             resolveElement(node, parentCenter: .zero, parentScale: 1,
                            scope: scopeEntry(for: node, dope: dope),
                            environment: environment, entityFrames: &entityFrames,
-                           obstacles: &obstacles)
+                           obstacles: &obstacles, pass: &pass)
         }
 
-        let edges = resolveEdges(dope: dope, entityFrames: entityFrames,
-                                 environment: environment, obstacles: obstacles)
+        // PHASE 2 — the deferred pass. Every immediate element now has a
+        // frame, so a connector can finally be told where its endpoints are.
+        //
+        // Both producers emit into ONE router call in a FIXED order (FK
+        // first, then connectors, each internally sorted), because
+        // DiagramEdgeRouter routes against a shared obstacle graph and index
+        // i in is index i out. Two separate calls would route each set
+        // blind to the other's corridors, and screenshot determinism would
+        // depend on dictionary iteration order.
+        let fkSeeds = foreignKeyEdgeSeeds(dope: dope, entityFrames: entityFrames,
+                                          environment: environment)
+        let connectorSeeds = connectorEdgeSeeds(pass: pass)
+        let seeds = fkSeeds + connectorSeeds
+        let routes = DiagramEdgeRouter.route(edges: seeds.map(\.request),
+                                             obstacles: obstacles,
+                                             padding: edgeRoutingPadding)
+        let edges = zip(seeds, routes).map { seed, route in
+            if route.routed, route.points.count >= 2 {
+                return ResolvedEdge(
+                    from: route.points[0], to: route.points[route.points.count - 1],
+                    fromElementUuid: seed.fromElementUuid,
+                    toElementUuid: seed.toElementUuid,
+                    propertyRef: seed.propertyRef,
+                    points: route.points, routed: true, origin: seed.origin)
+            }
+            return ResolvedEdge(
+                from: seed.fallbackFrom, to: seed.fallbackTo,
+                fromElementUuid: seed.fromElementUuid,
+                toElementUuid: seed.toElementUuid,
+                propertyRef: seed.propertyRef, origin: seed.origin)
+        }
+
+        // Patch the placeholder connectors with their resolved targets, so
+        // hit-testing and bounds see real geometry rather than the phase-1
+        // zero-size stand-in.
+        let topLevel = placed.map { patchDeferred($0, pass: pass) }
 
         var bounds = CGRect.null
         func union(_ element: ResolvedElement) {
@@ -332,10 +454,12 @@ public enum DiagramResolver {
 
     private static func resolveElement(
         _ node: DiagramElementNode, parentCenter: CGPoint, parentScale: Double,
+        parentUuid: String? = nil,
         scope: DiagramDopeContext.Entry?, environment: DiagramRenderEnvironment,
         entityFrames: inout [String: (frame: CGRect, entityCode: String,
                                       scopeCode: String, scale: Double)],
-        obstacles: inout [DiagramEdgeRouter.Obstacle]
+        obstacles: inout [DiagramEdgeRouter.Obstacle],
+        pass: inout ResolvePass
     ) -> ResolvedElement {
         let scale = parentScale * node.base.scale
         let center = CGPoint(x: parentCenter.x + node.base.centerX * parentScale,
@@ -352,8 +476,10 @@ public enum DiagramResolver {
         case .drawingLayer(let payload):
             children = sortedChildren.map {
                 resolveElement($0, parentCenter: center, parentScale: scale,
+                               parentUuid: node.identity.uuid,
                                scope: nil, environment: environment,
-                               entityFrames: &entityFrames, obstacles: &obstacles)
+                               entityFrames: &entityFrames, obstacles: &obstacles,
+                               pass: &pass)
             }
             kind = .layer(LayerStyle(opacity: payload.opacity, visible: payload.visible,
                                      locked: payload.locked))
@@ -392,11 +518,41 @@ public enum DiagramResolver {
                     $0.union(CGRect(origin: $1, size: .zero))
                 }.insetBy(dx: -payload.strokeWidth * scale, dy: -payload.strokeWidth * scale)
 
+        case .drawingText(let payload):
+            let width = payload.width * scale
+            let height = payload.height * scale
+            frame = CGRect(x: center.x - width / 2, y: center.y - height / 2,
+                           width: width, height: height)
+            kind = .text(ResolvedText(markdown: payload.markdown,
+                                      fontSize: payload.fontSize * scale,
+                                      textColor: payload.textColor,
+                                      backgroundColor: payload.backgroundColor))
+
+        case .connector(let payload):
+            // DEFERRED. A connector's geometry is a function of its target's
+            // frame, which does not exist yet during this walk — that is the
+            // entire reason the resolve is two-phase. Phase 1 records what
+            // phase 2 will need and leaves a placeholder; `patchDeferred`
+            // fills in the real frame once every immediate element is
+            // placed. A placeholder that never gets patched is a ghost, and
+            // a ghost draws nothing.
+            pass.deferred.append(ResolvePass.Deferred(
+                uuid: node.identity.uuid, code: node.base.code,
+                parentUuid: parentUuid, payload: payload, scale: scale))
+            frame = CGRect(origin: center, size: .zero)
+            kind = .connector(ResolvedConnector(
+                target: .absent, strokeColor: payload.strokeColor,
+                lineWidth: payload.strokeWidth * scale,
+                lineStyle: payload.lineStyle, headKind: payload.headKind,
+                label: payload.label))
+
         case .dopeScopePersistenceLayer(let payload):
             children = sortedChildren.map {
                 resolveElement($0, parentCenter: center, parentScale: scale,
+                               parentUuid: node.identity.uuid,
                                scope: scope, environment: environment,
-                               entityFrames: &entityFrames, obstacles: &obstacles)
+                               entityFrames: &entityFrames, obstacles: &obstacles,
+                               pass: &pass)
             }
             if let scope {
                 kind = .scopeCard(ResolvedScopeCard(
@@ -413,6 +569,18 @@ public enum DiagramResolver {
                 : frame.insetBy(dx: -24 * scale, dy: -32 * scale)
 
         case .dopeEntity(let payload):
+            // Entity cards had no children until connectors existed, and a
+            // connector is BY DEFINITION a child of the entity it connects
+            // from — so this arm has to walk them. The card's own frame is
+            // still card metrics, never a child extent: a connector must
+            // not inflate the card it hangs off.
+            children = sortedChildren.map {
+                resolveElement($0, parentCenter: center, parentScale: scale,
+                               parentUuid: node.identity.uuid,
+                               scope: scope, environment: environment,
+                               entityFrames: &entityFrames, obstacles: &obstacles,
+                               pass: &pass)
+            }
             if let scope, let model = entityCard(payload.entityCode, in: scope.tree) {
                 let width = environment.cardWidth * scale
                 let height = environment.cardHeight(rowCount: model.rows.count) * scale
@@ -432,6 +600,22 @@ public enum DiagramResolver {
                 // they just never produce edges themselves.
                 obstacles.append(DiagramEdgeRouter.Obstacle(frame: frame, scale: scale))
             }
+        }
+
+        // EVERY element's frame goes in the index, not just entity cards —
+        // that is what lets phase 2 resolve a connector against any element.
+        let type = node.payload.elementType
+        pass.frames[node.identity.uuid] = ResolvePass.Frame(
+            frame: frame, type: type, parentUuid: parentUuid, scale: scale)
+
+        // Obstacle participation is now DATA on the registry rather than a
+        // hardcoded branch: structural content (entity cards, shapes, text
+        // boxes) blocks routing; ink, layers and connectors do not. The
+        // dopeEntity arms above already appended, so this covers the rest
+        // without double-counting them.
+        if DiagramElementTypeSpec.spec(for: type).participatesInRouting,
+           type != .dopeEntity, !frame.isNull, frame.width > 0, frame.height > 0 {
+            obstacles.append(DiagramEdgeRouter.Obstacle(frame: frame, scale: scale))
         }
 
         return ResolvedElement(uuid: node.identity.uuid, code: node.base.code,
@@ -501,6 +685,124 @@ public enum DiagramResolver {
             rows: allRows)
     }
 
+    // MARK: - The two-phase resolve
+
+    /// Phase-1 state: what phase 2 needs and phase 1 is the only thing that
+    /// can know.
+    ///
+    /// `frames` holds EVERY element, keyed by uuid. The older `entityFrames`
+    /// dictionary is kept alongside it rather than replaced: it carries dope
+    /// metadata (entityCode, scopeCode) that only entity cards have, and the
+    /// FK producer is written against exactly that. Widening it would have
+    /// meant making those fields optional on every element in the diagram to
+    /// serve one producer.
+    struct ResolvePass {
+        struct Frame {
+            let frame: CGRect
+            let type: DiagramElementType
+            let parentUuid: String?
+            let scale: Double
+        }
+        /// Every immediate element, by uuid.
+        var frames: [String: Frame] = [:]
+        /// Deferred elements awaiting phase 2, in tree order.
+        var deferred: [Deferred] = []
+        /// Filled by phase 2: connector uuid -> its resolved geometry.
+        var resolvedConnectors: [String: (connector: ResolvedConnector, frame: CGRect)] = [:]
+
+        struct Deferred {
+            let uuid: String
+            let code: String
+            let parentUuid: String?
+            let payload: ConnectorPayload
+            let scale: Double
+        }
+    }
+
+    /// Connector seeds, computed against the completed frame index.
+    ///
+    /// A connector's endpoints are its PARENT's frame and its TARGET's
+    /// frame — it is rendered as a child of the thing it connects from, so
+    /// the parent IS the source anchor. Anything unresolvable (no parent, no
+    /// target, a target that was deleted) is a ghost: it emits no seed and
+    /// draws nothing, exactly like a dangling dope binding.
+    private static func connectorEdgeSeeds(pass: ResolvePass) -> [EdgeSeed] {
+        var seeds: [EdgeSeed] = []
+        // Sorted by uuid so routing order — and therefore the rendered
+        // geometry — never depends on tree traversal incidentals.
+        for deferred in pass.deferred.sorted(by: { $0.uuid < $1.uuid }) {
+            guard let parentUuid = deferred.parentUuid,
+                  let source = pass.frames[parentUuid],
+                  let targetUuid = deferred.payload.targetElementUuid,
+                  let target = pass.frames[targetUuid]
+            else { continue }
+            let (from, to) = anchorPoints(source.frame, target.frame)
+            seeds.append(EdgeSeed(
+                request: DiagramEdgeRouter.EdgeRequest(
+                    fromFrame: source.frame, toFrame: target.frame,
+                    sourceRowY: source.frame.midY,
+                    propertyRef: deferred.code,
+                    fromElementUuid: parentUuid),
+                fallbackFrom: from, fallbackTo: to,
+                fromElementUuid: parentUuid, toElementUuid: targetUuid,
+                propertyRef: deferred.code,
+                origin: .connector(
+                    elementUuid: deferred.uuid,
+                    style: ResolvedConnector(
+                        target: .resolved(target.frame),
+                        strokeColor: deferred.payload.strokeColor,
+                        lineWidth: deferred.payload.strokeWidth * deferred.scale,
+                        lineStyle: deferred.payload.lineStyle,
+                        headKind: deferred.payload.headKind,
+                        label: deferred.payload.label))))
+        }
+        return seeds
+    }
+
+    /// Replace phase-1's placeholder connector kinds with resolved geometry.
+    ///
+    /// A connector's own frame becomes the union of its endpoints, so the
+    /// diagram's content bounds include it and a screenshot cannot clip a
+    /// connector that runs outside every card.
+    private static func patchDeferred(
+        _ element: ResolvedElement, pass: ResolvePass
+    ) -> ResolvedElement {
+        let children = element.children.map { patchDeferred($0, pass: pass) }
+        guard case .connector(let placeholder) = element.kind else {
+            return element.replacingChildren(children)
+        }
+        guard let deferred = pass.deferred.first(where: { $0.uuid == element.uuid }),
+              let parentUuid = deferred.parentUuid,
+              let source = pass.frames[parentUuid],
+              let targetUuid = deferred.payload.targetElementUuid,
+              let target = pass.frames[targetUuid]
+        else {
+            // Ghost: unresolvable endpoint. Legal, renders nothing.
+            return element.replacingChildren(children)
+        }
+        return element.replacing(
+            kind: .connector(ResolvedConnector(
+                target: .resolved(target.frame),
+                strokeColor: placeholder.strokeColor,
+                lineWidth: placeholder.lineWidth,
+                lineStyle: placeholder.lineStyle,
+                headKind: placeholder.headKind,
+                label: placeholder.label)),
+            frame: source.frame.union(target.frame),
+            children: children)
+    }
+
+    /// One edge to route, from either producer.
+    struct EdgeSeed {
+        let request: DiagramEdgeRouter.EdgeRequest
+        let fallbackFrom: CGPoint
+        let fallbackTo: CGPoint
+        let fromElementUuid: String
+        let toElementUuid: String
+        let propertyRef: String
+        let origin: ResolvedEdgeOrigin
+    }
+
     /// The FK edge pass: for every relationship property of every rendered
     /// entity card, if the target property's owning entity also has a card
     /// under the SAME scope element family, draw an edge between the two
@@ -515,13 +817,12 @@ public enum DiagramResolver {
     /// updating the fixture breaks loudly.
     static let edgeRoutingPadding: Double = 12
 
-    private static func resolveEdges(
+    private static func foreignKeyEdgeSeeds(
         dope: DiagramDopeContext,
         entityFrames: [String: (frame: CGRect, entityCode: String,
                                 scopeCode: String, scale: Double)],
-        environment: DiagramRenderEnvironment,
-        obstacles: [DiagramEdgeRouter.Obstacle]
-    ) -> [ResolvedEdge] {
+        environment: DiagramRenderEnvironment
+    ) -> [EdgeSeed] {
         // entityCode+scopeCode → (uuid, frame). Built from a SORTED walk with
         // first-wins so duplicate cards binding the same entity always pick
         // the same (lowest-uuid) target — screenshot determinism is a
@@ -536,14 +837,6 @@ public enum DiagramResolver {
 
         // Emission pass: one spec + one legacy fallback pair per FK, in
         // sorted-by-uuid order (which is also the routing order).
-        struct EdgeSeed {
-            let request: DiagramEdgeRouter.EdgeRequest
-            let fallbackFrom: CGPoint
-            let fallbackTo: CGPoint
-            let fromElementUuid: String
-            let toElementUuid: String
-            let propertyRef: String
-        }
         var seeds: [EdgeSeed] = []
         for (uuid, info) in entityFrames.sorted(by: { $0.key < $1.key }) {
             guard let scope = dope.entries[info.scopeCode] else { continue }
@@ -574,29 +867,13 @@ public enum DiagramResolver {
                         fromElementUuid: uuid),
                     fallbackFrom: from, fallbackTo: to,
                     fromElementUuid: uuid, toElementUuid: target.uuid,
-                    propertyRef: "\(info.entityCode).\(property.body.code)"))
+                    propertyRef: "\(info.entityCode).\(property.body.code)",
+                    origin: .dopeForeignKey))
             }
         }
-
-        // Routing pass: one shared-graph call; index i in == index i out.
-        let routes = DiagramEdgeRouter.route(edges: seeds.map(\.request),
-                                             obstacles: obstacles,
-                                             padding: edgeRoutingPadding)
-        return zip(seeds, routes).map { seed, route in
-            if route.routed, route.points.count >= 2 {
-                return ResolvedEdge(
-                    from: route.points[0], to: route.points[route.points.count - 1],
-                    fromElementUuid: seed.fromElementUuid,
-                    toElementUuid: seed.toElementUuid,
-                    propertyRef: seed.propertyRef,
-                    points: route.points, routed: true)
-            }
-            return ResolvedEdge(
-                from: seed.fallbackFrom, to: seed.fallbackTo,
-                fromElementUuid: seed.fromElementUuid,
-                toElementUuid: seed.toElementUuid,
-                propertyRef: seed.propertyRef)
-        }
+        // Routing is the CALLER's — one shared-graph call for every producer,
+        // so FK edges and connectors steer around the same obstacles.
+        return seeds
     }
 
     /// The single home of the FK-row y formula — `resolveEdges` anchors and

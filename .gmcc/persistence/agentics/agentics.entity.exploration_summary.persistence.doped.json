@@ -1,0 +1,51 @@
+{
+  "base_composable_ref" : "base.base_entity",
+  "code" : "exploration_summary",
+  "description" : "Per-prompt exploration report; overview plus ranked findings",
+  "entity_type" : "MODEL",
+  "name" : "Exploration Summary",
+  "properties" : [
+    {
+      "base_origin_ref" : "base.base_entity.uuid",
+      "code" : "uuid",
+      "data_type" : "uuid",
+      "description" : "Stable external identifier (base entity)",
+      "is_unique" : true,
+      "name" : "UUID",
+      "nullable" : false,
+      "sort_order" : 2
+    },
+    {
+      "code" : "prompt_uuid",
+      "data_type" : "relationship",
+      "description" : "Owning prompt; one summary per prompt",
+      "is_unique" : true,
+      "name" : "Prompt",
+      "nullable" : false,
+      "relationship_target_ref" : "project.prompt.uuid",
+      "sort_order" : 6
+    },
+    {
+      "code" : "status",
+      "data_type" : "enum",
+      "description" : "exploring or complete",
+      "enum_ref" : "agentics.enums.explore_status",
+      "is_unique" : false,
+      "name" : "Status",
+      "nullable" : false,
+      "sort_order" : 7
+    },
+    {
+      "code" : "overview",
+      "data_type" : "text",
+      "description" : "Overview text; writable only via complete",
+      "is_unique" : false,
+      "name" : "Overview",
+      "nullable" : false,
+      "sort_order" : 8
+    }
+  ],
+  "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
+  "sort_order" : 7,
+  "version" : 736
+}

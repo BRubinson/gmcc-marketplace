@@ -6,7 +6,7 @@ import GMCCDaemonKit
 /// Driver — see DopeVocabulary). Granular db-native verbs take uuids +
 /// --expected-version; the
 /// whole-tree repo verbs move `.doped.json` files under
-/// {instance_root}/.gmcc/dope/ where every reference is a dot-path code.
+/// {instance_root}/.gmcc/ where every reference is a dot-path code.
 /// dope_scope.revision is the whole-tree content counter and IS the JSON
 /// version field; granular edits bump it by 1 each, ingest requires exactly
 /// revision + 1.
@@ -167,7 +167,7 @@ struct Dope: ParsableCommand {
 
     struct Init: ParsableCommand {
         static let configuration = CommandConfiguration(
-            abstract: "Create (or return) a dope scope. Idempotent; PROMPT-typed when --prompt-uuid is present, SESSION_BASE otherwise.")
+            abstract: "Create (or return) a dope scope. Idempotent; PROMPT-typed when --prompt-uuid is present, SESSION_INSTANCE otherwise.")
 
         @OptionGroup var output: OutputOptions
         @Option(name: .long) var sessionUuid: String
@@ -177,7 +177,7 @@ struct Dope: ParsableCommand {
         var code: String
         @Option(name: .long) var name: String
         @Option(name: .long) var description: String?
-        @Flag(name: .long, help: "Fork the session's SESSION_BASE tree of the same code into the new PROMPT scope.")
+        @Flag(name: .long, help: "Fork the session's SESSION_INSTANCE tree of the same code into the new PROMPT scope.")
         var cloneFromSessionBase = false
 
         func run() throws {
@@ -197,11 +197,11 @@ struct Dope: ParsableCommand {
 
     struct List: ParsableCommand {
         static let configuration = CommandConfiguration(
-            abstract: "Enumerate dope scopes for a picker. Without --prompt-uuid: the session's SESSION_BASE scopes; with it: ONLY that prompt's PROMPT scopes (never a union). Empty is normal; an unknown uuid is NOT_FOUND.")
+            abstract: "Enumerate dope scopes for a picker. Without --prompt-uuid: the session's SESSION_INSTANCE scopes; with it: ONLY that prompt's PROMPT scopes (never a union). Empty is normal; an unknown uuid is NOT_FOUND.")
 
         @OptionGroup var output: OutputOptions
         @Option(name: .long) var sessionUuid: String
-        @Option(name: .long, help: "Restrict to this prompt's PROMPT scopes instead of the session's SESSION_BASE scopes.")
+        @Option(name: .long, help: "Restrict to this prompt's PROMPT scopes instead of the session's SESSION_INSTANCE scopes.")
         var promptUuid: String?
 
         func run() throws {
@@ -311,10 +311,13 @@ struct Dope: ParsableCommand {
 
     struct Get: ParsableCommand {
         static let configuration = CommandConfiguration(
-            abstract: "Read the full tree. With --prompt-uuid the SESSION_INSTANCE_ITEM scope is preferred and SESSION_INSTANCE is the fallback; --code disambiguates when a session holds several scopes. --resolved merges a masking overlay over its base.")
+            abstract: "Read the full tree. With --prompt-uuid the SESSION_INSTANCE_ITEM scope is preferred and SESSION_INSTANCE is the fallback; with --project-uuid the PROJECT_ITEM scope is preferred and BASE_PROJECT is the fallback; --code disambiguates when a target holds several scopes. --resolved merges a masking overlay over its base.")
 
         @OptionGroup var output: OutputOptions
-        @Option(name: .long) var sessionUuid: String
+        @Option(name: .long, help: "SESSION-tier target (exclusive with --project-uuid).")
+        var sessionUuid: String?
+        @Option(name: .long, help: "PROJECT-tier target: reads PROJECT_ITEM, else the promoted BASE_PROJECT scope.")
+        var projectUuid: String?
         @Option(name: .long) var promptUuid: String?
         @Option(name: .long) var code: String?
         @Flag(name: .customLong("resolved"),
@@ -322,10 +325,13 @@ struct Dope: ParsableCommand {
         var resolved: Bool = false
 
         func run() throws {
+            guard (sessionUuid == nil) != (projectUuid == nil) else {
+                throw ValidationError("pass exactly one of --session-uuid or --project-uuid")
+            }
             let response = try withClient {
                 try $0.dopeGet(DopeGetRequest(
-                    sessionUuid: sessionUuid, promptUuid: promptUuid, code: code,
-                    resolved: resolved ? true : nil))
+                    sessionUuid: sessionUuid ?? "", promptUuid: promptUuid, code: code,
+                    resolved: resolved ? true : nil, projectUuid: projectUuid))
             }
             if output.json { printJSON(response) } else {
                 let t = response.tree
@@ -635,7 +641,7 @@ struct Dope: ParsableCommand {
     struct ReadRepo: ParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "read-repo",
-            abstract: "Parse + validate {instance_root}/.gmcc/dope. Never writes; reports on-disk vs db revision drift.")
+            abstract: "Parse + validate {instance_root}/.gmcc. Never writes; reports on-disk vs db revision drift.")
 
         @OptionGroup var output: OutputOptions
         @Option(name: .long, help: "Resolve the scope's own instance root (exclusive with --dir-path).")
@@ -660,7 +666,7 @@ struct Dope: ParsableCommand {
     struct WriteRepo: ParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "write-repo",
-            abstract: "db → {instance_root}/.gmcc/dope (atomic whole-tree swap). Refuses when the files are AHEAD of the db (ingest first) unless --force.")
+            abstract: "db → {instance_root}/.gmcc (atomic whole-tree swap). Refuses when the files are AHEAD of the db (ingest first) unless --force.")
 
         @OptionGroup var output: OutputOptions
         @Option(name: .long) var scopeUuid: String
@@ -716,8 +722,8 @@ struct Dope: ParsableCommand {
     struct Sync: ParsableCommand {
         static let configuration = CommandConfiguration(
             abstract: """
-                Reconcile the session's SESSION_BASE scope with the repo's \
-                .gmcc/dope tree (files → db, forward only). Runs automatically \
+                Reconcile the session's SESSION_INSTANCE scope with the repo's \
+                .gmcc tree (files → db, forward only). Runs automatically \
                 at boot via gm context ensure; run manually after a mid-session \
                 branch change.
                 """)

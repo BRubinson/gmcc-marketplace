@@ -16,6 +16,8 @@ public enum DiagramElementPayload: Codable, Hashable, Sendable {
     case drawingLayer(DrawingLayerPayload)
     case drawingStroke(DrawingStrokePayload)
     case drawingShape(DrawingShapePayload)
+    case drawingText(DrawingTextPayload)
+    case connector(ConnectorPayload)
     case dopeScopePersistenceLayer(DopeScopePersistenceLayerPayload)
     case dopeEntity(DopeEntityPayload)
 
@@ -26,6 +28,8 @@ public enum DiagramElementPayload: Codable, Hashable, Sendable {
         case .drawingLayer: return .drawingLayer
         case .drawingStroke: return .drawingStroke
         case .drawingShape: return .drawingShape
+        case .drawingText: return .drawingText
+        case .connector: return .connector
         case .dopeScopePersistenceLayer: return .dopeScopePersistenceLayer
         case .dopeEntity: return .dopeEntity
         }
@@ -48,6 +52,10 @@ public enum DiagramElementPayload: Codable, Hashable, Sendable {
             self = .drawingStroke(try c.decode(DrawingStrokePayload.self, forKey: .fields))
         case .drawingShape:
             self = .drawingShape(try c.decode(DrawingShapePayload.self, forKey: .fields))
+        case .drawingText:
+            self = .drawingText(try c.decode(DrawingTextPayload.self, forKey: .fields))
+        case .connector:
+            self = .connector(try c.decode(ConnectorPayload.self, forKey: .fields))
         case .dopeScopePersistenceLayer:
             self = .dopeScopePersistenceLayer(try c.decode(DopeScopePersistenceLayerPayload.self, forKey: .fields))
         case .dopeEntity:
@@ -62,6 +70,8 @@ public enum DiagramElementPayload: Codable, Hashable, Sendable {
         case .drawingLayer(let p): try c.encode(p, forKey: .fields)
         case .drawingStroke(let p): try c.encode(p, forKey: .fields)
         case .drawingShape(let p): try c.encode(p, forKey: .fields)
+        case .drawingText(let p): try c.encode(p, forKey: .fields)
+        case .connector(let p): try c.encode(p, forKey: .fields)
         case .dopeScopePersistenceLayer(let p): try c.encode(p, forKey: .fields)
         case .dopeEntity(let p): try c.encode(p, forKey: .fields)
         }
@@ -181,6 +191,115 @@ public struct DrawingShapePayload: Codable, Hashable, Sendable {
         fillColor = try c.decodeIfPresent(String.self, forKey: .fillColor)
         cornerRadius = try c.decodeIfPresent(Double.self, forKey: .cornerRadius)
         vertices = try c.decodeIfPresent([DiagramVertex].self, forKey: .vertices) ?? []
+    }
+}
+
+/// A resizable markdown text box.
+///
+/// The only bounded element in the family that is NOT vertex-derived: shapes
+/// take their frame from the bounding box of their vertices, but wrapping
+/// markdown needs a layout width up front, and re-deriving one from a vertex
+/// extent on every render would be both slower and circular (the wrapped
+/// height depends on the width). So the size is explicit — and it lives on
+/// this subtype, not on diagram_element, so no other type is affected and
+/// the tree-composing `scale` still applies on top of it.
+public struct DrawingTextPayload: Codable, Hashable, Sendable {
+    public let markdown: String
+    public let width: Double
+    public let height: Double
+    public let fontSize: Double
+    public let textColor: String
+    public let backgroundColor: String?
+
+    public init(
+        markdown: String = "", width: Double = 180, height: Double = 60,
+        fontSize: Double = 13, textColor: String = "#1a1a1a",
+        backgroundColor: String? = nil
+    ) {
+        self.markdown = markdown
+        self.width = width
+        self.height = height
+        self.fontSize = fontSize
+        self.textColor = textColor
+        self.backgroundColor = backgroundColor
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case markdown, width, height, fontSize, textColor, backgroundColor
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        markdown = try c.decodeIfPresent(String.self, forKey: .markdown) ?? ""
+        width = try c.decodeIfPresent(Double.self, forKey: .width) ?? 180
+        height = try c.decodeIfPresent(Double.self, forKey: .height) ?? 60
+        fontSize = try c.decodeIfPresent(Double.self, forKey: .fontSize) ?? 13
+        textColor = try c.decodeIfPresent(String.self, forKey: .textColor) ?? "#1a1a1a"
+        backgroundColor = try c.decodeIfPresent(String.self, forKey: .backgroundColor)
+    }
+}
+
+/// Connector line style.
+public enum DiagramConnectorLineStyle: String, Codable, Hashable, CaseIterable, Sendable {
+    case solid
+    case dashed
+}
+
+/// Connector head style.
+public enum DiagramConnectorHead: String, Codable, Hashable, CaseIterable, Sendable {
+    case none
+    case arrow
+    case dot
+}
+
+/// A hand-drawn connection from the element it is parented under to a PEER
+/// of that element.
+///
+/// The subsystem's first element-to-element reference. `targetElementUuid`
+/// is optional on purpose at every layer: the column is `ON DELETE SET
+/// NULL`, because CASCADE on a subtype table would delete this row and leave
+/// its `diagram_element` row with no subtype at all — corruptState on every
+/// later read of the whole diagram. A deleted target instead degrades to a
+/// renderable ghost, the same tolerance the dope code bindings have.
+///
+/// In a batch, a connector may name its target by `targetClientRef` on the
+/// mutation instead — temp-id resolution is a batch concern a payload is
+/// structurally blind to, exactly as with `parentClientRef`.
+public struct ConnectorPayload: Codable, Hashable, Sendable {
+    public let targetElementUuid: String?
+    public let strokeColor: String
+    public let strokeWidth: Double
+    public let lineStyle: DiagramConnectorLineStyle
+    public let headKind: DiagramConnectorHead
+    public let label: String
+
+    public init(
+        targetElementUuid: String? = nil, strokeColor: String = "#1a1a1a",
+        strokeWidth: Double = 2, lineStyle: DiagramConnectorLineStyle = .solid,
+        headKind: DiagramConnectorHead = .arrow, label: String = ""
+    ) {
+        self.targetElementUuid = targetElementUuid
+        self.strokeColor = strokeColor
+        self.strokeWidth = strokeWidth
+        self.lineStyle = lineStyle
+        self.headKind = headKind
+        self.label = label
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case targetElementUuid, strokeColor, strokeWidth, lineStyle, headKind, label
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        targetElementUuid = try c.decodeIfPresent(String.self, forKey: .targetElementUuid)
+        strokeColor = try c.decodeIfPresent(String.self, forKey: .strokeColor) ?? "#1a1a1a"
+        strokeWidth = try c.decodeIfPresent(Double.self, forKey: .strokeWidth) ?? 2
+        lineStyle = try c.decodeIfPresent(
+            DiagramConnectorLineStyle.self, forKey: .lineStyle) ?? .solid
+        headKind = try c.decodeIfPresent(
+            DiagramConnectorHead.self, forKey: .headKind) ?? .arrow
+        label = try c.decodeIfPresent(String.self, forKey: .label) ?? ""
     }
 }
 

@@ -112,8 +112,8 @@ struct GMVibesWindow: View {
             SessionScreen(windowID: windowID)
         case .sessionPrompt(let windowID):
             SessionPromptScreen(windowID: windowID)
-        case .diagram(let windowID, let scopeCode):
-            DiagramScreen(windowID: windowID, scopeCode: scopeCode)
+        case .diagram(let diagramID):
+            DiagramScreen(windowID: diagramID)
         case .project(let projectUuid):
             ProjectScreen(projectUuid: projectUuid)
         case .instance(let instanceUuid):

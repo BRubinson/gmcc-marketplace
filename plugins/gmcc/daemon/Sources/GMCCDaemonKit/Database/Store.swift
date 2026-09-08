@@ -30,10 +30,18 @@ public enum StoreError: Error, Sendable {
     case revisionConflict(scopeUuid: String, expected: Int64, actual: Int64)
     /// The dope target EXISTS (session, and prompt when one was named) but no
     /// dope scope was ever initialized for it. summaryAbsent is prompt-shaped
-    /// and cannot name a SESSION_BASE target, so dope gets its own case —
+    /// and cannot name a SESSION_INSTANCE target, so dope gets its own case —
     /// mapped onto the SAME wire code (the revisionConflict precedent), so
     /// the four prompt-shaped call sites stay untouched.
     case dopeScopeAbsent(sessionUuid: String, promptUuid: String?, code: String?)
+    /// The PROJECT exists but carries no dope scope on its own ladder
+    /// (PROJECT_ITEM, then the BASE_PROJECT scope `gm dope promote`
+    /// maintains). A separate case from `dopeScopeAbsent` because the
+    /// remediation differs — a project scope arrives by PROMOTION, not by
+    /// `gm dope init`, and telling someone to init one would be wrong
+    /// advice. Same `.summaryAbsent` wire code, so no new ErrorCode and a
+    /// pinned-Kit GMVibes still decodes it.
+    case dopeProjectScopeAbsent(projectUuid: String, code: String?)
     /// The diagram owner EXISTS (project/instance/session/prompt row) but no
     /// diagram was ever initialized for it (or none with the given code).
     /// Same wire code as summaryAbsent (the dopeScopeAbsent precedent) so a
@@ -108,6 +116,14 @@ public enum StoreError: Error, Sendable {
             return ErrorPayload(
                 code: .summaryAbsent,
                 message: "\(target) has no dope scope yet — initialize one (\(initHint))")
+        case .dopeProjectScopeAbsent(let projectUuid, let code):
+            var target = "project \(projectUuid)"
+            if let code { target += " code '\(code)'" }
+            return ErrorPayload(
+                code: .summaryAbsent,
+                message: "\(target) has no project-tier dope scope yet — a project scope "
+                       + "arrives by promotion from a primary-branch session "
+                       + "(gm dope promote --session-uuid <U>), not by gm dope init")
         case .diagramAbsent(let ownerKind, let ownerUuid, let code):
             var target = "\(ownerKind) \(ownerUuid)"
             if let code { target += " code '\(code)'" }

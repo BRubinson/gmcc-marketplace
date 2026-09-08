@@ -17,17 +17,21 @@ struct Diagram: ParsableCommand {
         subcommands: [
             Init.self, List.self, Get.self, Update.self,
             ElementAdd.self, ElementUpdate.self, ElementDelete.self,
-            BatchApply.self, Screenshot.self, FromDope.self,
+            BatchApply.self, FromDope.self,
         ]
     )
 
     // MARK: - Shared option groups
 
     struct OwnerOptions: ParsableArguments {
-        @Option(name: .long, help: "PROJECT-tier owner (db-only tier: no gmcc_diagram_path).")
+        @Option(name: .long, help: "PROJECT-tier owner.")
         var projectUuid: String?
-        @Option(name: .long, help: "INSTANCE-tier owner.")
-        var instanceUuid: String?
+        /// REMOVED by m0021 along with the INSTANCE tier. Deliberately not
+        /// kept as a soft-deprecated flag: CheatsheetTests requires every
+        /// accepted flag to be documented on its sheet line, and documenting
+        /// a flag that only ever errors would be worse than ArgumentParser's
+        /// own "Unknown option". The daemon still answers programmatic
+        /// callers with a migration hint (resolveDiagramOwner).
         @Option(name: .long, help: "SESSION-tier owner.")
         var sessionUuid: String?
         @Option(name: .long, help: "PROMPT-tier owner.")
@@ -98,7 +102,7 @@ struct Diagram: ParsableCommand {
         func run() throws {
             let response = try withClient {
                 try $0.diagramInit(DiagramInitRequest(
-                    projectUuid: owner.projectUuid, instanceUuid: owner.instanceUuid,
+                    projectUuid: owner.projectUuid, instanceUuid: nil,
                     sessionUuid: owner.sessionUuid, promptUuid: owner.promptUuid,
                     code: code, name: name, description: description,
                     gmccDiagramPath: gmccDiagramPath, dopeScopeCode: dopeScopeCode))
@@ -121,7 +125,7 @@ struct Diagram: ParsableCommand {
         func run() throws {
             let response = try withClient {
                 try $0.diagramList(DiagramListRequest(
-                    projectUuid: owner.projectUuid, instanceUuid: owner.instanceUuid,
+                    projectUuid: owner.projectUuid, instanceUuid: nil,
                     sessionUuid: owner.sessionUuid, promptUuid: owner.promptUuid))
             }
             if output.json { printJSON(response) } else {
@@ -147,7 +151,7 @@ struct Diagram: ParsableCommand {
             let response = try withClient {
                 try $0.diagramGet(DiagramGetRequest(
                     diagramUuid: diagramUuid,
-                    projectUuid: owner.projectUuid, instanceUuid: owner.instanceUuid,
+                    projectUuid: owner.projectUuid, instanceUuid: nil,
                     sessionUuid: owner.sessionUuid, promptUuid: owner.promptUuid,
                     code: code))
             }

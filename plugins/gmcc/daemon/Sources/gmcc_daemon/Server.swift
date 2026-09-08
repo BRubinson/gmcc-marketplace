@@ -330,6 +330,13 @@ final class Server: @unchecked Sendable {
             case .artifactList:
                 return try ArtifactListHandler.handle(line: line, head: head, store: store)
 
+            case .promptDiagramQualify:
+                return try PromptDiagramQualifyHandler.handle(line: line, head: head, store: store)
+            case .promptDiagramGet:
+                return try PromptDiagramGetHandler.handle(line: line, head: head, store: store)
+            case .promptDiagramList:
+                return try PromptDiagramListHandler.handle(line: line, head: head, store: store)
+
             case .fileChangeAdd:
                 return try FileChangeHandler.handle(line: line, head: head, store: store)
             case .fileChangeList:

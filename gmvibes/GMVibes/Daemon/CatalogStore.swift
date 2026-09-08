@@ -86,12 +86,37 @@ final class CatalogStore {
         sessionsByInstance[instance.uuid] ?? []
     }
 
+    /// Linear over a handful of projects — deliberately not a second index.
+    /// The settings sheet re-reads through this on every submit so it locks
+    /// against the CURRENT version rather than the one captured when the
+    /// sheet opened; a topology refresh mid-edit would otherwise guarantee a
+    /// VERSION_CONFLICT on save.
+    func project(uuid: String) -> ProjectRow? {
+        projects.first { $0.uuid == uuid }
+    }
+
     func instance(uuid: String) -> InstanceRow? {
         instancesByUuid[uuid]
     }
 
     func session(uuid: String) -> SessionStub? {
         sessionsByUuid[uuid]
+    }
+
+    // MARK: - Mutation
+
+    /// Sets a project's BASE_DOPED_BRANCH. The daemon emits `updateProject`,
+    /// which DaemonConnectionModel already routes to a `.topology`
+    /// invalidation — so the tree would refresh on its own. We refresh here
+    /// anyway (the call is coalesced) so the sheet's own row is current the
+    /// instant it dismisses, rather than a socket round trip later.
+    func setPrimaryBranch(projectUuid: String, expectedVersion: Int64,
+                          branch: String) async throws {
+        _ = try await service.updateProject(ProjectUpdateRequest(
+            projectUuid: projectUuid,
+            expectedVersion: expectedVersion,
+            primaryProjectBranch: branch))
+        await refresh()
     }
 
     /// Joins a SEARCH hit's sessionUuid to its owning instance so the hit can

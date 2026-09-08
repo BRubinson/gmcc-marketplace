@@ -112,6 +112,18 @@ actor GMCCDaemonService {
         return try await perform { try $0.getSession(SessionGetRequest(sessionUuid: uuid)) }
     }
 
+    /// PROJECT_UPDATE — the only project-level mutation. The request's
+    /// optional fields mean an all-nil body is EMPTY_UPDATE server-side, so
+    /// callers must have something to change before calling.
+    func updateProject(_ request: ProjectUpdateRequest) async throws -> ProjectRow {
+        let req = ProjectUpdateRequest(
+            projectUuid: Self.normalized(request.projectUuid),
+            expectedVersion: request.expectedVersion,
+            primaryProjectBranch: request.primaryProjectBranch
+        )
+        return try await perform { try $0.updateProject(req).project }
+    }
+
     func updateSession(_ request: SessionUpdateRequest) async throws -> SessionRow {
         let req = SessionUpdateRequest(
             sessionUuid: Self.normalized(request.sessionUuid),
@@ -314,9 +326,68 @@ actor GMCCDaemonService {
         return try await perform { try $0.dopeInit(req) }
     }
 
+    /// PROJECT-tier dope read (the additive `projectUuid` addressing on
+    /// DOPE_GET): the PROJECT_ITEM overlay, else the BASE_PROJECT scope
+    /// `gm dope promote` maintains. A project has no session, so this is the
+    /// ONLY door to the tree behind a project-tier diagram.
+    func dopeGet(projectUuid: String, code: String? = nil) async throws -> DopeGetResponse {
+        let req = DopeGetRequest(
+            projectUuid: Self.normalized(projectUuid), code: code)
+        return try await perform { try $0.dopeGet(req) }
+    }
+
     func dopeReadRepo(scopeUuid: String) async throws -> DopeReadRepoResponse {
         let uuid = Self.normalized(scopeUuid)
         return try await perform { try $0.dopeReadRepo(DopeReadRepoRequest(scopeUuid: uuid)) }
+    }
+
+    // MARK: - Diagram
+
+    /// One tier's rows for one owner — never a union and never a cross-tier
+    /// ladder (the DIAGRAM_LIST contract, inherited verbatim from dopeList).
+    /// A per-prompt count is therefore N calls, one per prompt; widening the
+    /// message to fold prompt rows in under a session would break that
+    /// invariant for every other caller.
+    func diagramList(_ request: DiagramListRequest) async throws -> [DiagramRow] {
+        let req = DiagramListRequest(
+            projectUuid: Self.normalized(request.projectUuid),
+            sessionUuid: Self.normalized(request.sessionUuid),
+            promptUuid: Self.normalized(request.promptUuid)
+        )
+        return try await perform { try $0.diagramList(req).diagrams }
+    }
+
+    func diagramGet(diagramUuid: String) async throws -> DiagramGetResponse {
+        let uuid = Self.normalized(diagramUuid)
+        return try await perform { try $0.diagramGet(DiagramGetRequest(diagramUuid: uuid)) }
+    }
+
+    /// Create-or-return, idempotent per (owner, code).
+    func diagramInit(_ request: DiagramInitRequest) async throws -> DiagramResponse {
+        let req = DiagramInitRequest(
+            projectUuid: Self.normalized(request.projectUuid),
+            sessionUuid: Self.normalized(request.sessionUuid),
+            promptUuid: Self.normalized(request.promptUuid),
+            code: request.code,
+            name: request.name,
+            description: request.description,
+            gmccDiagramPath: request.gmccDiagramPath,
+            dopeScopeCode: request.dopeScopeCode
+        )
+        return try await perform { try $0.diagramInit(req) }
+    }
+
+    /// THE interactive write: one transaction, one revision, one
+    /// DIAGRAM_CHANGE. Every editor mutation goes through here — the
+    /// granular DIAGRAM_NODE_* verbs are deliberately not wrapped, since a
+    /// one-mutation batch is the same call.
+    func diagramBatchApply(diagramUuid: String, expectedRevision: Int64?,
+                           mutations: [DiagramMutation]) async throws -> DiagramBatchApplyResponse {
+        let req = DiagramBatchApplyRequest(
+            diagramUuid: Self.normalized(diagramUuid),
+            expectedRevision: expectedRevision,
+            mutations: mutations)
+        return try await perform { try $0.diagramBatchApply(req) }
     }
 
     // MARK: - Helpers

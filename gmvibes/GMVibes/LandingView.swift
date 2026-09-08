@@ -278,29 +278,45 @@ private struct ProjectGroupCard: View {
     let onOpenInstance: (String) -> Void
     let onOpenSession: (SessionStub, InstanceRow) -> Void
 
+    @State private var showingSettings = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Button(action: onOpenProject) {
-                HStack(spacing: 6) {
-                    Image(systemName: "folder")
-                        .foregroundStyle(.orange)
-                    Text(project.name)
-                        .font(.headline)
-                    if !project.gitRepoName.isEmpty {
-                        Text("·").foregroundStyle(.tertiary)
-                        Text(project.gitRepoName)
+            // The gear sits OUTSIDE the open-project button on purpose: the
+            // header is one full-width tap target, so a gear nested inside it
+            // would be swallowed by that button rather than being its own.
+            HStack(spacing: 10) {
+                Button(action: onOpenProject) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "folder")
+                            .foregroundStyle(.orange)
+                        Text(project.name)
+                            .font(.headline)
+                        if !project.gitRepoName.isEmpty {
+                            Text("·").foregroundStyle(.tertiary)
+                            Text(project.gitRepoName)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(.tertiary)
                     }
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
+                    .contentShape(Rectangle())
                 }
-                .contentShape(Rectangle())
+                .buttonStyle(.plain)
+                .help("Open the project page")
+
+                Button { showingSettings = true } label: {
+                    Image(systemName: "gearshape")
+                        .foregroundStyle(.secondary)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Project settings")
+                .accessibilityLabel("Project settings for \(project.name)")
             }
-            .buttonStyle(.plain)
-            .help("Open the project page")
 
             VStack(spacing: 8) {
                 ForEach(filtered.instances(of: project), id: \.uuid) { instance in
@@ -318,6 +334,9 @@ private struct ProjectGroupCard: View {
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .glassEffect(.regular, in: .rect(cornerRadius: 14))
+        .sheet(isPresented: $showingSettings) {
+            ProjectSettingsSheet(projectUuid: project.uuid)
+        }
     }
 }
 

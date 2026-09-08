@@ -1,10 +1,15 @@
 import SwiftUI
+import AppKit
 import GMCCDaemonKit
 
-/// The full-window Doped Viewer (`Route.diagram`): the session's dope tree
-/// rendered as an interactive diagram on the kit's slot-rich DiagramUI
-/// components. NON-PERSISTED: every write flows through DiagramEditSession →
-/// LocalDiagramCommitter → DiagramTreeReducer, zero daemon writes.
+/// The full-window diagram editor (`Route.diagram`): a diagram rendered on
+/// the kit's slot-rich DiagramUI components.
+///
+/// PERSISTENCE follows the route payload, not this screen: a `.saved`
+/// workspace writes every gesture through DiagramEditSession →
+/// DaemonDiagramCommitter → DIAGRAM_BATCH_APPLY, a `.dopePreview` one through
+/// the local reducer and nowhere else. The screen is identical either way —
+/// that is the point of the committer seam.
 ///
 /// COORDINATE COMPOSITION (the load-bearing decision): pan rides the kit's
 /// diagram-space `offset:` parameter (applied INSIDE each Canvas and on each
@@ -17,10 +22,8 @@ struct DiagramScreen: View {
     @Environment(DaemonConnectionModel.self) private var daemon
     @Environment(DiagramWorkspaceStore.self) private var workspaces
     @Environment(\.colorScheme) private var colorScheme
-    let windowID: SessionWindowID
-    let scopeCode: String
+    let windowID: DiagramWindowID
 
-    @State private var scope: SessionScope
     @State private var viewState = DiagramViewState()
     @State private var sink = DiagramScrollBridge.Sink()
     @State private var dragStartLocation: CGPoint?
@@ -30,16 +33,8 @@ struct DiagramScreen: View {
     @State private var hostSize: CGSize = .zero
     @State private var didInitialFit = false
 
-    init(windowID: SessionWindowID, scopeCode: String) {
-        self.windowID = windowID
-        self.scopeCode = scopeCode
-        _scope = State(initialValue: SessionScopeCache.shared.scope(
-            for: windowID.sessionUUID.wireString))
-    }
-
     private var workspace: DiagramWorkspace {
-        workspaces.workspace(for: .init(sessionUuid: windowID.sessionUUID.wireString,
-                                        scopeCode: scopeCode))
+        workspaces.workspace(for: windowID)
     }
 
     /// Decided ONCE at gesture start (the ported DrawingCanvasView
@@ -49,42 +44,57 @@ struct DiagramScreen: View {
         case pan
         case move(uuid: String, node: DiagramElementNode, grab: CGPoint)
         case draw(tool: DiagramTool, anchor: CGPoint)
+        /// Connector tool: the element the drag STARTED on. The target is
+        /// whatever the drag ends over, decided at pointer-up.
+        case connect(fromUuid: String, anchor: CGPoint)
     }
 
     var body: some View {
-        ScreenScaffold(title: "Diagram · \(windowID.sessionName)",
-                       subtitle: scopeCode) {
+        ScreenScaffold(title: "Diagram · \(windowID.name)",
+                       subtitle: subtitle) {
             content
         }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
                 DiagramToolStrip(workspace: workspace, viewState: viewState,
                                  onCenter: center(on:), onFit: fit,
-                                 onOrganize: organize)
+                                 onOrganize: organize, onCopy: copyToClipboard)
             }
         }
         .task(id: daemon.generation) {
-            // The diagram reads the SAME loaded dope response the pane shows.
-            let store = scope.dope
-            let key = DopeStore.Key(promptUuid: nil, code: scopeCode)
-            store.beginObserving(DopeStore.Key(promptUuid: nil))
-            defer { store.endObserving(DopeStore.Key(promptUuid: nil)) }
-            let stream = daemon.hub.stream(for: .dope(store.sessionUuid))
-            await store.load(key)
-            syncFromDope()
-            for await _ in stream {
-                try? await Task.sleep(for: .milliseconds(300))
-                await store.reloadLive()
-                // reloadLive refreshes the store's own resolved keys — in the
-                // single-scope case that is Key(code: nil), NOT this screen's
-                // explicit-code key. Reload ours too or the diagram never
-                // sees another dope write after first load.
-                await store.load(key)
-                syncFromDope()
+            await workspace.load(scheme: colorScheme)
+            attemptInitialFit()
+            // Two independent wakes, hoisted on MainActor before the group:
+            // the diagram's own row (another window committing to it) and the
+            // dope tree its cards are drawn from.
+            let diagramStream = windowID.savedDiagramUuid.map {
+                daemon.hub.stream(for: .diagram($0))
+            }
+            var dopeStream: AsyncStream<Void>?
+            if let sessionUuid = windowID.session?.sessionUUID.wireString {
+                dopeStream = daemon.hub.stream(for: .dope(sessionUuid))
+            }
+            let workspace = self.workspace
+            await withTaskGroup(of: Void.self) { group in
+                if let diagramStream {
+                    group.addTask {
+                        for await _ in diagramStream { await workspace.reloadDiagram() }
+                    }
+                }
+                if let dopeStream {
+                    group.addTask {
+                        for await _ in dopeStream {
+                            // Debounced: a bot's tree build writes N nodes,
+                            // and each one would otherwise be a full reload.
+                            try? await Task.sleep(for: .milliseconds(300))
+                            await workspace.reloadDope()
+                        }
+                    }
+                }
             }
         }
-        // A rebuild re-mints dope element uuids: drop any selection or drag
-        // freeze that now points at a vanished element.
+        // A reload or a filter change can retire an element: drop any
+        // selection or drag freeze that now points at something not drawn.
         .onChange(of: workspace.generation) {
             if let selected = viewState.selection.selectedElementUuid,
                workspace.resolved.element(uuid: selected) == nil {
@@ -94,24 +104,28 @@ struct DiagramScreen: View {
                workspace.resolved.element(uuid: draft.elementUuid) == nil {
                 viewState.dragDraft = nil
             }
+            attemptInitialFit()
         }
         .onChange(of: colorScheme) { _, newScheme in
             workspace.reskin(newScheme)   // O(1) — no A* re-run
         }
     }
 
-    private func syncFromDope() {
-        let store = scope.dope
-        let key = DopeStore.Key(promptUuid: nil, code: scopeCode)
-        if case .loaded(let response) = store.phase(key) {
-            workspace.load(response, scheme: colorScheme)
-            attemptInitialFit()
+    private var subtitle: String? {
+        if let error = workspace.loadError { return error }
+        switch windowID.source {
+        case .saved:
+            return workspace.dope.map { "dope · \($0.tree.body.code)" }
+        case .dopePreview(let code):
+            // Say so out loud: a preview looks exactly like the real editor.
+            let scope = code ?? workspace.dope?.tree.body.code ?? "dope"
+            return "\(scope) · preview (not saved)"
         }
     }
 
-    /// The first fit needs BOTH the loaded tree and a real host size — either
-    /// can arrive first (dope load vs GeometryReader), so both paths call
-    /// this and the flag flips only once it actually ran.
+    /// The first fit needs BOTH a loaded tree and a real host size — either
+    /// can arrive first (the load vs GeometryReader), so both paths call this
+    /// and the flag flips only once it actually ran.
     private func attemptInitialFit() {
         guard !didInitialFit, workspace.loaded, hostSize != .zero else { return }
         didInitialFit = true
@@ -122,8 +136,11 @@ struct DiagramScreen: View {
     private var content: some View {
         if workspace.loaded {
             canvasHost
+        } else if let error = workspace.loadError {
+            ContentUnavailableView("Diagram Unavailable", systemImage: "bolt.slash",
+                                   description: Text(error))
         } else {
-            ProgressView("Loading dope scope…")
+            ProgressView("Loading diagram…")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
@@ -226,8 +243,17 @@ struct DiagramScreen: View {
                             node: node, resolved: element, by: delta))
                     }
                 case .draw(let tool, let anchor):
+                    if viewState.drawDraft == nil {
+                        viewState.drawDraft = DiagramViewState.DrawDraft(
+                            tool: tool, anchor: anchor, current: p, points: [anchor])
+                    }
+                    viewState.drawDraft?.current = p
+                    // Freehand keeps every sample; RDP runs ONCE on
+                    // pointer-up, where it can see the whole stroke.
+                    if tool == .freehand { viewState.drawDraft?.points.append(p) }
+                case .connect(_, let anchor):
                     viewState.drawDraft = DiagramViewState.DrawDraft(
-                        tool: tool, anchor: anchor, current: p)
+                        tool: .connector, anchor: anchor, current: p)
                 case .pan:
                     viewState.viewport.offset.width += value.translation.width - lastPan.width
                     viewState.viewport.offset.height += value.translation.height - lastPan.height
@@ -240,12 +266,16 @@ struct DiagramScreen: View {
                     // Flush + ONE re-resolve (inside the commit callback);
                     // clear the freeze only after the new resolved lands.
                     Task {
-                        try? await workspace.editSession.flush()
+                        await workspace.flush()
                         viewState.dragDraft = nil
                     }
                 case .draw(let tool, let anchor):
                     if let draft = viewState.drawDraft {
-                        commitShape(tool: tool, from: anchor, to: draft.current)
+                        commitDrawing(tool: tool, from: anchor, draft: draft)
+                    }
+                case .connect(let fromUuid, _):
+                    if let draft = viewState.drawDraft {
+                        commitConnector(from: fromUuid, to: draft.current)
                     }
                 case .pan, nil:
                     break
@@ -269,10 +299,19 @@ struct DiagramScreen: View {
     private func begin(at p: CGPoint) -> DragIntent {
         let intent: DragIntent
         switch viewState.tool {
-        case .rect:
-            intent = .draw(tool: .rect, anchor: p)
-        case .line:
-            intent = .draw(tool: .line, anchor: p)
+        case .rect, .line, .text, .freehand:
+            intent = .draw(tool: viewState.tool, anchor: p)
+        case .connector:
+            // A connector hangs off the element it starts on; starting in
+            // empty space has nothing to hang it from, so that pans.
+            if case .element(let element)? = workspace.resolved.hitTest(
+                at: p, edgeTolerance: 6 / viewState.viewport.zoom),
+               workspace.node(uuid: element.uuid) != nil {
+                select(element.uuid)
+                intent = .connect(fromUuid: element.uuid, anchor: p)
+            } else {
+                intent = .pan
+            }
         case .select:
             // Tolerance constant in SCREEN points at any zoom.
             let hit = workspace.resolved.hitTest(
@@ -280,14 +319,18 @@ struct DiagramScreen: View {
             switch hit {
             case .element(let element):
                 switch element.kind {
-                case .entityCard, .absentEntity:
+                // A text box is draggable for the same reason a card is: it
+                // is a bounded thing you positioned by hand.
+                case .entityCard, .absentEntity, .text:
                     if let node = workspace.node(uuid: element.uuid) {
                         select(element.uuid)
                         intent = .move(uuid: element.uuid, node: node, grab: p)
                     } else {
                         intent = .pan
                     }
-                case .scopeCard, .absentScope, .layer, .stroke, .shape:
+                // A connector has no position of its own — it follows its
+                // endpoints — so grabbing one pans the canvas.
+                case .scopeCard, .absentScope, .layer, .stroke, .shape, .connector:
                     clearSelection()
                     intent = .pan
                 }
@@ -350,41 +393,117 @@ struct DiagramScreen: View {
 
     // MARK: - Draw mode
 
-    /// Commit a rect/line: ONE batch that lazily creates the top-level
-    /// drawing_layer (high sibling z) via clientRef + parentClientRef when it
-    /// doesn't exist yet — layer and first shape land atomically, exactly
-    /// what in-batch parenting exists for.
-    private func commitShape(tool: DiagramTool, from anchor: CGPoint, to end: CGPoint) {
-        let width = abs(end.x - anchor.x), height = abs(end.y - anchor.y)
-        guard width >= 1 || height >= 1 else { return }
-        let center = CGPoint(x: (anchor.x + end.x) / 2, y: (anchor.y + end.y) / 2)
-        // Vertices are ELEMENT-LOCAL relative to the shape's center.
-        let a = DiagramVertex(x: anchor.x - center.x, y: anchor.y - center.y)
-        let b = DiagramVertex(x: end.x - center.x, y: end.y - center.y)
-        let payload = DrawingShapePayload(
-            shapeKind: tool == .rect ? .rectangle : .line,
-            strokeColor: "#e67326", strokeWidth: 2, vertices: [a, b])
-
+    /// Commit a rect / line / text / freehand stroke: ONE batch that lazily
+    /// creates the top-level drawing_layer (high sibling z) via clientRef +
+    /// parentClientRef when it doesn't exist yet — layer and first shape land
+    /// atomically, exactly what in-batch parenting exists for.
+    private func commitDrawing(tool: DiagramTool, from anchor: CGPoint,
+                               draft: DiagramViewState.DrawDraft) {
+        guard let add = drawingAdd(tool: tool, anchor: anchor, draft: draft) else { return }
         let session = workspace.editSession!
         if let layer = workspace.drawingLayer {
             session.stage(.elementAdd(DiagramElementAdd(
+                clientRef: Self.newElementRef,
                 parentElementUuid: layer.identity.uuid,
-                centerX: center.x, centerY: center.y,
-                payload: .drawingShape(payload))))
+                centerX: add.center.x, centerY: add.center.y,
+                payload: add.payload)))
         } else {
             session.stage(.elementAdd(DiagramElementAdd(
                 clientRef: "drawing_layer",
                 elementZ: workspace.maxTopLevelZ + 10,
                 payload: .drawingLayer(DrawingLayerPayload()))))
             session.stage(.elementAdd(DiagramElementAdd(
+                clientRef: Self.newElementRef,
                 parentClientRef: "drawing_layer",
-                centerX: center.x, centerY: center.y,
-                payload: .drawingShape(payload))))
+                centerX: add.center.x, centerY: add.center.y,
+                payload: add.payload)))
         }
-        Task { try? await session.flush() }
+        flushSelectingNewElement()
     }
 
-    // MARK: - Organize
+    /// The per-tool payload + diagram-space center. Vertices are always
+    /// ELEMENT-LOCAL (relative to that center) — the kit's storage contract.
+    private func drawingAdd(tool: DiagramTool, anchor: CGPoint,
+                            draft: DiagramViewState.DrawDraft)
+        -> (center: CGPoint, payload: DiagramElementPayload)?
+    {
+        let end = draft.current
+        switch tool {
+        case .rect, .line:
+            let width = abs(end.x - anchor.x), height = abs(end.y - anchor.y)
+            guard width >= 1 || height >= 1 else { return nil }
+            let center = CGPoint(x: (anchor.x + end.x) / 2, y: (anchor.y + end.y) / 2)
+            let a = DiagramVertex(x: anchor.x - center.x, y: anchor.y - center.y)
+            let b = DiagramVertex(x: end.x - center.x, y: end.y - center.y)
+            return (center, .drawingShape(DrawingShapePayload(
+                shapeKind: tool == .rect ? .rectangle : .line,
+                strokeColor: "#e67326", strokeWidth: 2, vertices: [a, b])))
+        case .text:
+            // A text box carries its size on the subtype row (markdown
+            // wrapping needs a layout width up front), so the drag rect IS
+            // the size — with a floor, since a stray click would otherwise
+            // make an unclickable zero-sized box.
+            let width = max(abs(end.x - anchor.x), 120.0)
+            let height = max(abs(end.y - anchor.y), 44.0)
+            let center = CGPoint(x: (anchor.x + end.x) / 2, y: (anchor.y + end.y) / 2)
+            return (center, .drawingText(DrawingTextPayload(
+                markdown: "Text", width: width, height: height,
+                textColor: colorScheme == .dark ? "#f2f2f2" : "#1a1a1a")))
+        case .freehand:
+            // RDP once on pointer-up: a trackpad emits far more points than
+            // the curve needs, and every one of them costs storage and every
+            // later render.
+            guard draft.points.count >= 2 else { return nil }
+            let xs = draft.points.map(\.x), ys = draft.points.map(\.y)
+            let center = CGPoint(x: (xs.min()! + xs.max()!) / 2,
+                                 y: (ys.min()! + ys.max()!) / 2)
+            let vertices = DiagramStrokeCodec.decimate(draft.points.map {
+                DiagramVertex(x: $0.x - center.x, y: $0.y - center.y)
+            })
+            return (center, .drawingStroke(DrawingStrokePayload(
+                tool: .pencil, strokeColor: "#e67326", strokeWidth: 2,
+                vertices: vertices)))
+        case .select, .connector:
+            return nil
+        }
+    }
+
+    /// Connect two elements. The connector is parented to the SOURCE and
+    /// targets a PEER OF THAT PARENT — so the two ends must share a parent
+    /// (two cards in one scope layer). Anything else is refused silently:
+    /// the write path would reject it, and a validation error on a drag is
+    /// noise, not information.
+    private func commitConnector(from fromUuid: String, to point: CGPoint) {
+        guard case .element(let target)? = workspace.resolved.hitTest(
+                at: point, edgeTolerance: 6 / viewState.viewport.zoom),
+              target.uuid != fromUuid,
+              workspace.parentUuid(of: fromUuid) == workspace.parentUuid(of: target.uuid)
+        else { return }
+        let session = workspace.editSession!
+        session.stage(.elementAdd(DiagramElementAdd(
+            clientRef: Self.newElementRef,
+            parentElementUuid: fromUuid,
+            payload: .connector(ConnectorPayload(targetElementUuid: target.uuid)))))
+        flushSelectingNewElement()
+    }
+
+    /// The clientRef every "the user just drew this" add carries.
+    private static let newElementRef = "new_element"
+
+    /// Commit, then select what was created. The WRITER mints the uuid — the
+    /// daemon for a saved diagram, the reducer for a preview — so the
+    /// clientRef the add carried is the only handle on the new row, and the
+    /// commit outcome is where it comes back.
+    private func flushSelectingNewElement() {
+        Task {
+            await workspace.flush()
+            if let uuid = workspace.editSession.lastMintedUuids[Self.newElementRef] {
+                select(uuid)
+            }
+        }
+    }
+
+    // MARK: - Organize / clipboard
 
     private func organize() {
         let mutations = DiagramOrganizer.organize(workspace.resolved,
@@ -392,13 +511,27 @@ struct DiagramScreen: View {
         guard !mutations.isEmpty else { return }
         let session = workspace.editSession!
         for mutation in mutations { session.stage(mutation) }
-        Task { try? await session.flush() }
+        Task { await workspace.flush() }
+    }
+
+    /// Copy the RENDERED diagram to the pasteboard — the screenshot framing
+    /// view (content-derived bounds, baked background), not a window grab, so
+    /// what lands on the clipboard is the whole canvas rather than whatever
+    /// the viewport happened to be showing.
+    private func copyToClipboard() {
+        let canvas = DiagramCanvasView(resolved: workspace.resolved)
+        let renderer = ImageRenderer(content: canvas)
+        renderer.scale = 2
+        guard let image = renderer.nsImage else { return }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.writeObjects([image])
     }
 }
 
 /// The overlay slot's content: the drag ghost (dashed accent rect tracking
 /// the cursor — a Canvas stroke, not a re-rendered card) and the in-progress
-/// rect/line draft. Draws in DIAGRAM space at the scene's own offset, so it
+/// draw draft. Draws in DIAGRAM space at the scene's own offset, so it
 /// inherits the outer `.scaleEffect` like every other layer.
 private struct DiagramDraftOverlay: View {
     let dragDraft: DiagramViewState.DragDraft?
@@ -419,13 +552,15 @@ private struct DiagramDraftOverlay: View {
             if let draft = drawDraft {
                 var path = Path()
                 switch draft.tool {
-                case .rect:
+                case .rect, .text:
                     path.addRect(CGRect(
                         x: min(draft.anchor.x, draft.current.x),
                         y: min(draft.anchor.y, draft.current.y),
                         width: abs(draft.current.x - draft.anchor.x),
                         height: abs(draft.current.y - draft.anchor.y)))
-                case .line, .select:
+                case .freehand:
+                    path.addLines(draft.points)
+                case .line, .connector, .select:
                     path.move(to: draft.anchor)
                     path.addLine(to: draft.current)
                 }

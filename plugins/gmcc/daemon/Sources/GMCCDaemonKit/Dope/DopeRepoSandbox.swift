@@ -90,6 +90,17 @@ public struct DopeRepoSandbox: Sendable {
             DopeDocumentCodec.legacyDopeDirectoryName, isDirectory: true)
     }
 
+    public func cogDirectory(code: String) throws -> URL {
+        try DopeCode.validateCode(code, field: "cog code")
+        return try contained(cogsDirectory.appendingPathComponent(code, isDirectory: true))
+    }
+
+    public func cogIndexFile(code: String) throws -> URL {
+        let dir = try cogDirectory(code: code)
+        return try contained(dir.appendingPathComponent(
+            "\(code).index\(DopeDocumentCodec.cogFileSuffix)"))
+    }
+
     /// One domain's directory. The layout gained a level, and the old
     /// single-flat-segment helper did not generalise — every segment below
     /// is validated here rather than assumed.
@@ -168,8 +179,38 @@ public struct DopeRepoSandbox: Sendable {
         for orphan in try unreferencedDomainDirectories(referenced: Set(main.persistence.keys)) {
             warnings.append("unreferenced persistence directory on disk: \(orphan)")
         }
-        return RepoBundle(bundle: DopeDocumentBundle(main: main, domainFiles: files),
-                          warnings: warnings)
+
+        // Cogs: same chain, same map-is-data rule.
+        var cogs: [DopeCogDocument] = []
+        for (code, mapped) in main.cogs.sorted(by: { $0.key < $1.key }) {
+            let expected = DopeScopeDocument.expectedCogFile(forCogCode: code)
+            guard mapped == expected else {
+                throw SandboxError(
+                    "\(DopeDocumentCodec.scopeFileName) maps cog '\(code)' to '\(mapped)' — refused; expected '\(expected)' (the map is data, never followed)")
+            }
+            let url = try cogIndexFile(code: code)
+            guard FileManager.default.fileExists(atPath: url.path) else {
+                throw SandboxError("cog index missing: \(expected)")
+            }
+            do {
+                let doc = try DopeDocumentCodec.decoder.decode(
+                    DopeCogDocument.self, from: try Data(contentsOf: url))
+                guard doc.body.code == code else {
+                    throw SandboxError(
+                        "cog index for '\(code)' declares code '\(doc.body.code)' — directory name and code must agree")
+                }
+                cogs.append(doc)
+            } catch let error as DecodingError {
+                throw SandboxError("\(expected) failed to parse: \(error)")
+            }
+        }
+        for orphan in try unreferencedCogDirectories(referenced: Set(main.cogs.keys)) {
+            warnings.append("unreferenced cog directory on disk: \(orphan)")
+        }
+
+        return RepoBundle(
+            bundle: DopeDocumentBundle(main: main, domainFiles: files, cogFiles: cogs),
+            warnings: warnings)
     }
 
     /// Assembles ONE domain from its index plus the entity/enum files the
@@ -294,12 +335,18 @@ public struct DopeRepoSandbox: Sendable {
             ".dope-staging-\(UUID().uuidString.lowercased())", isDirectory: true)
         defer { try? fm.removeItem(at: staging) }
 
-        let pruned = try unreferencedDomainDirectories(
+        var pruned = try unreferencedDomainDirectories(
             referenced: Set(bundle.domainFiles.map(\.body.code)))
+        pruned += try unreferencedCogDirectories(
+            referenced: Set(bundle.cogFiles.map(\.body.code)))
+        pruned.sort()
 
         let stagedPersistence = staging.appendingPathComponent(
             DopeDocumentCodec.persistenceDirectoryName, isDirectory: true)
         try fm.createDirectory(at: stagedPersistence, withIntermediateDirectories: true)
+        let stagedCogs = staging.appendingPathComponent(
+            DopeDocumentCodec.cogsDirectoryName, isDirectory: true)
+        try fm.createDirectory(at: stagedCogs, withIntermediateDirectories: true)
 
         var written: [String] = []
         func stage(_ data: Data, _ relative: String) throws {
@@ -352,6 +399,12 @@ public struct DopeRepoSandbox: Sendable {
                       DopeScopeDocument.expectedFile(forPersistenceCode: code))
         }
 
+        for cog in bundle.cogFiles {
+            try DopeCode.validateCode(cog.body.code, field: "cog code")
+            try stage(DopeDocumentCodec.encoder.encode(cog),
+                      DopeScopeDocument.expectedCogFile(forCogCode: cog.body.code))
+        }
+
         // Swap the dope-owned subtree only. `.gmcc/` itself is NOT replaced:
         // it holds `.screenshots/` and this staging directory, which a
         // whole-directory swap would delete.
@@ -360,6 +413,11 @@ public struct DopeRepoSandbox: Sendable {
             _ = try fm.replaceItemAt(persistenceDirectory, withItemAt: stagedPersistence)
         } else {
             try fm.moveItem(at: stagedPersistence, to: persistenceDirectory)
+        }
+        if fm.fileExists(atPath: cogsDirectory.path) {
+            _ = try fm.replaceItemAt(cogsDirectory, withItemAt: stagedCogs)
+        } else {
+            try fm.moveItem(at: stagedCogs, to: cogsDirectory)
         }
 
         // Index last — see the note above on the benign failure direction.
@@ -387,6 +445,17 @@ public struct DopeRepoSandbox: Sendable {
         return try fm.contentsOfDirectory(atPath: persistenceDirectory.path)
             .filter { !referenced.contains($0) && !$0.hasPrefix(".") }
             .map { "\(DopeDocumentCodec.persistenceDirectoryName)/\($0)" }
+            .sorted()
+    }
+
+    /// Cog directories no longer referenced by the scope map. Same
+    /// non-recursive discipline as the persistence scan.
+    private func unreferencedCogDirectories(referenced: Set<String>) throws -> [String] {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: cogsDirectory.path) else { return [] }
+        return try fm.contentsOfDirectory(atPath: cogsDirectory.path)
+            .filter { !referenced.contains($0) && !$0.hasPrefix(".") }
+            .map { "\(DopeDocumentCodec.cogsDirectoryName)/\($0)" }
             .sorted()
     }
 

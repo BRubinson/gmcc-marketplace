@@ -187,6 +187,54 @@ final class DopeSandboxTests: XCTestCase {
         XCTAssertTrue(read.warnings.isEmpty)
     }
 
+    /// Cogs must actually reach disk in the shape the goal specifies, and
+    /// come back identical.
+    func testCogsRoundTripThroughTheirOwnDirectory() throws {
+        let sandbox = try DopeRepoSandbox.resolve(instanceRoot: repoRoot.path)
+        let cog = DopeCogDocument(
+            body: DopeCogBody(code: "gm_daemon", name: "GM Daemon",
+                              description: "", sortOrder: 0),
+            elements: [DopeCogElementDocument(
+                code: "gm_daemon", name: "GM Daemon", description: "", sortOrder: 0,
+                elementType: "Hull", primaryPath: "plugins/gmcc/daemon",
+                links: DopeCogLinks(persistenceOwners: ["agentics", "doped"]))])
+        let base = makeBundle()
+        let bundle = DopeDocumentBundle(
+            main: DopeScopeDocument(
+                version: base.main.version, scope: base.main.scope,
+                persistence: base.main.persistence,
+                cogs: ["gm_daemon": DopeScopeDocument.expectedCogFile(forCogCode: "gm_daemon")]),
+            domainFiles: base.domainFiles,
+            cogFiles: [cog])
+
+        let written = try sandbox.writeAtomically(bundle)
+        XCTAssertTrue(
+            written.written.contains(".gmcc/cogs/gm_daemon/gm_daemon.index.cog.doped.json"),
+            "cog index must land at the specified path: \(written.written)")
+
+        let read = try sandbox.readBundle()
+        XCTAssertEqual(read.bundle.cogFiles, [cog])
+        XCTAssertTrue(read.warnings.isEmpty)
+    }
+
+    /// A tampered cogs map is refused the same way a tampered persistence
+    /// map is — the contract applies to both areas, not just the one that
+    /// had it first.
+    func testReadRefusesTamperedCogMap() throws {
+        let sandbox = try DopeRepoSandbox.resolve(instanceRoot: repoRoot.path)
+        _ = try sandbox.writeAtomically(makeBundle())
+        let tampered = """
+            {"version": 1,
+             "scope": {"code": "gmcc", "name": "GMCC", "description": ""},
+             "persistence": {"core": "persistence/core/core.index.persistence.doped.json"},
+             "cogs": {"gm_daemon": "../../../etc/passwd"}}
+            """
+        try Data(tampered.utf8).write(to: sandbox.mainFile)
+        XCTAssertThrowsError(try sandbox.readBundle()) { error in
+            XCTAssertTrue("\(error)".contains("never followed"), "\(error)")
+        }
+    }
+
     func testPeekRevision() throws {
         let sandbox = try DopeRepoSandbox.resolve(instanceRoot: repoRoot.path)
         XCTAssertNil(sandbox.peekRevision())

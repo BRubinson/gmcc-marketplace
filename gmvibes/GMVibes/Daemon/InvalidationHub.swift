@@ -30,6 +30,16 @@ final class InvalidationHub {
         /// prefetch passes on the serial daemon queue. Dope stores subscribe
         /// here; the scope uuid rides the payload for them to narrow on.
         case dope(String)
+        /// DIAGRAM_CHANGE for ONE diagram (the event's subject uuid) — the
+        /// open editor's stream. Separate from `.diagramList` because a drag
+        /// commit must repaint the canvas it came from without re-listing
+        /// every rail in the app.
+        case diagram(String)
+        /// DIAGRAM_CHANGE for one OWNER row (project / session / prompt uuid)
+        /// — the tier-scoped lists. One event yields on every owner uuid its
+        /// payload carries, since a prompt-tier write moves the prompt's
+        /// count and nothing else in the chain.
+        case diagramList(String)
     }
 
     private var continuations: [Domain: [UUID: AsyncStream<Void>.Continuation]] = [:]

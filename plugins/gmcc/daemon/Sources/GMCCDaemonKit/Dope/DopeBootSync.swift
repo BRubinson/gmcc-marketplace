@@ -1,6 +1,6 @@
 import Foundation
 
-/// Files → db boot reconciliation for a session's SESSION_BASE dope scope.
+/// Files → db boot reconciliation for a session's SESSION_INSTANCE dope scope.
 ///
 /// The repo's `.gmcc` dope tree travels with the branch, but a fresh checkout
 /// mints a virgin scope (revision 0, empty tree) — so without this, every new
@@ -36,7 +36,7 @@ public enum DopeBootSync {
         case unreadable(String)
     }
 
-    /// Reconcile the session's SESSION_BASE scope with the repo tree.
+    /// Reconcile the session's SESSION_INSTANCE scope with the repo tree.
     /// `instanceRoot` is the repo checkout root (the tree lives at
     /// `{instanceRoot}/.gmcc`).
     public static func run(
@@ -72,7 +72,7 @@ public enum DopeBootSync {
                 dbRevision = existing.revision
                 minted = false
             } else {
-                // The scope identity comes from main.doped.json — the code IS
+                // The scope identity comes from scope.doped.json — the code IS
                 // identity to ingest; minting any other code guarantees a
                 // refusal on the next step.
                 let created = try client.dopeInit(DopeInitRequest(
@@ -107,13 +107,13 @@ public enum DopeBootSync {
         case .noRepoTree, .inSync:
             return nil
         case let .seeded(code, revision, counts):
-            return "[GMB] dope: seeded session scope '\(code)' from .gmcc/dope at revision \(revision) "
+            return "[GMB] dope: seeded session scope '\(code)' from .gmcc at revision \(revision) "
                 + "(\(counts.domains) domains, \(counts.entities) entities)"
         case let .readopted(code, from, to, _):
-            return "[GMB] dope: re-ingested '\(code)' from .gmcc/dope at revision \(to) (was \(from))"
+            return "[GMB] dope: re-ingested '\(code)' from .gmcc at revision \(to) (was \(from))"
         case let .filesBehind(code, dbRevision, diskVersion):
             return "[GMB] dope: WARN — session scope '\(code)' (revision \(dbRevision)) is AHEAD of "
-                + ".gmcc/dope (version \(diskVersion)); boot never writes files. "
+                + ".gmcc (version \(diskVersion)); boot never writes files. "
                 + "Publish with: gm dope write-repo"
         case let .legacyLayout(path):
             return "[GMB] dope: WARN — found a RETIRED .gmcc/dope tree at \(path) and no "

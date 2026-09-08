@@ -41,7 +41,7 @@ so generated geometry and rendered frames share one formula).
 
 4. **Screenshot & report.**
    ```bash
-   gm diagram screenshot --diagram-uuid <D> [--scheme light|dark] --json
+   gm render --diagram-uuid <D> [--scheme light|dark] --json
    ```
    Print the returned path and revision, and Read the PNG to sanity-check
    the render (overlaps, ghost cards). Dangling dope bindings render as
@@ -55,5 +55,5 @@ so generated geometry and rendered frames share one formula).
 - Hand-placed elements do not survive a regenerate: the batch deletes ALL
   top-level elements. Say so when regenerating a `revision > 0` diagram
   the user may have edited in GMVibes.
-- Never write to `.gmcc/.screenshots/` directly, never edit the repo's
+- Never write into the CKFS screenshots directory directly, never edit the repo's
   root `.gitignore`, never restart the daemon.

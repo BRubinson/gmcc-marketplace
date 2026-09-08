@@ -38,6 +38,7 @@ struct SessionScreen: View {
     @Environment(DaemonConnectionModel.self) private var daemon
     @Environment(CatalogStore.self) private var catalog
     @Environment(WindowNav.self) private var nav
+    @Environment(DiagramCatalogStore.self) private var diagrams
     let windowID: SessionWindowID
 
     @State private var scope: SessionScope
@@ -142,9 +143,15 @@ struct SessionScreen: View {
             if !catalog.hasLoaded { await catalog.refresh() }
             await store.refresh()
             scope.registerPrompts(Set(store.prompts.map(\.uuid)), daemon: daemon)
+            // Attached-diagram counts for the prompt rows: DIAGRAM_LIST is
+            // one owner per call, so this is a fan-out over the session's
+            // prompts (see DiagramCatalogStore.Owner on why there is no
+            // one-call shortcut).
+            await diagrams.refresh(prompts: store.prompts.map(\.uuid))
             for await _ in stream {
                 await store.refresh()
                 scope.registerPrompts(Set(store.prompts.map(\.uuid)), daemon: daemon)
+                await diagrams.refresh(prompts: store.prompts.map(\.uuid))
             }
         }
         // Keep instance/project identity live on renames.
@@ -175,15 +182,20 @@ struct SessionScreen: View {
                 onOpen: { openPrompt($0.uuid) }
             )
         case .diagrams:
-            SessionDiagramsPane(scope: scope) { scopeCode in
-                nav.go(.diagram(windowID, scopeCode: scopeCode))
+            SessionDiagramsPane(scope: scope, windowID: windowID,
+                                projectUuid: instanceRow?.projectUuid ?? "") { diagramID in
+                nav.go(.diagram(diagramID))
             }
         case .dope:
             // Session-level read: SESSION_BASE scope (no promptUuid). The
-            // Diagram button opens the full-window Doped Viewer on the
-            // loaded scope's code.
+            // Diagram button opens the NON-PERSISTED preview of that scope —
+            // saved diagrams live one tab over, and computing a throwaway
+            // canvas must never mint a diagram row behind the user's back.
             DopePane(scope: scope, promptUuid: nil, onOpenDiagram: { scopeCode in
-                nav.go(.diagram(windowID, scopeCode: scopeCode))
+                nav.go(.diagram(DiagramWindowID(
+                    source: .dopePreview(scopeCode: scopeCode),
+                    name: scopeCode, session: windowID,
+                    projectUuid: instanceRow?.projectUuid ?? "")))
             })
         }
     }
@@ -234,6 +246,7 @@ private struct PromptListPane: View {
                                         .foregroundStyle(.tertiary)
                                 }
                                 Spacer()
+                                PromptDiagramBadge(promptUuid: stub.uuid)
                                 PromptStatusBadge(status: PromptStatus(rawValue: stub.status))
                             }
                             .padding(.horizontal, 14)
@@ -427,8 +440,33 @@ struct PromptNavRow: View {
                 Text("id \(stub.seq)").font(.caption2).foregroundStyle(.tertiary)
             }
             Spacer()
+            PromptDiagramBadge(promptUuid: stub.uuid)
             PromptStatusBadge(status: PromptStatus(rawValue: stub.status))
         }
         .padding(.vertical, 2)
+    }
+}
+
+/// How many diagrams are attached to one prompt. Reads the shared
+/// `DiagramCatalogStore` from the environment rather than threading a count
+/// through four view layers — the store is app-lifetime and the row is the
+/// only thing that wants the number.
+///
+/// Absent (never listed) renders NOTHING, and so does zero: a badge on every
+/// prompt in a session with no diagrams is noise.
+struct PromptDiagramBadge: View {
+    @Environment(DiagramCatalogStore.self) private var diagrams
+    let promptUuid: String
+
+    var body: some View {
+        if let count = diagrams.count(.prompt(promptUuid)), count > 0 {
+            HStack(spacing: 3) {
+                Image(systemName: "point.3.connected.trianglepath.dotted")
+                Text("\(count)")
+            }
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .help("\(count) diagram\(count == 1 ? "" : "s") attached to this prompt")
+        }
     }
 }

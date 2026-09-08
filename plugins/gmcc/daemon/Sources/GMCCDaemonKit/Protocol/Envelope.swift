@@ -36,7 +36,25 @@ public enum GMCCWireProtocol {
     /// DopeCogElementAddRequest.dope_persistence_code and
     /// DopeCogElementNode.dope_persistence_code — would NOT have bumped this
     /// on their own; they decode safely in both directions.)
-    public static let version = 19
+    /// v20 — three NEW message types: PROMPT_DIAGRAM_QUALIFY / _GET / _LIST,
+    /// the prompt_qualified_diagram surface (m0022). A new message type is an
+    /// unambiguous bump under CLAUDE.md: a stale daemon answers UNKNOWN_TYPE
+    /// to a verb that is supposed to exist, and a stale client cannot be told
+    /// the verb is there.
+    ///
+    /// What did NOT bump this: the DiagramElementPayload cases added earlier
+    /// in this same body of work. Those are ADDITIVE tags on an existing
+    /// message and they ride under the additive-OPTIONAL convention — the
+    /// convention was not abandoned, it simply does not cover new message
+    /// types. Read the v18/v19 notes above for what a RENAME costs by
+    /// contrast.
+    ///
+    /// And a bonus that falls out of landing v20 at all: those additive tags
+    /// carried an accepted risk — an older peer meeting an unknown payload tag
+    /// fails in the decoder rather than at the door. Once every peer is at
+    /// v20 that risk is retired for free, because the handshake rejects a
+    /// stale peer before any payload reaches a decoder.
+    public static let version = 20
 }
 
 /// Discriminator for every NDJSON message on the socket. One case per spec
@@ -80,6 +98,12 @@ public enum MessageType: String, Codable, Hashable, CaseIterable, Sendable {
     // Artifacts
     case artifactAdd = "ARTIFACT_ADD"
     case artifactList = "ARTIFACT_LIST"
+    // Prompt-qualified diagrams (v20) — a prompt's reading of a rendered
+    // diagram. Prompt-scoped, so it sits with the artifacts rather than with
+    // the DIAGRAM family, which is owner-tier addressed.
+    case promptDiagramQualify = "PROMPT_DIAGRAM_QUALIFY"
+    case promptDiagramGet = "PROMPT_DIAGRAM_GET"
+    case promptDiagramList = "PROMPT_DIAGRAM_LIST"
     // File changes
     case fileChangeAdd = "FILE_CHANGE_ADD"
     case fileChangeList = "FILE_CHANGE_LIST"

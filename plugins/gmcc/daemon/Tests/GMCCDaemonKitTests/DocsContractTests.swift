@@ -7,6 +7,11 @@ import XCTest
 /// paths, the retired session env family, the retired DOPE expansion, the
 /// retired ~/.zshrc block, and `--adopt` leaking into bot workflows.
 ///
+/// Three of these also walk `daemon/Sources`. That widening is the point: the
+/// worst offenders of the SESSION_BASE / `.gmcc/dope` rot were the COMPILED
+/// cheatsheet and the CLI `--help` abstracts, which a docs-only walk cannot
+/// see even though they reach every session.
+///
 /// Allowlists are deliberate and commented — keep them SHORT; every entry
 /// names why it is exempt.
 final class DocsContractTests: XCTestCase {
@@ -40,12 +45,34 @@ final class DocsContractTests: XCTestCase {
         url.path.replacingOccurrences(of: pluginRoot.path + "/", with: "")
     }
 
+    /// plugins/gmcc/daemon/Sources — the CLI help text, cheatsheet body and
+    /// doc comments that a `.md`-only walk misses.
+    private func swiftFiles() throws -> [URL] {
+        let fm = FileManager.default
+        let root = pluginRoot.appendingPathComponent("daemon/Sources", isDirectory: true)
+        var out: [URL] = []
+        let enumerator = fm.enumerator(at: root, includingPropertiesForKeys: nil)
+        while let url = enumerator?.nextObject() as? URL {
+            if url.pathExtension == "swift" { out.append(url) }
+        }
+        XCTAssertGreaterThan(out.count, 20, "source tree walk looks broken: \(root.path)")
+        return out
+    }
+
     private func violations(
         pattern: String, allowFiles: Set<String>, allowLine: ((String) -> Bool)? = nil
     ) throws -> [String] {
+        try violations(in: try docFiles(), pattern: pattern,
+                       allowFiles: allowFiles, allowLine: allowLine)
+    }
+
+    private func violations(
+        in files: [URL], pattern: String, allowFiles: Set<String>,
+        allowLine: ((String) -> Bool)? = nil
+    ) throws -> [String] {
         let regex = try NSRegularExpression(pattern: pattern)
         var hits: [String] = []
-        for file in try docFiles() {
+        for file in files {
             let rel = relative(file)
             guard !allowFiles.contains(rel) else { continue }
             guard let text = try? String(contentsOf: file, encoding: .utf8) else { continue }
@@ -118,5 +145,66 @@ final class DocsContractTests: XCTestCase {
             let text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
             XCTAssertFalse(text.contains("--adopt"), "\(name) must not mention --adopt")
         }
+    }
+
+    /// m0013 renamed the tier to SESSION_INSTANCE. Docs AND sources: the tier
+    /// name reaches users through the cheatsheet and `gm dope --help`, not
+    /// just through markdown.
+    func testNoRetiredSessionBaseTier() throws {
+        let pattern = #"\bSESSION_BASE\b"#
+        // The real flag is named --clone-from-session-base; it is not a tier
+        // reference and must survive this sweep.
+        let allowLine: (String) -> Bool = { $0.lowercased().contains("session-base") }
+        var hits = try violations(pattern: pattern, allowFiles: [], allowLine: allowLine)
+        hits += try violations(
+            in: try swiftFiles(), pattern: pattern,
+            allowFiles: [
+                // The m0012/m0013 literals and history — SESSION_BASE is the
+                // stored value these migrations read and rewrite.
+                "daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
+                // The legacy decode alias, so an old file still parses. The
+                // file self-updates on its next write.
+                "daemon/Sources/GMCCDaemonKit/Dope/DopeLevel.swift",
+                // Documents the retired spelling it is tolerant of.
+                "daemon/Sources/GMCCDaemonKit/Protocol/Rows.swift",
+            ],
+            allowLine: allowLine)
+        XCTAssertEqual(hits, [], "retired SESSION_BASE tier referenced:\n" + hits.joined(separator: "\n"))
+    }
+
+    /// The dope tree moved to `{instance_root}/.gmcc` — `.gmcc/dope` is the
+    /// retired layout. A stale path here sent gm doctor's drift check at a
+    /// file that never exists, so the finding silently never fired.
+    func testNoRetiredDopeDirectory() throws {
+        let pattern = #"\.gmcc/dope"#
+        var hits = try violations(
+            pattern: pattern,
+            allowFiles: [
+                // The layout reference itself — it names the retired path in
+                // order to tell the reader it is retired.
+                "skills/gmcc/ref/doped_files.md",
+            ])
+        hits += try violations(
+            in: try swiftFiles(), pattern: pattern,
+            allowFiles: [
+                // Defines legacyDopeDirectoryName / legacyMainFileName.
+                "daemon/Sources/GMCCDaemonKit/Dope/DopeDocument.swift",
+                // legacyDopeRoot + the note on why the old layout could be
+                // swapped wholesale and the new one cannot.
+                "daemon/Sources/GMCCDaemonKit/Dope/DopeRepoSandbox.swift",
+                // Probes the retired tree on purpose, to warn about a stale
+                // checkout and tell the user how to republish it.
+                "daemon/Sources/GMCCDaemonKit/Dope/DopeBootSync.swift",
+            ])
+        XCTAssertEqual(hits, [], "retired .gmcc/dope path referenced:\n" + hits.joined(separator: "\n"))
+    }
+
+    /// m0012 renamed the dope domain-* verbs to persistence-*. A doc that
+    /// still names the old family hands an agent an unknown subcommand.
+    func testNoRetiredDopeVerbNames() throws {
+        let hits = try violations(
+            pattern: #"dope (domain-(add|update|delete)|\{domain,)"#,
+            allowFiles: [])
+        XCTAssertEqual(hits, [], "retired dope domain-* verb in docs:\n" + hits.joined(separator: "\n"))
     }
 }

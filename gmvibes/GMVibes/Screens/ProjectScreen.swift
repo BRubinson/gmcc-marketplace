@@ -26,9 +26,18 @@ struct ProjectScreen: View {
             title: project?.name ?? "Project",
             subtitle: (project?.gitRepoName.isEmpty == false) ? project?.gitRepoName : nil
         ) {
-            content
-                .searchable(text: $query, placement: .toolbar,
-                            prompt: "Search instances & sessions")
+            // The rail is a sibling of the content, not an overlay: it holds
+            // the project's diagrams, which are as much this page's subject
+            // as its instances are.
+            HStack(spacing: 0) {
+                content
+                    .searchable(text: $query, placement: .toolbar,
+                                prompt: "Search instances & sessions")
+                Divider()
+                ProjectDiagramRail(projectUuid: projectUuid) { diagramID in
+                    nav.go(.diagram(diagramID))
+                }
+            }
         }
         // House idiom: catalog stays fresh on topology invalidations; the
         // filter re-derives after every refresh (derived @State, never a

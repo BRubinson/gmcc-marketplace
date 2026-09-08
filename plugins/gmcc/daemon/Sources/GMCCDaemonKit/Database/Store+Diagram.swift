@@ -50,6 +50,23 @@ extension Store {
 
     // MARK: - Row + revision helpers
 
+    /// The diagram projection.
+    ///
+    /// m0021 dropped the stored `instance_uuid` column — INSTANCE is no
+    /// longer an ownership tier — but a session-owned diagram still HAS an
+    /// instance, and `DiagramRow.instanceUuid` is an existing wire field
+    /// that consumers read. So it is DERIVED here through the session join
+    /// rather than removed: the ownership ladder shrank, the ancestry did
+    /// not. A project-tier diagram genuinely has no single instance and
+    /// reports nil, which is exactly the fact that made the tier removable.
+    ///
+    /// Every `diagram` read goes through this, so `d.` qualification is
+    /// required in the WHERE clauses (session shares uuid/code/name).
+    static let diagramSelect = """
+        SELECT d.*, s.instance_uuid AS instance_uuid
+          FROM diagram d LEFT JOIN session s ON s.uuid = d.session_uuid
+        """
+
     static func diagramRow(_ row: Row) -> DiagramRow {
         DiagramRow(
             uuid: row["uuid"], version: row["version"], tier: row["tier"],
@@ -62,7 +79,7 @@ extension Store {
     }
 
     func fetchDiagram(_ db: Database, uuid: String) throws -> DiagramRow? {
-        try Row.fetchOne(db, sql: "SELECT * FROM diagram WHERE uuid = ?", arguments: [uuid])
+        try Row.fetchOne(db, sql: "\(Self.diagramSelect) WHERE d.uuid = ?", arguments: [uuid])
             .map(Self.diagramRow)
     }
 
@@ -111,6 +128,10 @@ extension Store {
     struct DiagramOwner {
         let tier: DiagramTier
         let projectUuid: String
+        /// DERIVED, never an ownership tier since m0021: a session's
+        /// instance, resolved through the join. The diagram row no longer
+        /// stores it; callers that genuinely need a checkout (nothing does,
+        /// after gm render moved to CKFS storage) still get it here.
         let instanceUuid: String?
         let sessionUuid: String?
         let promptUuid: String?
@@ -119,7 +140,6 @@ extension Store {
         var ownerColumn: String {
             switch tier {
             case .project: return "project_uuid"
-            case .instance: return "instance_uuid"
             case .session: return "session_uuid"
             case .prompt: return "prompt_uuid"
             }
@@ -127,7 +147,6 @@ extension Store {
         var ownerUuid: String {
             switch tier {
             case .project: return projectUuid
-            case .instance: return instanceUuid!
             case .session: return sessionUuid!
             case .prompt: return promptUuid!
             }
@@ -141,14 +160,22 @@ extension Store {
         _ db: Database, projectUuid: String?, instanceUuid: String?,
         sessionUuid: String?, promptUuid: String?
     ) throws -> DiagramOwner {
+        // instanceUuid is still ACCEPTED so a caller passing the retired
+        // flag gets a real explanation rather than "pass exactly one owner".
+        if instanceUuid != nil {
+            throw StoreError.badRequest(detail:
+                "the INSTANCE diagram tier was removed by m0021 — a diagram is owned by a "
+                + "project, a session, or a prompt. Pass --session-uuid for the session that "
+                + "lives in that instance, or --project-uuid for the whole project.")
+        }
         let owners: [(String?, DiagramTier)] = [
-            (projectUuid, .project), (instanceUuid, .instance),
+            (projectUuid, .project),
             (sessionUuid, .session), (promptUuid, .prompt),
         ]
         let present = owners.filter { $0.0 != nil }
         guard present.count == 1, let (uuid, tier) = present.first, let uuid else {
             throw StoreError.badRequest(detail:
-                "pass exactly one of project/instance/session/prompt uuid (got \(present.count))")
+                "pass exactly one of project/session/prompt uuid (got \(present.count))")
         }
         switch tier {
         case .project:
@@ -159,14 +186,6 @@ extension Store {
             }
             return DiagramOwner(tier: .project, projectUuid: uuid,
                                 instanceUuid: nil, sessionUuid: nil, promptUuid: nil)
-        case .instance:
-            guard let project = try String.fetchOne(
-                db, sql: "SELECT project_uuid FROM instance WHERE uuid = ?", arguments: [uuid]
-            ) else {
-                throw StoreError.notFound(entity: "instance", key: uuid)
-            }
-            return DiagramOwner(tier: .instance, projectUuid: project,
-                                instanceUuid: uuid, sessionUuid: nil, promptUuid: nil)
         case .session:
             guard let row = try Row.fetchOne(db, sql: """
                 SELECT s.instance_uuid AS instance_uuid, i.project_uuid AS project_uuid
@@ -210,18 +229,14 @@ extension Store {
             if let binding = req.dopeScopeCode {
                 try self.validateDiagramScopeBinding(db, owner: owner, code: binding)
             }
-            if req.gmccDiagramPath != nil, owner.tier == .project {
-                throw StoreError.badRequest(
-                    detail: "gmcc_diagram_path is unresolvable at PROJECT tier (no instance root)")
-            }
             if let existing = try Row.fetchOne(db, sql: """
-                SELECT * FROM diagram WHERE tier = ? AND \(owner.ownerColumn) = ? AND code = ?
+                \(Self.diagramSelect)
+                 WHERE d.tier = ? AND d.\(owner.ownerColumn) = ? AND d.code = ?
                 """, arguments: [owner.tier.rawValue, owner.ownerUuid, req.code]) {
                 return DiagramResponse(diagram: Self.diagramRow(existing), created: false)
             }
             let uuid = try self.insertBase(db, table: "diagram", extra: [
                 "project_uuid": owner.projectUuid,
-                "instance_uuid": owner.instanceUuid,
                 "session_uuid": owner.sessionUuid,
                 "prompt_uuid": owner.promptUuid,
                 "tier": owner.tier.rawValue,
@@ -250,8 +265,9 @@ extension Store {
                 db, projectUuid: req.projectUuid, instanceUuid: req.instanceUuid,
                 sessionUuid: req.sessionUuid, promptUuid: req.promptUuid)
             let rows = try Row.fetchAll(db, sql: """
-                SELECT * FROM diagram WHERE tier = ? AND \(owner.ownerColumn) = ?
-                ORDER BY code
+                \(Self.diagramSelect)
+                 WHERE d.tier = ? AND d.\(owner.ownerColumn) = ?
+                 ORDER BY d.code
                 """, arguments: [owner.tier.rawValue, owner.ownerUuid])
             return DiagramListResponse(diagrams: rows.map(Self.diagramRow))
         }
@@ -271,13 +287,13 @@ extension Store {
                 let owner = try self.resolveDiagramOwner(
                     db, projectUuid: req.projectUuid, instanceUuid: req.instanceUuid,
                     sessionUuid: req.sessionUuid, promptUuid: req.promptUuid)
-                var sql = "SELECT * FROM diagram WHERE tier = ? AND \(owner.ownerColumn) = ?"
+                var sql = "\(Self.diagramSelect) WHERE d.tier = ? AND d.\(owner.ownerColumn) = ?"
                 var args: [(any DatabaseValueConvertible)?] = [owner.tier.rawValue, owner.ownerUuid]
                 if let code = req.code {
-                    sql += " AND code = ?"
+                    sql += " AND d.code = ?"
                     args.append(code)
                 }
-                sql += " ORDER BY code"
+                sql += " ORDER BY d.code"
                 let rows = try Row.fetchAll(db, sql: sql, arguments: StatementArguments(args))
                     .map(Self.diagramRow)
                 if rows.count > 1 {
@@ -295,8 +311,32 @@ extension Store {
             }
             let tree = try self.fetchDiagramTree(db, diagram: diagram)
             let bindings = try self.resolveDiagramBindings(db, diagram: diagram, tree: tree)
-            return DiagramGetResponse(tree: tree, bindings: bindings)
+            return DiagramGetResponse(
+                tree: tree, bindings: bindings,
+                ownerStoragePath: try self.diagramOwnerStoragePath(db, diagram: diagram))
         }
+    }
+
+    /// The CKFS storage directory of whichever tier owns this diagram.
+    ///
+    /// This is the root `gm render` writes under. Every tier carries the
+    /// column, which is precisely why CKFS storage works at project tier
+    /// where an instance checkout did not.
+    func diagramOwnerStoragePath(_ db: Database, diagram: DiagramRow) throws -> String? {
+        guard let tier = DiagramTier(rawValue: diagram.tier) else { return nil }
+        let (table, uuid): (String, String?)
+        switch tier {
+        case .project: (table, uuid) = ("project", diagram.projectUuid)
+        case .session: (table, uuid) = ("session", diagram.sessionUuid)
+        case .prompt: (table, uuid) = ("prompt", diagram.promptUuid)
+        }
+        guard let uuid else { return nil }
+        let path = try String.fetchOne(db, sql: """
+            SELECT ckfs_relative_storage_path FROM \(table) WHERE uuid = ?
+            """, arguments: [uuid])
+        // Empty is as good as absent: a caller must not build a path that
+        // silently resolves to the CKFS root itself.
+        return (path?.isEmpty ?? true) ? nil : path
     }
 
     // MARK: - Hydration (8 flat queries grouped in Swift — never per-node
@@ -322,6 +362,8 @@ extension Store {
         let shapes = try subtypeRows("diagram_drawing_shape")
         let scopes = try subtypeRows("diagram_dope_scope_persistence_layer")
         let entities = try subtypeRows("diagram_dope_entity")
+        let texts = try subtypeRows("diagram_drawing_text")
+        let connectors = try subtypeRows("diagram_connector")
 
         func vertexRows(_ table: String, _ parentColumn: String) throws -> [String: [DiagramVertex]] {
             let rows = try Row.fetchAll(db, sql: """
@@ -357,10 +399,21 @@ extension Store {
                     locked: (sub["locked"] as Int64) != 0))
             case .drawingStroke:
                 guard let sub = strokes[uuid] else { break }
+                // Read precedence, per the storage-strategy axis: the packed
+                // blob when present, else the vertex rows. The write path
+                // never leaves both populated.
+                let packed: [DiagramVertex]?
+                if sub.hasColumn("packed_vertices"),
+                   let blob = sub["packed_vertices"] as Data?,
+                   let count = sub["vertex_count"] as Int? {
+                    packed = try DiagramStrokeCodec.unpack(blob, count: count)
+                } else {
+                    packed = nil
+                }
                 return .drawingStroke(DrawingStrokePayload(
                     tool: DiagramStrokeTool(rawValue: sub["tool"]) ?? .pencil,
                     strokeColor: sub["stroke_color"], strokeWidth: sub["stroke_width"],
-                    vertices: strokeVertices[uuid] ?? []))
+                    vertices: packed ?? strokeVertices[uuid] ?? []))
             case .drawingShape:
                 guard let sub = shapes[uuid] else { break }
                 guard let kind = DiagramShapeKind(rawValue: sub["shape_kind"]) else {
@@ -373,6 +426,21 @@ extension Store {
                     strokeWidth: sub["stroke_width"], fillColor: sub["fill_color"],
                     cornerRadius: sub["corner_radius"],
                     vertices: shapeVertices[uuid] ?? []))
+            case .drawingText:
+                guard let sub = texts[uuid] else { break }
+                return .drawingText(DrawingTextPayload(
+                    markdown: sub["markdown"], width: sub["width"], height: sub["height"],
+                    fontSize: sub["font_size"], textColor: sub["text_color"],
+                    backgroundColor: sub["background_color"]))
+            case .connector:
+                guard let sub = connectors[uuid] else { break }
+                return .connector(ConnectorPayload(
+                    targetElementUuid: sub["target_element_uuid"],
+                    strokeColor: sub["stroke_color"], strokeWidth: sub["stroke_width"],
+                    lineStyle: DiagramConnectorLineStyle(
+                        rawValue: sub["line_style"]) ?? .solid,
+                    headKind: DiagramConnectorHead(rawValue: sub["head_kind"]) ?? .arrow,
+                    label: sub["label"]))
             case .dopeScopePersistenceLayer:
                 guard let sub = scopes[uuid] else { break }
                 return .dopeScopePersistenceLayer(DopeScopePersistenceLayerPayload(dopeScopeCode: sub["dope_scope_code"]))
@@ -422,7 +490,7 @@ extension Store {
 
     /// One row per dope_scope element, resolved through the EXISTING dope
     /// ladder against the DIAGRAM row's own session/prompt context: PROMPT
-    /// scope preferred, SESSION_BASE fallback, resolvedVia surfaced. A
+    /// scope preferred, SESSION_INSTANCE fallback, resolvedVia surfaced. A
     /// PROJECT/INSTANCE-tier diagram has no session — every binding resolves
     /// absent by construction. Never an error, never a dope delete guard.
     func resolveDiagramBindings(
@@ -446,6 +514,23 @@ extension Store {
                             db, sessionUuid: sessionUuid, scopeType: .sessionInstance,
                             code: payload.dopeScopeCode).first
                         if scope != nil { resolvedVia = "session_base" }
+                    }
+                } else {
+                    // PROJECT tier: no session, so the session ladder above
+                    // resolves nothing and every element would ghost. This
+                    // rung is what makes a project-level persistence diagram
+                    // render actual cards — the masking PROJECT_ITEM scope
+                    // first, then the BASE_PROJECT scope `gm dope promote`
+                    // maintains, mirroring the session ladder exactly.
+                    scope = try self.dopeProjectScopeCandidates(
+                        db, projectUuid: diagram.projectUuid, scopeType: .projectItem,
+                        code: payload.dopeScopeCode).first
+                    if scope != nil { resolvedVia = "project_item" }
+                    if scope == nil {
+                        scope = try self.dopeProjectScopeCandidates(
+                            db, projectUuid: diagram.projectUuid, scopeType: .baseProject,
+                            code: payload.dopeScopeCode).first
+                        if scope != nil { resolvedVia = "base_project" }
                     }
                 }
                 bindings.append(DiagramBindingResolution(
@@ -530,8 +615,65 @@ extension Store {
             if p.cornerRadius != nil, p.shapeKind != .rectangle {
                 throw StoreError.badRequest(detail: "corner_radius is only legal on rectangles")
             }
+        case .drawingText(let p):
+            guard p.width > 0, p.height > 0 else {
+                throw StoreError.badRequest(
+                    detail: "a text box needs a positive width and height")
+            }
+            guard p.fontSize > 0 else {
+                throw StoreError.badRequest(detail: "a text box needs a positive font size")
+            }
+        case .connector(let p):
+            guard p.strokeWidth > 0 else {
+                throw StoreError.badRequest(detail: "a connector needs a positive stroke width")
+            }
+            // The endpoint's containment rule needs the TARGET's parentage,
+            // which this payload-shape pass does not have — it lands in
+            // validateConnectorTarget, called with the db in hand.
+            _ = p.targetElementUuid
         case .drawingLayer:
             break
+        }
+    }
+
+    /// The connector containment rule, evaluated with SQL lookups.
+    ///
+    /// DiagramTreeReducer answers the same question by walking its in-memory
+    /// tree. Both call DiagramContainment, so the RULE is shared even though
+    /// the lookups cannot be — the only way a rule this fiddly stays
+    /// identical across the two implementations the parity oracle compares.
+    func validateConnectorTarget(
+        _ db: Database, diagramUuid: String, referrerUuid: String,
+        parentOfReferrer: String?, targetUuid: String
+    ) throws {
+        let spec = DiagramElementTypeSpec.spec(for: .connector)
+        guard let ref = spec.elementRefs.first else { return }
+
+        func parentOf(_ uuid: String) throws -> String? {
+            try String.fetchOne(
+                db, sql: "SELECT parent_element_uuid FROM diagram_element WHERE uuid = ?",
+                arguments: [uuid])
+        }
+        // Same-diagram containment is part of the rule: a connector may
+        // never reach across canvases.
+        let targetDiagram = try String.fetchOne(
+            db, sql: "SELECT diagram_uuid FROM diagram_element WHERE uuid = ?",
+            arguments: [targetUuid])
+        let targetExists = targetDiagram == diagramUuid
+        let grandparent = try parentOfReferrer.flatMap { try parentOf($0) }
+
+        if let violation = DiagramContainment.validateReference(
+            rule: ref.rule,
+            referrerUuid: referrerUuid,
+            parentOfReferrer: parentOfReferrer,
+            grandparentOfReferrer: grandparent,
+            targetUuid: targetUuid,
+            parentOfTarget: targetExists ? try parentOf(targetUuid) : nil,
+            targetExists: targetExists
+        ) {
+            throw StoreError.badRequest(
+                detail: violation.message(role: "connector \(ref.role)",
+                                          referrer: referrerUuid, target: targetUuid))
         }
     }
 
@@ -650,6 +792,41 @@ extension Store {
         try self.validateDiagramElementShape(
             db, diagramUuid: diagram.uuid, type: type, parent: parent, payload: add.payload)
 
+        // Resolve a connector's second endpoint, which may name an element
+        // created earlier in THIS batch — the exact parallel of
+        // parentClientRef, and why the ref rides on the mutation rather than
+        // inside the payload.
+        var payload = DiagramStrokeCodec.normalizedForStorage(add.payload)
+        if case .connector(let connector) = payload {
+            if connector.targetElementUuid != nil, add.targetClientRef != nil {
+                throw StoreError.badRequest(
+                    detail: "pass targetElementUuid OR targetClientRef, not both")
+            }
+            var targetUuid = connector.targetElementUuid
+            if let ref = add.targetClientRef {
+                guard let resolved = ledger[ref] else {
+                    throw StoreError.badRequest(detail:
+                        "targetClientRef '\(ref)' does not name an earlier elementAdd in this batch")
+                }
+                targetUuid = resolved
+            }
+            if let targetUuid {
+                try self.validateConnectorTarget(
+                    db, diagramUuid: diagram.uuid, referrerUuid: "(new connector)",
+                    parentOfReferrer: parentUuid, targetUuid: targetUuid)
+                payload = .connector(ConnectorPayload(
+                    targetElementUuid: targetUuid,
+                    strokeColor: connector.strokeColor,
+                    strokeWidth: connector.strokeWidth,
+                    lineStyle: connector.lineStyle,
+                    headKind: connector.headKind,
+                    label: connector.label))
+            }
+        } else if add.targetClientRef != nil {
+            throw StoreError.badRequest(
+                detail: "targetClientRef is only meaningful for a connector element")
+        }
+
         let code: String
         if let requested = add.code {
             try DopeCode.validateCode(requested, field: "element code")
@@ -691,7 +868,7 @@ extension Store {
             "element_z": add.elementZ ?? 0,
             "scale": add.scale ?? 1,
         ])
-        try self.insertSubtypeRow(db, elementUuid: uuid, payload: add.payload)
+        try self.insertSubtypeRow(db, elementUuid: uuid, payload: payload)
         if let ref = add.clientRef { ledger[ref] = uuid }
         return DiagramMutationResult(
             index: index, kind: "element_add", clientRef: add.clientRef,
@@ -772,7 +949,9 @@ extension Store {
         try self.updateBase(db, table: "diagram_element", uuid: info.uuid,
                             expectedVersion: update.expectedVersion, set: set)
         if let payload = update.payload {
-            try self.replaceSubtypeRow(db, elementUuid: info.uuid, payload: payload)
+            try self.replaceSubtypeRow(
+                db, elementUuid: info.uuid,
+                payload: DiagramStrokeCodec.normalizedForStorage(payload))
         }
         guard let version = try Int64.fetchOne(
             db, sql: "SELECT version FROM diagram_element WHERE uuid = ?", arguments: [info.uuid]
@@ -821,17 +1000,12 @@ extension Store {
             set["description"] = description
         }
 
-        var finalTier = DiagramTier(rawValue: diagram.tier)
         if let promotion = update.promotion {
             let owner: DiagramOwner
             switch promotion.tier {
             case .project:
                 owner = try self.resolveDiagramOwner(
                     db, projectUuid: promotion.ownerUuid, instanceUuid: nil,
-                    sessionUuid: nil, promptUuid: nil)
-            case .instance:
-                owner = try self.resolveDiagramOwner(
-                    db, projectUuid: nil, instanceUuid: promotion.ownerUuid,
                     sessionUuid: nil, promptUuid: nil)
             case .session:
                 owner = try self.resolveDiagramOwner(
@@ -861,27 +1035,21 @@ extension Store {
             // updateValue, not subscript: typed-nil subscript assignment
             // REMOVES the key and the NULL-out silently vanishes (the
             // base_composable_uuid lesson).
-            set.updateValue(owner.instanceUuid, forKey: "instance_uuid")
             set.updateValue(owner.sessionUuid, forKey: "session_uuid")
             set.updateValue(owner.promptUuid, forKey: "prompt_uuid")
-            finalTier = owner.tier
         }
 
+        // gmcc_diagram_path is legal at EVERY tier since m0021. It used to
+        // be refused at PROJECT because only an instance carried a checkout
+        // to anchor against; screenshots now materialize under CKFS storage,
+        // which a project has as much as a session does.
         if let patch = update.gmccDiagramPath {
             switch patch {
             case .set(let path):
-                guard finalTier != .project else {
-                    throw StoreError.badRequest(detail:
-                        "gmcc_diagram_path is unresolvable at PROJECT tier (no instance root)")
-                }
                 set["gmcc_diagram_path"] = path
             case .clear:
                 set.updateValue(nil, forKey: "gmcc_diagram_path")
             }
-        } else if finalTier == .project, diagram.gmccDiagramPath != nil {
-            // Promotion to PROJECT with a path still set would trip the
-            // schema CHECK — clear it as part of the promotion.
-            set.updateValue(nil, forKey: "gmcc_diagram_path")
         }
 
         guard !set.isEmpty else {
@@ -914,16 +1082,18 @@ extension Store {
                 "locked": p.locked ? 1 : 0,
             ])
         case .drawingStroke(let p):
+            // Packed storage, per the spec's vertexStorage axis. The vertex
+            // rows are deliberately NOT written for a stroke: one
+            // representation at a time, so a read never has to decide which
+            // of two disagreeing copies is true.
             _ = try insertBase(db, table: "diagram_drawing_stroke", extra: [
                 "element_uuid": elementUuid,
                 "tool": p.tool.rawValue,
                 "stroke_color": p.strokeColor,
                 "stroke_width": p.strokeWidth,
+                "packed_vertices": DiagramStrokeCodec.pack(p.vertices),
+                "vertex_count": p.vertices.count,
             ])
-            try replaceVertices(db, table: "diagram_stroke_vertex",
-                                parentColumn: "stroke_element_uuid",
-                                elementUuid: elementUuid, vertices: p.vertices,
-                                withPressure: true)
         case .drawingShape(let p):
             _ = try insertBase(db, table: "diagram_drawing_shape", extra: [
                 "element_uuid": elementUuid,
@@ -937,6 +1107,26 @@ extension Store {
                                 parentColumn: "shape_element_uuid",
                                 elementUuid: elementUuid, vertices: p.vertices,
                                 withPressure: false)
+        case .drawingText(let p):
+            _ = try insertBase(db, table: "diagram_drawing_text", extra: [
+                "element_uuid": elementUuid,
+                "markdown": p.markdown,
+                "width": p.width,
+                "height": p.height,
+                "font_size": p.fontSize,
+                "text_color": p.textColor,
+                "background_color": p.backgroundColor,
+            ])
+        case .connector(let p):
+            _ = try insertBase(db, table: "diagram_connector", extra: [
+                "element_uuid": elementUuid,
+                "target_element_uuid": p.targetElementUuid,
+                "stroke_color": p.strokeColor,
+                "stroke_width": p.strokeWidth,
+                "line_style": p.lineStyle.rawValue,
+                "head_kind": p.headKind.rawValue,
+                "label": p.label,
+            ])
         case .dopeScopePersistenceLayer(let p):
             _ = try insertBase(db, table: "diagram_dope_scope_persistence_layer", extra: [
                 "element_uuid": elementUuid,
@@ -975,15 +1165,18 @@ extension Store {
         case .drawingStroke(let p):
             try db.execute(sql: """
                 UPDATE diagram_drawing_stroke
-                SET tool = ?, stroke_color = ?, stroke_width = ?, updated_at = ?
+                SET tool = ?, stroke_color = ?, stroke_width = ?,
+                    packed_vertices = ?, vertex_count = ?, updated_at = ?
                 WHERE element_uuid = ?
                 """, arguments: [p.tool.rawValue, p.strokeColor, p.strokeWidth,
+                                 DiagramStrokeCodec.pack(p.vertices), p.vertices.count,
                                  now, elementUuid])
             try requireRow("diagram_drawing_stroke")
-            try replaceVertices(db, table: "diagram_stroke_vertex",
-                                parentColumn: "stroke_element_uuid",
-                                elementUuid: elementUuid, vertices: p.vertices,
-                                withPressure: true)
+            // Clear any legacy vertex rows: a stroke is packed-only, and a
+            // leftover row set would be a second, silently disagreeing copy.
+            try db.execute(sql: """
+                DELETE FROM diagram_stroke_vertex WHERE stroke_element_uuid = ?
+                """, arguments: [elementUuid])
         case .drawingShape(let p):
             try db.execute(sql: """
                 UPDATE diagram_drawing_shape
@@ -997,9 +1190,29 @@ extension Store {
                                 parentColumn: "shape_element_uuid",
                                 elementUuid: elementUuid, vertices: p.vertices,
                                 withPressure: false)
+        case .drawingText(let p):
+            try db.execute(sql: """
+                UPDATE diagram_drawing_text
+                SET markdown = ?, width = ?, height = ?, font_size = ?,
+                    text_color = ?, background_color = ?, updated_at = ?
+                WHERE element_uuid = ?
+                """, arguments: [p.markdown, p.width, p.height, p.fontSize,
+                                 p.textColor, p.backgroundColor, now, elementUuid])
+            try requireRow("diagram_drawing_text")
+        case .connector(let p):
+            try db.execute(sql: """
+                UPDATE diagram_connector
+                SET target_element_uuid = ?, stroke_color = ?, stroke_width = ?,
+                    line_style = ?, head_kind = ?, label = ?, updated_at = ?
+                WHERE element_uuid = ?
+                """, arguments: [p.targetElementUuid, p.strokeColor, p.strokeWidth,
+                                 p.lineStyle.rawValue, p.headKind.rawValue, p.label,
+                                 now, elementUuid])
+            try requireRow("diagram_connector")
         case .dopeScopePersistenceLayer(let p):
             try db.execute(sql: """
-                UPDATE diagram_dope_scope SET dope_scope_code = ?, updated_at = ?
+                UPDATE diagram_dope_scope_persistence_layer
+                SET dope_scope_code = ?, updated_at = ?
                 WHERE element_uuid = ?
                 """, arguments: [p.dopeScopeCode, now, elementUuid])
             try requireRow("diagram_dope_scope_persistence_layer")

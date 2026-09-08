@@ -207,7 +207,7 @@ repo's `.gmcc` tree (`gm context ensure` / `gm dope sync`), so it is
 populated from the first prompt of a fresh branch.
 
 Before spawning explore agents, every tier runs
-`gm dope list --session-uuid U`. If the session carries a SESSION_BASE
+`gm dope list --session-uuid U`. If the session carries a SESSION_INSTANCE
 scope, fetch the tree (`gm dope get --session-uuid U --json`) and
 **force-inject** it into EVERY explore spawn as a `## Domain Model (DOPE)`
 block, exactly like the kbite context summary — explorers do not choose

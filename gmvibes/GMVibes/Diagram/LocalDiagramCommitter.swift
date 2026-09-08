@@ -11,6 +11,27 @@ nonisolated struct LiveDiagramMinting: DiagramIdentityMinting {
     }
 }
 
+/// Records what the reducer mints, in mint order.
+///
+/// `DiagramTreeReducer` calls `mintUuid()` exactly once per elementAdd, in
+/// mutation order, and a failed batch throws the whole apply away — so on
+/// success the nth recorded uuid belongs to the nth add. That ordering is how
+/// the local path answers the clientRef → uuid question the daemon answers
+/// from its per-mutation batch results: an in-memory committer may invent the
+/// uuids, but it still has to report the ones it actually used.
+private final class RecordingMinting: DiagramIdentityMinting {
+    private let live = LiveDiagramMinting()
+    private(set) var minted: [String] = []
+
+    func mintUuid() -> String {
+        let uuid = live.mintUuid()
+        minted.append(uuid)
+        return uuid
+    }
+
+    func now() -> String { live.now() }
+}
+
 /// The authoritative in-memory tree: a single-writer actor — the same shape
 /// as the daemon it stands in for. All semantics live in the kit's
 /// `DiagramTreeReducer` (the parity-tested second implementation of
@@ -22,22 +43,35 @@ actor DiagramTreeBox {
         self.tree = tree
     }
 
-    func apply(_ mutations: [DiagramMutation], expectedRevision: Int64?) throws -> DiagramTree {
+    func apply(_ mutations: [DiagramMutation], expectedRevision: Int64?)
+        throws -> (tree: DiagramTree, minted: [String: String])
+    {
+        let recorder = RecordingMinting()
         tree = try DiagramTreeReducer.apply(mutations, to: tree,
                                             expectedRevision: expectedRevision,
-                                            minting: LiveDiagramMinting())
-        return tree
+                                            minting: recorder)
+        var minted: [String: String] = [:]
+        var addIndex = 0
+        for mutation in mutations {
+            guard case .elementAdd(let add) = mutation else { continue }
+            if let ref = add.clientRef, addIndex < recorder.minted.count {
+                minted[ref] = recorder.minted[addIndex]
+            }
+            addIndex += 1
+        }
+        return (tree, minted)
     }
 
-    /// Wholesale replacement (domain-pill rebuild / dope reload paths).
+    /// Wholesale replacement (the preview scaffold / dope reload paths).
     func replace(_ newTree: DiagramTree) {
         tree = newTree
     }
 }
 
-/// The ~20-line `DiagramCommitting` conformer behind `DiagramEditSession`.
-/// Persistence later is ONE swap: a DaemonCommitter wrapping
-/// `diagramBatchApply` replaces this type and nothing else changes.
+/// The `DiagramCommitting` conformer behind a NON-PERSISTED workspace: the
+/// dope preview canvases, which have no diagram row to write to. The
+/// db-backed editor swaps in `DaemonDiagramCommitter` and nothing else
+/// changes — the one-committer-swap contract, now with both halves built.
 final class LocalDiagramCommitter: DiagramCommitting {
     let box: DiagramTreeBox
     private let onCommit: @MainActor @Sendable (DiagramTree) -> Void
@@ -48,9 +82,15 @@ final class LocalDiagramCommitter: DiagramCommitting {
     }
 
     func commit(_ mutations: [DiagramMutation], expectedRevision: Int64?) async throws -> Int64 {
-        let tree = try await box.apply(mutations, expectedRevision: expectedRevision)
+        try await commitReporting(mutations, expectedRevision: expectedRevision).revision
+    }
+
+    func commitReporting(_ mutations: [DiagramMutation],
+                         expectedRevision: Int64?) async throws -> DiagramCommitOutcome {
+        let applied = try await box.apply(mutations, expectedRevision: expectedRevision)
         let notify = onCommit
+        let tree = applied.tree
         await MainActor.run { notify(tree) }
-        return tree.revision
+        return DiagramCommitOutcome(revision: tree.revision, mintedUuids: applied.minted)
     }
 }

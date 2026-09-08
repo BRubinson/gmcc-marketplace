@@ -14,6 +14,10 @@ final class GMVibesServices {
     /// Checked-out session per instance (CHECKOUT_CHANGE push edge +
     /// daemon-side INSTANCE_CURRENT_SESSION resolution).
     let checkout: CheckoutWatcher
+    /// Tier-scoped diagram lists (DIAGRAM_LIST) + the row-level writes.
+    /// App-lifetime, like CatalogStore: the project rail, the session pane
+    /// and every prompt row read one store.
+    let diagramCatalog: DiagramCatalogStore
 
     init() {
         env = GMCCEnvironment()
@@ -21,6 +25,7 @@ final class GMVibesServices {
         daemon = DaemonConnectionModel()
         catalog = CatalogStore()
         checkout = CheckoutWatcher()
+        diagramCatalog = DiagramCatalogStore()
         // The one wiring of the route() → checkout-state edge; both are
         // app-lifetime singletons, so no re-registration ever happens.
         daemon.checkoutSink = checkout
@@ -36,5 +41,6 @@ extension View {
             .environment(services.daemon)
             .environment(services.catalog)
             .environment(services.checkout)
+            .environment(services.diagramCatalog)
     }
 }

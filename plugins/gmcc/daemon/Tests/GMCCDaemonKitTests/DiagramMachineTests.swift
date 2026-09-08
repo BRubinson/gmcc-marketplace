@@ -109,10 +109,15 @@ final class DiagramMachineTests: XCTestCase {
         }
     }
 
-    func testInitRefusesPathAtProjectTier() throws {
-        XCTAssertThrowsError(try store.diagramInit(DiagramInitRequest(
+    /// INVERTED BY m0021: a path at PROJECT tier used to be refused because
+    /// only an instance had a checkout to anchor it. Screenshots materialize
+    /// under CKFS storage now, which every tier has.
+    func testInitAcceptsPathAtProjectTier() throws {
+        let response = try store.diagramInit(DiagramInitRequest(
             projectUuid: "proj-1", code: "x", name: "X",
-            gmccDiagramPath: "docs/x.png")))
+            gmccDiagramPath: "docs/x.png"))
+        XCTAssertEqual(response.diagram.gmccDiagramPath, "docs/x.png")
+        XCTAssertEqual(response.diagram.tier, "PROJECT")
     }
 
     // MARK: - List (never a union) + Get (three-way absence)
@@ -277,7 +282,13 @@ final class DiagramMachineTests: XCTestCase {
             return XCTFail("expected stroke payload")
         }
         XCTAssertEqual(strokePayload.tool, .marker)
-        XCTAssertEqual(strokePayload.vertices, vertices)
+        // Strokes persist PACKED (f32 x, f32 y, u8 pressure), so pressure is
+        // lossy BY DESIGN — quantized onto 254 steps. The write path
+        // normalizes through the same quantization, so what a caller reads
+        // back is what was actually stored rather than a value that only
+        // looks exact.
+        XCTAssertEqual(strokePayload.vertices,
+                       DiagramStrokeCodec.normalizedForStorage(vertices))
 
         let shape = layerNode.children.first { $0.base.code == "box" }
         guard case .drawingShape(let shapePayload) = shape?.payload else {
@@ -300,10 +311,24 @@ final class DiagramMachineTests: XCTestCase {
                 payload: .drawingStroke(DrawingStrokePayload(
                     vertices: [DiagramVertex(x: 9, y: 9), DiagramVertex(x: 8, y: 8)])))))
         XCTAssertEqual(updated.version, 1)
-        let count = try store.dbQueue.read { db in
+        // Strokes moved to packed storage in m0021, so "whole-set
+        // replacement" is now asserted against the blob rather than the
+        // vertex rows: the packed column holds exactly the new two vertices,
+        // and no stroke vertex ROW survives to disagree with it.
+        let stored = try store.dbQueue.read { db in
+            try Row.fetchOne(db, sql: """
+                SELECT packed_vertices, vertex_count FROM diagram_drawing_stroke
+                 WHERE element_uuid = ?
+                """, arguments: [stroke.uuid])
+        }
+        let packed = try XCTUnwrap(stored?["packed_vertices"] as Data?)
+        XCTAssertEqual(stored?["vertex_count"] as Int?, 2)
+        XCTAssertEqual(try DiagramStrokeCodec.unpack(packed, count: 2),
+                       [DiagramVertex(x: 9, y: 9), DiagramVertex(x: 8, y: 8)])
+        let rowCount = try store.dbQueue.read { db in
             try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM diagram_stroke_vertex") ?? -1
         }
-        XCTAssertEqual(count, 2, "old vertex rows must be gone (whole-set replacement)")
+        XCTAssertEqual(rowCount, 0, "a packed stroke keeps no vertex rows to contradict it")
         // A stale expectedVersion is a VERSION_CONFLICT (the aggregate lock).
         XCTAssertThrowsError(try store.diagramNodeUpdate(DiagramNodeUpdateRequest(
             update: DiagramElementUpdate(elementUuid: stroke.uuid, expectedVersion: 0,

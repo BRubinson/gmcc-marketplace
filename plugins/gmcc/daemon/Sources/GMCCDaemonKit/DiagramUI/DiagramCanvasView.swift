@@ -85,6 +85,10 @@ public struct ResolvedElementView: View {
                 StrokeView(stroke: stroke, offset: offset)
             case .shape(let shape):
                 ShapeView(shape: shape, offset: offset)
+            case .text(let text):
+                TextBoxView(element: element, text: text, offset: offset)
+            case .connector(let connector):
+                ConnectorView(element: element, connector: connector, offset: offset)
             case .scopeCard(let card):
                 DopeScopeOutlineView(element: element, card: card,
                                      environment: environment, offset: offset)
@@ -144,6 +148,58 @@ struct StrokeView: View {
                                               lineCap: .round, lineJoin: .round))
         }
         .allowsHitTesting(false)
+    }
+}
+
+/// A markdown text box at its explicit size.
+///
+/// `AttributedString(markdown:)` gives inline markdown (emphasis, code,
+/// links) for free and degrades to the raw string when it cannot parse.
+/// Block-level layout — headings, lists — is deliberately not here yet; the
+/// wrapping model is the same either way, so it is an addition rather than a
+/// rewrite when it comes.
+struct TextBoxView: View {
+    let element: ResolvedElement
+    let text: ResolvedText
+    let offset: CGSize
+
+    private var attributed: AttributedString {
+        (try? AttributedString(
+            markdown: text.markdown,
+            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
+            ?? AttributedString(text.markdown)
+    }
+
+    var body: some View {
+        Text(attributed)
+            .font(.system(size: text.fontSize))
+            .foregroundStyle(Color(hex: text.textColor))
+            .multilineTextAlignment(.leading)
+            .frame(width: element.frame.width, height: element.frame.height,
+                   alignment: .topLeading)
+            .background(text.backgroundColor.map { Color(hex: $0) })
+            .position(x: element.frame.midX + offset.width,
+                      y: element.frame.midY + offset.height)
+            .allowsHitTesting(false)
+    }
+}
+
+/// A connector element renders NOTHING here, on purpose.
+///
+/// Connectors are drawn by `DiagramEdgeCanvas` as routed polylines, in the
+/// same pass and against the same obstacle graph as FK edges — that shared
+/// routing is the whole point of the deferred phase. Drawing the element
+/// too would paint a second, straight, unrouted line over the routed one.
+///
+/// The element still exists in the tree so it can be selected, deleted, and
+/// carry its own identity; it simply has no independent appearance.
+struct ConnectorView: View {
+    let element: ResolvedElement
+    let connector: ResolvedConnector
+    let offset: CGSize
+
+    var body: some View {
+        Color.clear.frame(width: 0, height: 0).allowsHitTesting(false)
     }
 }
 
@@ -391,11 +447,46 @@ public struct DiagramEdgeCanvas: View {
                 let path = edge.routed && edge.points.count >= 2
                     ? Self.roundedPolyline(edge.points)
                     : Self.legacyCubic(from: edge.from, to: edge.to)
-                context.stroke(path, with: .color(.secondary.opacity(0.7)),
-                               style: StrokeStyle(lineWidth: 1.2))
-                context.fill(Path(ellipseIn: CGRect(x: edge.to.x - 2.5, y: edge.to.y - 2.5,
-                                                    width: 5, height: 5)),
-                             with: .color(.secondary))
+                switch edge.origin {
+                case .dopeForeignKey:
+                    // Untouched from the frozen screenshot output: a derived
+                    // FK arrow is deliberately quiet.
+                    context.stroke(path, with: .color(.secondary.opacity(0.7)),
+                                   style: StrokeStyle(lineWidth: 1.2))
+                    context.fill(
+                        Path(ellipseIn: CGRect(x: edge.to.x - 2.5, y: edge.to.y - 2.5,
+                                               width: 5, height: 5)),
+                        with: .color(.secondary))
+                case .connector(_, let style):
+                    // A hand-drawn connector carries its own styling — it is
+                    // something a person asserted, not something derived, and
+                    // it should not read as an FK arrow.
+                    context.stroke(
+                        path, with: .color(Color(hex: style.strokeColor)),
+                        style: StrokeStyle(
+                            lineWidth: style.lineWidth, lineCap: .round,
+                            lineJoin: .round,
+                            dash: style.lineStyle == .dashed
+                                ? [style.lineWidth * 3, style.lineWidth * 2] : []))
+                    switch style.headKind {
+                    case .none:
+                        break
+                    case .arrow, .dot:
+                        let r = max(3, style.lineWidth * 1.5)
+                        context.fill(
+                            Path(ellipseIn: CGRect(x: edge.to.x - r, y: edge.to.y - r,
+                                                   width: r * 2, height: r * 2)),
+                            with: .color(Color(hex: style.strokeColor)))
+                    }
+                    if !style.label.isEmpty, edge.points.count >= 2 {
+                        let mid = edge.points[edge.points.count / 2]
+                        context.draw(
+                            Text(style.label)
+                                .font(.system(size: max(9, style.lineWidth * 4)))
+                                .foregroundStyle(Color(hex: style.strokeColor)),
+                            at: mid)
+                    }
+                }
             }
             // Pass 2: accent restroke of edges incident to a highlighted
             // element, drawn ABOVE every base edge. Empty set ⇒ zero

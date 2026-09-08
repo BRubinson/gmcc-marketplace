@@ -9,6 +9,44 @@ import Foundation
 public protocol DiagramCommitting: Sendable {
     /// Apply the mutations atomically; returns the new diagram revision.
     func commit(_ mutations: [DiagramMutation], expectedRevision: Int64?) async throws -> Int64
+
+    /// The same commit, reporting BOTH the new revision and the uuids the
+    /// writer minted for this batch's `clientRef`s.
+    ///
+    /// A batch names rows it creates by clientRef because the WRITER mints
+    /// the uuid, so a client that adds an element and then wants to select,
+    /// update or connect it has no other handle on the row. An in-memory
+    /// committer can invent those uuids; a daemon committer must report back
+    /// what the db actually minted — inventing them there would hand the
+    /// caller ids no row has.
+    ///
+    /// Defaulted onto `commit` so a revision-only conformer (a test double, a
+    /// host that never needs the ids back) keeps compiling untouched.
+    func commitReporting(_ mutations: [DiagramMutation],
+                         expectedRevision: Int64?) async throws -> DiagramCommitOutcome
+}
+
+/// What one commit reports back. `revision` advances the CAS gate; the
+/// minted uuids are keyed by the `clientRef` of the `elementAdd` that
+/// produced them (adds without a clientRef are not addressable and are
+/// deliberately absent).
+public struct DiagramCommitOutcome: Hashable, Sendable {
+    public let revision: Int64
+    public let mintedUuids: [String: String]
+
+    public init(revision: Int64, mintedUuids: [String: String] = [:]) {
+        self.revision = revision
+        self.mintedUuids = mintedUuids
+    }
+}
+
+extension DiagramCommitting {
+    public func commitReporting(
+        _ mutations: [DiagramMutation], expectedRevision: Int64?
+    ) async throws -> DiagramCommitOutcome {
+        DiagramCommitOutcome(
+            revision: try await commit(mutations, expectedRevision: expectedRevision))
+    }
 }
 
 public enum DiagramEditSessionError: Error, Sendable {
@@ -31,6 +69,11 @@ public final class DiagramEditSession {
     /// on flush and advanced by every successful commit.
     public private(set) var baseRevision: Int64?
     public private(set) var lastError: String?
+    /// clientRef -> minted uuid from the LAST successful flush. The window
+    /// between a gesture-end add and the caller's follow-up (select the new
+    /// element, connect to it) is exactly one flush wide, so one batch's
+    /// worth is all any caller has ever needed.
+    public private(set) var lastMintedUuids: [String: String] = [:]
 
     private let committer: any DiagramCommitting
 
@@ -99,8 +142,10 @@ public final class DiagramEditSession {
         let mutations = staged
         let generation = discardGeneration
         do {
-            let revision = try await committer.commit(
+            let outcome = try await committer.commitReporting(
                 mutations, expectedRevision: guarded ? baseRevision : nil)
+            let revision = outcome.revision
+            lastMintedUuids = outcome.mintedUuids
             if generation == discardGeneration {
                 staged.removeFirst(mutations.count)
             }

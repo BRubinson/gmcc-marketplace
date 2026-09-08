@@ -178,29 +178,42 @@ final class DiagramBatchApplyTests: XCTestCase {
         XCTAssertEqual(row.name, "Renamed")
         XCTAssertEqual(row.gmccDiagramPath, "docs/main.png")
 
-        // Promotion SESSION → INSTANCE: session/prompt FKs NULL out, and the
-        // (now PROJECT-illegal-adjacent) path survives at instance tier.
+        // Promotion SESSION → PROJECT. Two things changed with m0021 and
+        // both are asserted here rather than assumed:
+        //
+        //  - INSTANCE is no longer a promotion target at all (the tier is
+        //    gone), so the ladder is session → project directly.
+        //  - The path SURVIVES promotion to PROJECT. It used to be
+        //    auto-cleared because a schema CHECK refused a path at project
+        //    tier — only an instance had a checkout to anchor one. CKFS
+        //    storage gives every tier a root, so that CHECK and the silent
+        //    clearing both went away.
         _ = try store.diagramBatchApply(DiagramBatchApplyRequest(
             diagramUuid: diagramUuid,
             mutations: [.diagramUpdate(DiagramRowUpdate(
                 expectedVersion: 1,
-                promotion: DiagramPromotion(tier: .instance, ownerUuid: "inst-1")))]))
-        row = try store.diagramGet(DiagramGetRequest(diagramUuid: diagramUuid)).tree
-        XCTAssertEqual(row.tier, "INSTANCE")
-        XCTAssertNil(row.sessionUuid)
-        XCTAssertEqual(row.instanceUuid, "inst-1")
-
-        // Promotion to PROJECT auto-clears the path (the schema CHECK would
-        // refuse the UPDATE otherwise).
-        _ = try store.diagramBatchApply(DiagramBatchApplyRequest(
-            diagramUuid: diagramUuid,
-            mutations: [.diagramUpdate(DiagramRowUpdate(
-                expectedVersion: 2,
                 promotion: DiagramPromotion(tier: .project, ownerUuid: "proj-1")))]))
         row = try store.diagramGet(DiagramGetRequest(diagramUuid: diagramUuid)).tree
         XCTAssertEqual(row.tier, "PROJECT")
+        XCTAssertNil(row.sessionUuid)
+        XCTAssertNil(row.promptUuid)
+        // A project-tier diagram spans every checkout, so it has no single
+        // instance — the fact that made the INSTANCE tier removable.
         XCTAssertNil(row.instanceUuid)
-        XCTAssertNil(row.gmccDiagramPath)
+        XCTAssertEqual(row.gmccDiagramPath, "docs/main.png",
+                       "gmcc_diagram_path is legal at PROJECT tier since m0021")
+    }
+
+    /// The retired tier answers with an explanation, not a shrug.
+    func testInstanceTierIsRefusedWithAMigrationHint() throws {
+        XCTAssertThrowsError(try store.diagramList(
+            DiagramListRequest(instanceUuid: "inst-1"))) {
+            guard case StoreError.badRequest(let detail) = $0 else {
+                return XCTFail("expected badRequest, got \($0)")
+            }
+            XCTAssertTrue(detail.contains("INSTANCE"), detail)
+            XCTAssertTrue(detail.contains("m0021"), detail)
+        }
     }
 
     func testEmptyBatchIsRefused() throws {

@@ -65,7 +65,7 @@ Same as `/gm_bot_rpi`: read `kbite_codes` from `gm prompt get`; explicit add onl
 
 ## Phase 1b: DOPE Dump
 
-`gm dope list --session-uuid U` — if the session carries a SESSION_BASE scope, `gm dope get --session-uuid U --json` and hold the tree in primary context. The dump is **force-injected into every explore teammate spawn** (see the spawn template's `## Domain Model (DOPE)` block); architects get the fetch command, not the dump. The dump is always the persistence layer's source of truth (boot-synced from `.gmcc`); no scope → note it and move on. Full protocol: `skills/gmcc/ref/bot_workflows.md`.
+`gm dope list --session-uuid U` — if the session carries a SESSION_INSTANCE scope, `gm dope get --session-uuid U --json` and hold the tree in primary context. The dump is **force-injected into every explore teammate spawn** (see the spawn template's `## Domain Model (DOPE)` block); architects get the fetch command, not the dump. The dump is always the persistence layer's source of truth (boot-synced from `.gmcc`); no scope → note it and move on. Full protocol: `skills/gmcc/ref/bot_workflows.md`.
 
 ---
 
@@ -89,7 +89,7 @@ Read and follow your agent identity from: $GMCC_PLUGIN_ROOT/prompts/gmcc_agent_c
 {kbite context summary}
 
 ## Domain Model (DOPE)
-{dope dump — the session's SESSION_BASE tree from gm dope get, force-injected; it IS the persistence layer. Omit the section only when the session has no dope scope, and say so.}
+{dope dump — the session's SESSION_INSTANCE tree from gm dope get, force-injected; it IS the persistence layer. Omit the section only when the session has no dope scope, and say so.}
 
 ## DB-Native Persistence (you hold the pen)
 The exploration record is db rows. Summary uuid: {S — from gm explore open, run by the primary before spawning}.

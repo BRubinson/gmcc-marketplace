@@ -91,7 +91,7 @@ public enum DopeScopeType: String, Codable, Hashable, CaseIterable, Sendable {
     case baseProject = "BASE_PROJECT"
     /// Personal, db-only overlay masking BASE_PROJECT by dot-path position.
     case projectItem = "PROJECT_ITEM"
-    /// One session+instance's tree — what .gmcc/dope actually carries, and
+    /// One session+instance's tree — what .gmcc actually carries, and
     /// what boot sync reconciles against.
     case sessionInstance = "SESSION_INSTANCE"
     /// Personal, db-only overlay masking SESSION_INSTANCE.

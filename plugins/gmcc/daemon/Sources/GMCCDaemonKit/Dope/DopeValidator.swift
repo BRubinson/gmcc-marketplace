@@ -70,7 +70,7 @@ public enum DopeValidator {
             check { try DopeCode.validateCode(dcode, field: "domain code") }
             if file.version != bundle.main.version {
                 errors.append(
-                    "domain '\(dcode)' carries version \(file.version) but main.doped.json says \(bundle.main.version) — hand-edit suspected")
+                    "domain '\(dcode)' carries version \(file.version) but \(DopeDocumentCodec.scopeFileName) says \(bundle.main.version) — hand-edit suspected")
             }
             if file.body.description.count > 512 {
                 errors.append("domain '\(dcode)' description exceeds 512 characters")

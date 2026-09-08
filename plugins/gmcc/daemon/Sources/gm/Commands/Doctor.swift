@@ -98,7 +98,8 @@ struct Doctor: ParsableCommand {
                 // before mutating? The component mutates on gaps, so doctor
                 // re-derives the cheap comparison instead.
                 let main = URL(fileURLWithPath: git.repoRoot)
-                    .appendingPathComponent(".gmcc/dope/main.doped.json")
+                    .appendingPathComponent(".gmcc")
+                    .appendingPathComponent(DopeDocumentCodec.scopeFileName)
                 guard FileManager.default.fileExists(atPath: main.path) else {
                     return .noRepoTree
                 }

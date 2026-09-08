@@ -105,6 +105,8 @@ private struct ProjectFolderRow: View {
     let searching: Bool
     @Binding var expanded: Set<String>
 
+    @State private var showingSettings = false
+
     var body: some View {
         DisclosureGroup(isExpanded: expansionBinding) {
             InstanceLevel(project: project,
@@ -112,8 +114,30 @@ private struct ProjectFolderRow: View {
                           searching: searching,
                           expanded: $expanded)
         } label: {
-            FolderLabel(name: project.name, subtitle: project.code,
-                        systemImage: "folder")
+            HStack(spacing: 6) {
+                FolderLabel(name: project.name, subtitle: project.code,
+                            systemImage: "folder")
+                Spacer(minLength: 4)
+                // Always rendered, matching the landing card. Hover-reveal
+                // was tried first and simply could not be found.
+                Button {
+                    showingSettings = true
+                } label: {
+                    Image(systemName: "gearshape")
+                        .foregroundStyle(.secondary)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Project settings")
+                .accessibilityLabel("Project settings for \(project.name)")
+            }
+            .contentShape(Rectangle())
+            .contextMenu {
+                Button("Project Settings…") { showingSettings = true }
+            }
+        }
+        .sheet(isPresented: $showingSettings) {
+            ProjectSettingsSheet(projectUuid: project.uuid)
         }
     }
 

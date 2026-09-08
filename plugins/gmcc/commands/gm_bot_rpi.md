@@ -108,7 +108,7 @@ row's active list at create time. No trigger matching, no kbite picker.
 
 ### Phase 1b: DOPE Dump
 
-`gm dope list --session-uuid U` — if the session carries a SESSION_BASE
+`gm dope list --session-uuid U` — if the session carries a SESSION_INSTANCE
 scope, `gm dope get --session-uuid U --json` and hold the tree in primary
 context: it is **force-injected into every explore spawn** as a
 `## Domain Model (DOPE)` block (explorers do not choose whether to load
@@ -139,7 +139,7 @@ Task tool:
     {kbite context summary}
 
     ## Domain Model (DOPE)
-    {dope dump — the session's SESSION_BASE tree from gm dope get, force-injected; it IS the persistence layer. Omit the section only when the session has no dope scope, and say so.}
+    {dope dump — the session's SESSION_INSTANCE tree from gm dope get, force-injected; it IS the persistence layer. Omit the section only when the session has no dope scope, and say so.}
 
     ## Exploration Approach
     Apply all 4 methodologies sequentially:

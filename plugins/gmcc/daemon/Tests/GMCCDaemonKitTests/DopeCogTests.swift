@@ -75,6 +75,50 @@ final class DopeCogTests: XCTestCase {
         XCTAssertEqual(got.cogs[0].elements[0].elementType, "Hull")
     }
 
+    // MARK: - file round-trip
+
+    /// THE guard against permanent phantom conflicts. The collapse to
+    /// links.persistence_owners drops each owner's own name/description, so
+    /// expansion has to synthesize them — and if the seeder and the reader
+    /// ever synthesize differently, every publish/ingest cycle yields a
+    /// different tree, the merge baseline never matches disk, and boot
+    /// reports conflicts on cogs nobody touched. Assert the fixed point.
+    func testCogCollapseExpandIsAFixedPoint() throws {
+        let cog = try addCog("gm_daemon")
+        let hull = try store.dopeCogElementAdd(DopeCogElementAddRequest(
+            cogUuid: cog.cog.uuid, elementType: "Hull",
+            code: "gm_daemon", name: "GM Daemon", primaryPath: "plugins/gmcc/daemon"))
+        for (i, domain) in ["agentics", "doped"].enumerated() {
+            let child = DopeCogProjection.ownerElement(
+                parentCode: "gm_daemon", persistenceCode: domain, sortOrder: i)
+            _ = try store.dopeCogElementAdd(DopeCogElementAddRequest(
+                cogUuid: cog.cog.uuid, elementType: "PersistenceOwner",
+                code: child.code, name: child.name, description: child.description,
+                sortOrder: child.sortOrder,
+                parentElementUuid: hull.element.uuid, dopePersistenceCode: domain))
+        }
+
+        let before = try store.dbQueue.read { db in
+            try self.store.fetchDopeCogs(db, scopeUuid: self.scopeUuid)
+        }
+        let doc = DopeCogProjection.document(from: before[0])
+        XCTAssertEqual(doc.elements.count, 1, "owners must collapse into the hull")
+        XCTAssertEqual(doc.elements[0].links?.persistenceOwners, ["agentics", "doped"])
+
+        // Expand back through the real ingest path and re-collapse.
+        try store.dbQueue.write { db in
+            try self.store.wipeDopeTree(db, scopeUuid: self.scopeUuid)
+            try self.store.insertDopeCogs(
+                db, scopeUuid: self.scopeUuid, cogFiles: [doc])
+        }
+        let after = try store.dbQueue.read { db in
+            try self.store.fetchDopeCogs(db, scopeUuid: self.scopeUuid)
+        }
+        XCTAssertEqual(DopeCogProjection.document(from: after[0]), doc,
+                       "expand(collapse(x)) must equal collapse(x) — otherwise every "
+                     + "publish/ingest cycle drifts and the merge reports phantom conflicts")
+    }
+
     // MARK: - PersistenceOwner
 
     /// One PersistenceOwner element per owned domain, parented to a Hull.
