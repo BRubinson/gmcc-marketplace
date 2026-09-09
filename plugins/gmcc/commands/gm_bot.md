@@ -178,11 +178,16 @@ Task tool:
 
 The doper searches the dope tree and kbites (full-tree dumps are forbidden)
 and completes the `agent_briefing` row. This tier has no downstream spawns,
-so the PRIMARY is the consumer — after the doper's receipt, pull it:
+so the PRIMARY is the consumer. Gate: the spawn's very next tool call is
 
 ```bash
-gm briefing get --prompt-uuid U --step initial --json
+gm briefing get --prompt-uuid U --step initial --wait --json
 ```
+
+— it blocks until the briefing is ready and its output IS the briefing;
+nothing else happens in between (no reads, no spawns, no gm calls). Exit 1
+= still building after the timeout: apply the dead-doper policy (The
+Briefing Protocol, `bot_workflows.md`).
 
 Hold the briefing body in context; it names the exact commands for deeper
 pulls (`gm dope get --code`, `gm kbite file-get`). Heed its staleness
@@ -258,9 +263,9 @@ gm briefing open --prompt-uuid U --step pre_architecture --json
 
 Spawn `gmcc:doper` (owner prompt uuid, step `pre_architecture`, one-line
 topic) — it folds in the clarification outcome and exploration overview.
-After its receipt, pull the briefing
-(`gm briefing get --prompt-uuid U --step pre_architecture --json`) and hold
-it through Phase 4.
+Same gate: immediately run
+`gm briefing get --prompt-uuid U --step pre_architecture --wait --json` —
+nothing else until it exits 0 — and hold the briefing through Phase 4.
 
 ---
 

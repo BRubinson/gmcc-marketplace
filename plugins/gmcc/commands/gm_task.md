@@ -95,10 +95,10 @@ Task tool:
     Topic: {one line — what this task is about}
 ```
 
-After the doper's receipt, pull it BY UUID — `gm briefing get
---briefing-uuid {B} --json`, where {B} was printed by your own `gm briefing
-open` — and work from the briefing body plus the deeper-pull commands it
-names. The zero-uuid form is for SPAWNED agents; here in the primary it can
+Gate on it BY UUID as the spawn's very next call — `gm briefing get
+--briefing-uuid {B} --wait --json`, where {B} was printed by your own
+`gm briefing open` — and work from the briefing body plus the deeper-pull
+commands it names. The zero-uuid form is for SPAWNED agents; here in the primary it can
 be shadowed by this instance's lingering prompt claim (a prompt-owned
 briefing would resolve ahead of your just-built task row), and you hold the
 uuid anyway.

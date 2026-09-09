@@ -143,7 +143,10 @@ Task tool:
 The doper searches the dope tree and kbites (full-tree dumps are forbidden)
 and completes the `agent_briefing` row. Downstream agents pull it themselves
 at spawn — their SubagentStart stub names the exact `gm briefing get`
-command. Wait for the doper's receipt before spawning Phase 2.
+command. Gate: the spawn's very next tool call is
+`gm briefing get --prompt-uuid U --step initial --wait --json`; exit 0 is
+the only green light for Phase 2 spawns — no interleaved work of any kind
+(hard-stop + dead-doper rules: The Briefing Protocol, `bot_workflows.md`).
 
 Resuming: `gm briefing list --prompt-uuid U` shows what exists; `open` on an
 existing (owner, step) RESETS it to building — do that only when the
@@ -239,7 +242,9 @@ gm briefing open --prompt-uuid U --step pre_architecture --json
 
 Spawn `gmcc:doper` (owner prompt uuid, step `pre_architecture`, one-line
 topic). It folds in the clarification outcome and exploration overview as
-distilled prose + pointers. Wait for its receipt before Phase 4.
+distilled prose + pointers. Same gate: immediately run
+`gm briefing get --prompt-uuid U --step pre_architecture --wait --json` —
+exit 0 before any Phase 4 spawn.
 
 ---
 

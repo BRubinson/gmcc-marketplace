@@ -61,8 +61,11 @@ the existing session. The canonical lifecycle every tier follows:
    the name and the memory watcher matches the stored path by exact
    case-sensitive equality, so NEVER re-derive `{seq}_{name}` yourself.
 3. **Brief** — `gm briefing open --prompt-uuid U --step initial --json`,
-   then spawn `gmcc:doper` to fill it (see The Briefing Protocol). Wait
-   for it before spawning explorers.
+   then spawn `gmcc:doper` to fill it, then IMMEDIATELY
+   `gm briefing get --prompt-uuid U --step initial --wait --json` — that
+   call blocks until the briefing is ready, and exit 0 is the only green
+   light for explorer spawns (hard-stop + dead-doper rules: The Briefing
+   Protocol, step 2).
 4. **Explore (agents hold the pen)** — `gm explore open --prompt-uuid U`
    (explicit only; the prompt is still `draft` here and never
    auto-creates one), then spawn `gmcc:code-explorer` agent(s) — the tier
@@ -88,7 +91,10 @@ the existing session. The canonical lifecycle every tier follows:
    complete). Wrong answer later: `gm clarify reopen` → re-answer →
    re-finalize. After finalize, brief again:
    `gm briefing open --prompt-uuid U --step pre_architecture` + a fresh
-   `gmcc:doper` spawn.
+   `gmcc:doper` spawn, then IMMEDIATELY
+   `gm briefing get --prompt-uuid U --step pre_architecture --wait --json`
+   — no architect spawn, no arch verb, nothing else until it exits 0
+   (same hard stop as step 3).
 6. **Plan (db-native)** — entering `architecting` created the architecture
    summary. Spawn `gmcc:code-architect` agent(s) (proposal-only — they do
    NOT write rows; their final message is the deliverable). The primary
@@ -179,6 +185,32 @@ Briefings replace hand-assembled context injection. The db entity is
    (`gm briefing complete ... --body-file P [--dope-ref DOT.PATH]...
    [--kbite-ref FILE_UUID]...`; the daemon stamps the dope revision and
    denormalizes kbite briefs).
+
+   HARD STOP: spawning the doper is a blocking point. The very next tool
+   call after the spawn is `gm briefing get <owner selector> --step S
+   --wait --json` — it polls until the briefing is `ready` and its
+   output IS the briefing. Between the spawn and that call, ALL other
+   action is FORBIDDEN: no reads, no other Task spawns, no gm
+   explore/clarify/arch calls. Narrating "while it runs I'll…" is
+   FORBIDDEN — that exact rationalization is how a run races past its
+   own briefing. A plain `gm briefing get` SUCCEEDS on a `building` row
+   (stub body, no error), so a bare pull is never the gate — only
+   `--wait` exiting 0 is. Dead doper — two signals, same policy: the
+   doper's Task erroring, or `--wait` exiting 1 on timeout (default 90s;
+   the state machine has no failure row, so the timeout IS the
+   synthesized failure signal — confirm it on stderr: the `[gm] briefing
+   still …` line is the timeout, any other stderr is an ordinary daemon
+   error, not doper death). On either: FIRST take one last look with a
+   plain `gm briefing get` — a slow-but-alive doper may have finished
+   right after the window, and re-opening would RESET its ready row; if
+   it reads `ready`, use it. Still `building`: `gm briefing open` the
+   same (owner, step) again (RESETS to building), re-spawn the doper
+   once, `--wait` again; on a second failure proceed briefing-less and
+   say so explicitly in your next message. Never hard-block the run.
+   Exit 2 is the third path — the DAEMON is unreachable, not the doper
+   dead: self-heal (`bash $GMCC_PLUGIN_ROOT/scripts/build_daemon.sh`,
+   `gm context ensure`) and re-run the same `--wait` call; never apply
+   the reset policy to a live doper on exit 2.
 3. **Downstream agents pull**: every `gmcc:*` agent spawn gets a
    SubagentStart hook stub naming the exact pull command; the agent runs
    `gm briefing get --step S` — the zero-uuid form resolves
@@ -218,8 +250,9 @@ Kbites are **inherited, not auto-detected** — the prompt's active list is
 `kbite_codes` on `gm prompt get`; kbites are added only on explicit user
 request (`gm kbite add`). Discovery is search-first and flows through the
 briefing: the doper runs `gm kbite search` (bm25; `--code` scopes; read
-the `file_summary` brief on every hit) and `gm kbite file-get` on the
-5-10 genuinely relevant files, then cites them as `--kbite-ref` rows.
+the `file_summary` brief on every hit) and `gm kbite file-get` on at
+most 5 genuinely relevant files (a hard cap — see the doper agent def),
+then cites them as `--kbite-ref` rows.
 Agents needing more depth run the same two verbs themselves.
 
 ## GM Cheatsheet (two-tier)

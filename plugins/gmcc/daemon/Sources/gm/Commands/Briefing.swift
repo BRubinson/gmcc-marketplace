@@ -97,8 +97,19 @@ struct Briefing: ParsableCommand {
         @Option(name: .long) var promptUuid: String?
         @Option(name: .long) var sessionUuid: String?
         @Option(name: .long) var step: String?
+        @Flag(name: .long, help: "Poll until status == ready — the output IS the briefing; exit 1 on timeout. The primary's post-doper-spawn gate.")
+        var wait = false
+        @Option(name: .long, help: "With --wait: give up after N seconds (default 90 — inside the Bash tool's 120s default).")
+        var timeoutSeconds: Int?
 
         func run() throws {
+            if timeoutSeconds != nil, !wait {
+                throw ValidationError("--timeout-seconds requires --wait")
+            }
+            let timeout = timeoutSeconds ?? 90
+            if wait, timeout <= 0 {
+                throw ValidationError("--timeout-seconds must be positive")
+            }
             let response = try withClient { client -> BriefingGetResponse in
                 // The zero-uuid path: nothing but --step means "MY briefing"
                 // — session from cwd, instance from process ancestry.
@@ -106,12 +117,51 @@ struct Briefing: ParsableCommand {
                 if briefingUuid == nil, promptUuid == nil, session == nil {
                     session = try ContextBuilder.resolveSessionUuid(client)
                 }
-                return try client.briefingGet(BriefingGetRequest(
-                    briefingUuid: briefingUuid,
-                    promptUuid: promptUuid,
-                    sessionUuid: session,
-                    step: step,
-                    clientKey: ClientKey.resolve()))
+                // Once a poll has seen the row, later polls go by uuid —
+                // `open` RESETS in place, so the uuid is stable across a
+                // dead-doper re-open + re-spawn.
+                var pinnedUuid = briefingUuid
+                func fetchOnce() throws -> BriefingGetResponse {
+                    let response = try client.briefingGet(BriefingGetRequest(
+                        briefingUuid: pinnedUuid,
+                        promptUuid: pinnedUuid == nil ? promptUuid : nil,
+                        sessionUuid: pinnedUuid == nil ? session : nil,
+                        step: pinnedUuid == nil ? step : nil,
+                        clientKey: ClientKey.resolve()))
+                    pinnedUuid = response.briefing.uuid
+                    return response
+                }
+                guard wait else { return try fetchOnce() }
+                let outcome = try awaitBriefingReady(timeoutSeconds: timeout, fetch: {
+                    do {
+                        return try fetchOnce()
+                    } catch let error as DaemonClientError {
+                        // A selector form may race the doper's own `open`
+                        // (SUMMARY_ABSENT = row not opened yet) — retryable.
+                        // A held --briefing-uuid means the row existed: any
+                        // error on it stays a hard fail.
+                        guard case .server(let payload) = error,
+                              payload.codeRaw == "SUMMARY_ABSENT",
+                              briefingUuid == nil else { throw error }
+                        return nil
+                    }
+                })
+                switch outcome {
+                case .ready(let ready):
+                    return ready
+                case .timedOut(let lastSeen):
+                    let state = lastSeen.map { "still \($0.status) (uuid \($0.uuid), v\($0.version))" }
+                        ?? "still absent (was gm briefing open run?)"
+                    fputs("""
+                        [gm] briefing \(state) after \(timeout)s — dead-doper policy: FIRST \
+                        re-check with a plain gm briefing get (a slow doper may have just \
+                        finished — never reset a ready row); if still building, gm briefing \
+                        open the same (owner, step) again (resets to building) and re-spawn \
+                        the doper once; after a second failure proceed briefing-less with an \
+                        explicit note.\n
+                        """, stderr)
+                    throw ExitCode(1)
+                }
             }
             if output.json { printJSON(response) } else {
                 let b = response.briefing

@@ -85,8 +85,12 @@ deltas below.
 ### Brief
 
 `gm briefing open --prompt-uuid U --step initial --json`, spawn
-`gmcc:doper` (owner uuid + step + one-line topic), wait for it. Repeat
-with `--step pre_architecture` after clarify finalize.
+`gmcc:doper` (owner uuid + step + one-line topic), then gate with
+`gm briefing get --prompt-uuid U --step S --wait --json` — exit 0 before
+any teammate spawn, nothing else in between (teammates hold no claim, so
+their own pulls also use the explicit `--prompt-uuid` form). Repeat both
+the open and the gate with `--step pre_architecture` after clarify
+finalize.
 
 ### Explore (4 explorer teammates)
 
