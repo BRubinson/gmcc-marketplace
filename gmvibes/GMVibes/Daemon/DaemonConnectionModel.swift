@@ -375,6 +375,13 @@ final class DaemonConnectionModel {
                 // prompt_uuid there.
                 hub.invalidateAllPrompts()
             }
+        case .briefingChange:
+            // Payload: {action, step, session_uuid, prompt_uuid?} — prompt_uuid
+            // is absent only for /gm_task session-owned briefings, which no
+            // surface renders yet, so those events route nowhere by design.
+            if let prompt = payloadUuids(event)?.promptUuid?.lowercased() {
+                hub.invalidate(.prompt(prompt))
+            }
         case .diagramChange:
             // Subject IS the diagram uuid — the open editor's key. The
             // payload's owner chain (project always, session/prompt when the

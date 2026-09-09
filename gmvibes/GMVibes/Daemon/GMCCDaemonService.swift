@@ -223,6 +223,23 @@ actor GMCCDaemonService {
         return try await perform { try $0.reviewGet(ReviewGetRequest(promptUuid: uuid, full: full)) }
     }
 
+    // MARK: - Briefing (v21, read-only)
+
+    /// One LIST returns every step row the doper has opened for the prompt —
+    /// the step vocabulary is registry-governed daemon-side, so the app never
+    /// enumerates it. An empty list is NORMAL (no SUMMARY_ABSENT on LIST).
+    func briefings(promptUuid: String) async throws -> BriefingListResponse {
+        let uuid = Self.normalized(promptUuid)
+        return try await perform { try $0.briefingList(BriefingListRequest(promptUuid: uuid)) }
+    }
+
+    /// Per-row fetch for the staleness report — drift and ghost dot-paths are
+    /// computed at read time and never stored, so LIST alone can't carry them.
+    func briefing(uuid: String) async throws -> BriefingGetResponse {
+        let normalized = Self.normalized(uuid)
+        return try await perform { try $0.briefingGet(BriefingGetRequest(briefingUuid: normalized)) }
+    }
+
     // MARK: - Git state / paths (v7)
 
     func instanceCurrentSession(instanceUuid: String) async throws -> InstanceCurrentSessionResponse {

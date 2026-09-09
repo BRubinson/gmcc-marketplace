@@ -319,6 +319,7 @@ private struct PromptEditorPane: View {
     // Phase document state: the clarification/architecture read model (scope-
     // memoized) + per-section expansion, seeded from the prompt's status.
     @State private var phases: PromptPhaseStore
+    @State private var briefingExpanded = false
     @State private var clarifyExpanded = false
     @State private var archExpanded = false
     @State private var exploreExpanded = false
@@ -639,6 +640,15 @@ private struct PromptEditorPane: View {
                         } else {
                             sectionEditor("Detail", field: .detail, text: $detail,
                                           minHeight: 220, hint: "The approach, constraints, specifics.")
+                        }
+                        // Briefings lead the stack chronologically: the
+                        // doper's initial briefing precedes clarification.
+                        // UNGATED like Exploration/Review — BRIEFING_OPEN is
+                        // explicit-only and legally exists at draft.
+                        phaseCard("Briefing", systemImage: "shippingbox",
+                                  expanded: $briefingExpanded,
+                                  accessory: { EmptyView() }) {
+                            BriefingPane(phase: phases.briefings)
                         }
                         phaseCard("Clarification", systemImage: "questionmark.bubble",
                                   expanded: $clarifyExpanded,

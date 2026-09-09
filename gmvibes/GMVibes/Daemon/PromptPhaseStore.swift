@@ -27,11 +27,20 @@ final class PromptPhaseStore {
         case failed(String)
     }
 
+    /// One briefing row paired with its read-time staleness report. Staleness
+    /// is computed by the daemon at every BRIEFING_GET (never stored), which
+    /// is why the fetch is LIST + per-row GET rather than LIST alone.
+    struct BriefingItem: Equatable {
+        let briefing: AgentBriefingRow
+        let staleness: BriefingStaleness
+    }
+
     let promptUuid: String
     private(set) var clarification: Phase<ClarifyGetResponse> = .idle
     private(set) var architecture: Phase<ArchGetResponse> = .idle
     private(set) var exploration: Phase<ExploreGetResponse> = .idle
     private(set) var review: Phase<ReviewGetResponse> = .idle
+    private(set) var briefings: Phase<[BriefingItem]> = .idle
     private(set) var hasLoaded = false
 
     /// USER INTENT, not payload state: while true every refresh re-fetches
@@ -144,6 +153,8 @@ final class PromptPhaseStore {
             if exploration != newExploration { exploration = newExploration }
             let newReview = await fetchReview(full: wantsFullReview)
             if review != newReview { review = newReview }
+            let newBriefings = await fetchBriefings()
+            if briefings != newBriefings { briefings = newBriefings }
         }
         hasLoaded = true
     }
@@ -189,6 +200,27 @@ final class PromptPhaseStore {
             return .loaded(try await service.review(promptUuid: promptUuid, full: full))
         } catch DaemonError.summaryAbsent {
             return .absent
+        } catch let error as DaemonError {
+            return .failed(error.userMessage)
+        } catch {
+            return .failed(String(describing: error))
+        }
+    }
+
+    private func fetchBriefings() async -> Phase<[BriefingItem]> {
+        do {
+            let list = try await service.briefings(promptUuid: promptUuid).briefings
+            var items: [BriefingItem] = []
+            // Sequential, never concurrent: the daemon has one serial queue.
+            // Two rows today (initial / pre_architecture); the step vocabulary
+            // is registry-extensible so we iterate whatever LIST returns.
+            for row in list {
+                let got = try await service.briefing(uuid: row.uuid)
+                items.append(BriefingItem(briefing: got.briefing, staleness: got.staleness))
+            }
+            // Empty is NORMAL: briefings have no SUMMARY_ABSENT on LIST — a
+            // prompt whose doper never ran simply lists zero rows.
+            return .loaded(items)
         } catch let error as DaemonError {
             return .failed(error.userMessage)
         } catch {
