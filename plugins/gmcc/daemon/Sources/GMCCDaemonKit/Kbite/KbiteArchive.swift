@@ -28,7 +28,18 @@ public enum KbiteArchive {
     // Deliberately NOT of the retired GMCC_KBITE* env family —
     // DocsContractTests bans that spelling everywhere in docs.
     public static let treePlaceholder = "{{KBITE_TREE}}"
+    public static let identityPlaceholder = "{{KBITE_IDENTITY}}"
+    public static let ckfsPlaceholder = "{{GMCC_CKFS}}"
     public static let homePlaceholder = "{{GMCC_HOME}}"
+
+    /// Archive codes come from UNTRUSTED zips and become filesystem path
+    /// components on import — same snake_case shape every locally-typed code
+    /// already has. One segment, no separators, no dots.
+    public static func isValidCode(_ code: String) -> Bool {
+        !code.isEmpty && code.count <= 100 && code.allSatisfy {
+            ($0 >= "a" && $0 <= "z") || ($0 >= "0" && $0 <= "9") || $0 == "_"
+        }
+    }
 
     /// Machine roots → placeholders. Longest prefix first, so overlapping
     /// rules (a kbite root under $HOME) cannot half-replace each other.

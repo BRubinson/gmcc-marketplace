@@ -113,6 +113,14 @@ extension Store {
                 detail: "db_export.json format_version \(document.formatVersion) unsupported "
                 + "(this daemon reads \(KbiteArchive.formatVersion))")
         }
+        // The one choke point every wire caller passes: an archive code is
+        // untrusted input that becomes a path component client-side and a
+        // durable kbite row here — a traversal like "../../x" must die now.
+        guard KbiteArchive.isValidCode(document.code) else {
+            throw StoreError.badRequest(
+                detail: "archive kbite code \(String(reflecting: document.code)) is not "
+                + "snake_case ([a-z0-9_] only) — refusing to import")
+        }
         let rehydrated = document.rehydrated(rules: req.rehydrate)
 
         return try dbQueue.write { db in
@@ -169,6 +177,10 @@ extension Store {
                 attachedKeywords.insert(keyword)
             }
 
+            // An overwrite is exactly the import/delete cycle the GC exists
+            // for — the previous content's keywords must not orphan forever.
+            let gcCount = existing != nil ? try self.gcOrphanKeywords(db) : 0
+
             try self.appendEvent(
                 db, kind: .kbiteImport, subjectUuid: kbiteUuid,
                 payload: Store.jsonPayload([
@@ -177,6 +189,7 @@ extension Store {
                     "resources": rehydrated.resources.count,
                     "files": fileCount,
                     "keywords": attachedKeywords.count,
+                    "gc_keywords": gcCount,
                 ]))
             return KbiteImportResponse(
                 kbiteUuid: kbiteUuid, code: rehydrated.code,
@@ -216,15 +229,7 @@ extension Store {
             // FTS AD triggers keep the mirror consistent (recursive ON).
             try db.execute(sql: "DELETE FROM kbite WHERE uuid = ?", arguments: [kbiteUuid])
 
-            // GC keywords no junction references any more (import/delete
-            // cycles would otherwise bloat the shared vocabulary forever).
-            try db.execute(sql: """
-                DELETE FROM keyword WHERE uuid NOT IN (
-                    SELECT keyword_uuid FROM kbite_keyword_junction
-                    UNION SELECT keyword_uuid FROM resource_file_keyword_junction
-                )
-                """)
-            let gcCount = db.changesCount
+            let gcCount = try self.gcOrphanKeywords(db)
 
             try self.appendEvent(
                 db, kind: .kbiteDelete, subjectUuid: kbiteUuid,
@@ -240,6 +245,19 @@ extension Store {
                 deletedResources: resources, deletedFiles: files,
                 deletedRegistrations: registrations, gcKeywordCount: gcCount)
         }
+    }
+
+    /// GC keywords no junction references any more (delete AND overwrite
+    /// import would otherwise bloat the shared vocabulary forever). Safe as
+    /// a global sweep: only the two kbite junctions reference keyword.
+    private func gcOrphanKeywords(_ db: Database) throws -> Int {
+        try db.execute(sql: """
+            DELETE FROM keyword WHERE uuid NOT IN (
+                SELECT keyword_uuid FROM kbite_keyword_junction
+                UNION SELECT keyword_uuid FROM resource_file_keyword_junction
+            )
+            """)
+        return db.changesCount
     }
 }
 

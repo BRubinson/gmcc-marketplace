@@ -180,7 +180,7 @@ final class KbiteExportImportTests: XCTestCase {
 
     func testOverwritePreservesKbiteUuidAndRegistrations() throws {
         let first = try importFixture()
-        let kbiteUuid = try XCTUnwrap(first.kbiteUuid)
+        let kbiteUuid = first.kbiteUuid
         try store.dbQueue.write { db in
             _ = try self.store.insertBase(db, table: "session_active_kbite", extra: [
                 "session_uuid": "sess-1", "kbite_uuid": kbiteUuid,
@@ -199,6 +199,54 @@ final class KbiteExportImportTests: XCTestCase {
         // No stale duplicates: still exactly the document's resources.
         let kbite = try store.getKbite(KbiteGetRequest(code: "fixture_kbite"))
         XCTAssertEqual(kbite.resources.count, 2)
+    }
+
+    func testImportRejectsPathTraversalCode() throws {
+        XCTAssertFalse(KbiteArchive.isValidCode("../../../Users/x/target"))
+        XCTAssertFalse(KbiteArchive.isValidCode("has space"))
+        XCTAssertFalse(KbiteArchive.isValidCode(""))
+        XCTAssertFalse(KbiteArchive.isValidCode("Upper_Case"))
+        XCTAssertTrue(KbiteArchive.isValidCode("claude_customization2"))
+
+        let document = KbiteExportDocument(
+            code: "../evil", exportedAt: Store.isoNow(),
+            sourceKbiteUuid: "x", kbiteKeywords: [], resources: [])
+        let path = try writeDocument(document, name: "evil.json")
+        XCTAssertThrowsError(try store.importKbite(KbiteImportRequest(
+            dbExportPath: path, onCollision: .skip, rehydrate: []))) { error in
+            guard case StoreError.badRequest = error else {
+                return XCTFail("expected badRequest, got \(error)")
+            }
+        }
+        let kbites = try store.dbQueue.read { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM kbite") ?? -1
+        }
+        XCTAssertEqual(kbites, 0, "a rejected code must never reach ensureKbite")
+    }
+
+    func testOverwriteImportGarbageCollectsPreviousKeywords() throws {
+        _ = try importFixture()
+        // Overwrite with a document whose keyword set no longer contains the
+        // old vocabulary — the orphans must be swept in the same import.
+        var slim = fixtureDocument()
+        slim = KbiteExportDocument(
+            code: slim.code, exportedAt: slim.exportedAt,
+            sourceKbiteUuid: slim.sourceKbiteUuid,
+            kbiteKeywords: ["fresh_word"],
+            resources: [KbiteExportDocument.Resource(
+                resourceName: "guide", resourceSummary: "slimmed",
+                resourceType: "documentation", resourceTrust: 0,
+                files: [KbiteExportDocument.File(
+                    resourceFileName: "intro.md", resourceFileSummary: "s",
+                    resourceFileContent: "x", keywords: ["fresh_word"])])])
+        let path = try writeDocument(slim, name: "slim.json")
+        _ = try store.importKbite(KbiteImportRequest(
+            dbExportPath: path, onCollision: .overwrite, rehydrate: []))
+        let keywords = try store.dbQueue.read { db in
+            try String.fetchAll(db, sql: "SELECT keyword FROM keyword ORDER BY keyword")
+        }
+        XCTAssertEqual(keywords, ["fresh_word"],
+                       "overwrite must GC the previous content's orphaned keywords")
     }
 
     func testImportRejectsUnknownFormatVersion() throws {
@@ -262,7 +310,7 @@ final class KbiteExportImportTests: XCTestCase {
         // nothing; deleting the last referrer sweeps the words.
         let response = try importFixture()
         _ = try importFixture(code: "other_kbite")
-        let kbiteUuid = try XCTUnwrap(response.kbiteUuid)
+        let kbiteUuid = response.kbiteUuid
         try store.dbQueue.write { db in
             _ = try self.store.insertBase(db, table: "session_active_kbite", extra: [
                 "session_uuid": "sess-1", "kbite_uuid": kbiteUuid,

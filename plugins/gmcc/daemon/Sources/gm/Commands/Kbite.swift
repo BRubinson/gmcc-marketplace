@@ -335,29 +335,42 @@ struct Kbite: ParsableCommand {
         return destination
     }
 
-    /// The three machine roots that can appear inside kbite text, as
-    /// scrub/rehydrate rules. Both kbite trees collapse to ONE placeholder;
-    /// rehydrate maps it to the importing machine's digested tree.
-    private static func prefixRules(code: String, paths: PathsGetResponse) -> [KbitePrefixRule] {
+    /// The machine roots that can appear inside kbite text, as
+    /// scrub/rehydrate rules. Both kbite maw/digested trees collapse to ONE
+    /// placeholder (rehydrate maps it to the importing machine's digested
+    /// tree); the identity dir and the whole ckfs root scrub separately so
+    /// cross-machine layout differences cannot mint hybrid paths. Prefixes
+    /// are derived from the SAME KbitePaths helpers the tree copies use —
+    /// scrub coverage and file placement move together even if env and db
+    /// roots ever diverge.
+    private static func prefixRules(code: String, ckfsRoot: String) throws -> [KbitePrefixRule] {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
-        let openTree = URL(fileURLWithPath: paths.kbiteOpenRoot, isDirectory: true)
-            .appendingPathComponent(code, isDirectory: true).path
-        let digestedTree = URL(fileURLWithPath: paths.kbiteDigestedRoot, isDirectory: true)
-            .appendingPathComponent(code, isDirectory: true).path
         return [
-            KbitePrefixRule(prefix: openTree, placeholder: KbiteArchive.treePlaceholder),
-            KbitePrefixRule(prefix: digestedTree, placeholder: KbiteArchive.treePlaceholder),
+            KbitePrefixRule(
+                prefix: try KbitePaths.openMaw(name: code).path,
+                placeholder: KbiteArchive.treePlaceholder),
+            KbitePrefixRule(
+                prefix: try KbitePaths.digested(name: code).path,
+                placeholder: KbiteArchive.treePlaceholder),
+            KbitePrefixRule(
+                prefix: try KbitePaths.identity(name: code).path,
+                placeholder: KbiteArchive.identityPlaceholder),
+            KbitePrefixRule(prefix: ckfsRoot, placeholder: KbiteArchive.ckfsPlaceholder),
             KbitePrefixRule(prefix: home, placeholder: KbiteArchive.homePlaceholder),
         ]
     }
 
-    /// Rules for mapping placeholders back to THIS machine's trees.
-    private static func rehydrateRules(code: String, paths: PathsGetResponse) -> [KbitePrefixRule] {
+    /// Rules for mapping placeholders back to THIS machine's roots.
+    private static func rehydrateRules(code: String, ckfsRoot: String) throws -> [KbitePrefixRule] {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
-        let digestedTree = URL(fileURLWithPath: paths.kbiteDigestedRoot, isDirectory: true)
-            .appendingPathComponent(code, isDirectory: true).path
         return [
-            KbitePrefixRule(prefix: digestedTree, placeholder: KbiteArchive.treePlaceholder),
+            KbitePrefixRule(
+                prefix: try KbitePaths.digested(name: code).path,
+                placeholder: KbiteArchive.treePlaceholder),
+            KbitePrefixRule(
+                prefix: try KbitePaths.identity(name: code).path,
+                placeholder: KbiteArchive.identityPlaceholder),
+            KbitePrefixRule(prefix: ckfsRoot, placeholder: KbiteArchive.ckfsPlaceholder),
             KbitePrefixRule(prefix: home, placeholder: KbiteArchive.homePlaceholder),
         ]
     }
@@ -418,13 +431,15 @@ struct Kbite: ParsableCommand {
             let staging = try Kbite.makeStaging("export")
             defer { try? fm.removeItem(at: staging) }
 
+            let rules = try Kbite.prefixRules(code: code, ckfsRoot: paths.ckfsRoot)
+
             // Daemon writes the scrubbed db export into staging (fails fast
             // on an unknown code, before any filesystem work).
             let response = try withClient { client in
                 try client.exportKbite(KbiteExportRequest(
                     code: code,
                     dbExportPath: staging.appendingPathComponent(Kbite.dbExportName).path,
-                    anonymize: Kbite.prefixRules(code: code, paths: paths)))
+                    anonymize: rules))
             }
 
             // Root identity docs (scrubbed) — inert content, never parsed on
@@ -432,7 +447,6 @@ struct Kbite: ParsableCommand {
             let identity = try KbitePaths.identity(name: code)
             var hasRoot = false
             if fm.fileExists(atPath: identity.path) {
-                let rules = Kbite.prefixRules(code: code, paths: paths)
                 hasRoot = try Kbite.copyRootDocs(
                     from: identity,
                     to: staging.appendingPathComponent(Kbite.rootDirName, isDirectory: true)
@@ -539,8 +553,15 @@ struct Kbite: ParsableCommand {
             // before the daemon call); format gating happens daemon-side too.
             let document = try KbiteArchive.decode(try Data(contentsOf: exportURL))
             let code = document.code
+            // The daemon guards this too — but the CLI builds filesystem
+            // paths from the code below, so an untrusted archive must die
+            // before ANY filesystem work.
+            guard KbiteArchive.isValidCode(code) else {
+                throw ValidationError(
+                    "archive kbite code \(String(reflecting: code)) is not snake_case — refusing to import")
+            }
             let paths = try withClient { try $0.pathsGet() }
-            let rules = Kbite.rehydrateRules(code: code, paths: paths)
+            let rules = try Kbite.rehydrateRules(code: code, ckfsRoot: paths.ckfsRoot)
 
             // Db first, atomically. Filesystem placement only after commit.
             let response = try withClient { client in
@@ -558,40 +579,64 @@ struct Kbite: ParsableCommand {
                 return
             }
 
-            // Digested sources: archive any existing tree, then move the
-            // staged one into place.
+            // Filesystem placement. The db is already committed — if a move
+            // fails past this point, everything already relocated must be
+            // NAMED on the way out (the previous tree is safe in cold
+            // storage and the import is re-runnable from the zip).
             var notes: [String] = []
-            let stagedDigested = staging.appendingPathComponent(Kbite.digestedDirName, isDirectory: true)
-            if fm.fileExists(atPath: stagedDigested.path) {
-                let digested = try KbitePaths.digested(name: code)
-                if fm.fileExists(atPath: digested.path) {
-                    let archived = try Kbite.moveToColdStorage(
-                        digested, label: "gmcc_kbite_\(code)_pre_import_\(Kbite.dateStamp())")
-                    notes.append("previous digested tree moved to \(archived.path)")
+            do {
+                // Digested sources: archive any existing tree, then move the
+                // staged one into place.
+                let stagedDigested = staging.appendingPathComponent(
+                    Kbite.digestedDirName, isDirectory: true)
+                if fm.fileExists(atPath: stagedDigested.path) {
+                    let digested = try KbitePaths.digested(name: code)
+                    if fm.fileExists(atPath: digested.path) {
+                        let archived = try Kbite.moveToColdStorage(
+                            digested, label: "gmcc_kbite_\(code)_pre_import_\(Kbite.dateStamp())")
+                        notes.append("previous digested tree moved to \(archived.path)")
+                    }
+                    try fm.createDirectory(
+                        at: digested.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    try fm.moveItem(at: stagedDigested, to: digested)
+                    notes.append("digested sources restored to \(digested.path)")
+                } else {
+                    notes.append("archive carried no digested sources (db content only)")
                 }
-                try fm.createDirectory(
-                    at: digested.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try fm.moveItem(at: stagedDigested, to: digested)
-                notes.append("digested sources restored to \(digested.path)")
-            } else {
-                notes.append("archive carried no digested sources (db content only)")
-            }
 
-            // Root identity docs, rehydrated to this machine's roots.
-            let stagedRoot = staging.appendingPathComponent(Kbite.rootDirName, isDirectory: true)
-            if fm.fileExists(atPath: stagedRoot.path) {
+                // Root identity docs, rehydrated to this machine's roots —
+                // same replace discipline as the digested tree: on overwrite
+                // the old identity dir goes to cold storage first, so stale
+                // docs cannot survive a content swap.
+                let stagedRoot = staging.appendingPathComponent(Kbite.rootDirName, isDirectory: true)
                 let identity = try KbitePaths.identity(name: code)
-                let copied = try Kbite.copyRootDocs(from: stagedRoot, to: identity) {
-                    KbiteArchive.rehydrate($0, rules: rules)
+                if fm.fileExists(atPath: stagedRoot.path) {
+                    if fm.fileExists(atPath: identity.path) {
+                        let archived = try Kbite.moveToColdStorage(
+                            identity, label: "gmcc_kbite_\(code)_root_pre_import_\(Kbite.dateStamp())")
+                        notes.append("previous root docs moved to \(archived.path)")
+                    }
+                    let copied = try Kbite.copyRootDocs(from: stagedRoot, to: identity) {
+                        KbiteArchive.rehydrate($0, rules: rules)
+                    }
+                    notes.append("\(copied) root doc(s) restored to \(identity.path)")
+                } else if fm.fileExists(atPath: identity.path) {
+                    notes.append("archive carried no root docs — local docs at \(identity.path) retained")
                 }
-                notes.append("\(copied) root doc(s) restored to \(identity.path)")
+            } catch {
+                let recovery = (["import failed mid-placement — db content IS committed:"]
+                    + notes.map { "  " + $0 }
+                    + ["  re-run: gm kbite import --zip-file \(zipFile) --on-collision overwrite"])
+                    .joined(separator: "\n")
+                FileHandle.standardError.write(("[gm] " + recovery + "\n").data(using: .utf8)!)
+                throw error
             }
 
             if output.json {
                 printJSON(response)
             } else {
                 print("[gm] imported \(code): \(response.resourceCount) resource(s), \(response.fileCount) file(s), \(response.keywordCount) keyword(s)")
-                print("  kbite uuid: \(response.kbiteUuid ?? "—")")
+                print("  kbite uuid: \(response.kbiteUuid)")
                 for note in notes { print("  \(note)") }
                 print("  not registered at any scope — run: gm kbite add --code \(code)")
             }

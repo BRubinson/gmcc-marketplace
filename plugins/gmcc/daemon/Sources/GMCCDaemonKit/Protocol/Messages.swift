@@ -1541,7 +1541,10 @@ public struct KbiteImportRequest: Codable, Hashable, Sendable {
 }
 
 public struct KbiteImportResponse: Codable, Hashable, Sendable {
-    public let kbiteUuid: String?
+    /// Never nil — the skip branch reports the existing kbite's uuid, the
+    /// import branch the ensured one. Kept non-optional from birth:
+    /// loosening a v22 field later is free, tightening never is.
+    public let kbiteUuid: String
     public let code: String
     public let imported: Bool
     public let skippedExisting: Bool
@@ -1550,7 +1553,7 @@ public struct KbiteImportResponse: Codable, Hashable, Sendable {
     public let keywordCount: Int
 
     public init(
-        kbiteUuid: String?,
+        kbiteUuid: String,
         code: String,
         imported: Bool,
         skippedExisting: Bool,

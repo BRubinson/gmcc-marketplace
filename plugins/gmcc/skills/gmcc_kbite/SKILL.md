@@ -412,11 +412,14 @@ Rules the format guarantees:
    (replaces content under the EXISTING kbite uuid, so scope registrations
    survive; the previous digested tree moves to `_archive/cold_storage/`).
 4. **Import never registers.** Activate explicitly with `gm kbite add`.
-5. **Delete is db-first**: `gm kbite delete --code C` cascades resources,
-   files, junctions, and registrations in one statement (FTS stays
-   consistent; orphaned keywords are garbage-collected; event history
-   survives). `--purge-filesystem` MOVES the digested tree to
-   `_archive/cold_storage/` — nothing is ever `rm`'d.
+5. **Delete is db-first and content-destructive**: `gm kbite delete
+   --code C` cascades resources, files, junctions, and registrations in
+   one statement (FTS stays consistent; orphaned keywords are
+   garbage-collected; event history survives). ALWAYS `gm backup` — or
+   `gm kbite export`, which doubles as a restorable snapshot — before
+   deleting: the digested knowledge is otherwise unrecoverable.
+   `--purge-filesystem` MOVES the digested tree to `_archive/cold_storage/`
+   — nothing is ever `rm`'d.
 
 ---
 
