@@ -207,4 +207,64 @@ final class DocsContractTests: XCTestCase {
             allowFiles: [])
         XCTAssertEqual(hits, [], "retired dope domain-* verb in docs:\n" + hits.joined(separator: "\n"))
     }
+
+    /// The pen-down cleanup's premise killer: no doc may ever again claim a
+    /// subagent runs in a "read-only sandbox" — that fiction is what kept the
+    /// rpi transcription tax alive for months.
+    func testNoReadOnlySandboxPremise() throws {
+        let hits = try violations(pattern: #"read-only sandbox"#, allowFiles: [])
+        XCTAssertEqual(hits, [], "the retired read-only-sandbox premise resurfaced:\n" + hits.joined(separator: "\n"))
+    }
+
+    /// The verbatim-paste mandate is retired: teammates get the compact core
+    /// from SessionStart and Task subagents get the SubagentStart stub. A doc
+    /// may SAY "never paste cheatsheets" — what it may not do is mandate
+    /// pasting the sheet's verbatim output into spawn prompts again.
+    func testNoCheatsheetPasteMandate() throws {
+        let hits = try violations(
+            pattern: #"verbatim output of\s+`?gm cheatsheet"#,
+            allowFiles: [])
+        XCTAssertEqual(hits, [], "a cheatsheet paste mandate resurfaced:\n" + hits.joined(separator: "\n"))
+    }
+
+    /// gmcc_daemon/SKILL.md drifted 5 wire versions behind the compiled sheet
+    /// because it duplicated signatures and version literals. Structural fix:
+    /// the skill may not carry a wire/schema-version literal or gm signature
+    /// lines — the compiled `gm cheatsheet --full` is the sole authority.
+    func testDaemonSkillCarriesNoVersionLiteralsOrSignatures() throws {
+        let skill = pluginRoot.appendingPathComponent("skills/gmcc_daemon/SKILL.md")
+        let text = try String(contentsOf: skill, encoding: .utf8)
+        XCTAssertLessThan(
+            text.utf8.count, 8192,
+            "gmcc_daemon/SKILL.md outgrew its routing-skill diet")
+        for pattern in [#"wire (protocol )?v\d"#, #"schema m\d{4}"#] {
+            let regex = try NSRegularExpression(pattern: pattern)
+            let range = NSRange(text.startIndex..., in: text)
+            XCTAssertNil(
+                regex.firstMatch(in: text, range: range),
+                "gmcc_daemon/SKILL.md carries a version literal (pattern \(pattern)) — the compiled cheatsheet is the only authority")
+        }
+        XCTAssertTrue(
+            text.contains("gm cheatsheet --full"),
+            "gmcc_daemon/SKILL.md must route signature questions to gm cheatsheet --full")
+    }
+
+    /// The retired identity-file agent system: nothing may point agents at
+    /// prompts/*.prompt.md role files or output-styles/ again — identity
+    /// lives in plugins/gmcc/agents/ defs now. The two crunch/maw prompts
+    /// are the deliberate survivors.
+    func testNoRetiredAgentIdentitySurfaces() throws {
+        // Three faces of the same retired system (review finding 7fbaca71
+        // widened this: the original pattern needed the .prompt.md suffix,
+        // which let a 254-line skill canonizing the gmcc:agent:{name}
+        // invocation syntax slip through): the role prompt files, the
+        // output-styles fragments, the skills/gmcc_agent skill, and the
+        // gmcc:agent:{...} invocation form itself. The crunch/maw prompts
+        // (gmcc_agent_kbite_crunch_chew / gmcc_agent_maw_web_fetch) are the
+        // deliberate survivors and match none of these.
+        let hits = try violations(
+            pattern: #"(gmcc_agent_(code_explorer|code_architect|code_quality_reviewer|finding_reranker)\.prompt\.md|output-styles/|skills/gmcc_agent\b|gmcc:agent:\{)"#,
+            allowFiles: [])
+        XCTAssertEqual(hits, [], "retired agent identity surface referenced in docs:\n" + hits.joined(separator: "\n"))
+    }
 }

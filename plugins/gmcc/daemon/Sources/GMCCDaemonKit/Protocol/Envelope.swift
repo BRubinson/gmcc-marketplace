@@ -54,7 +54,7 @@ public enum GMCCWireProtocol {
     /// fails in the decoder rather than at the door. Once every peer is at
     /// v20 that risk is retired for free, because the handshake rejects a
     /// stale peer before any payload reaches a decoder.
-    public static let version = 20
+    public static let version = 21
 }
 
 /// Discriminator for every NDJSON message on the socket. One case per spec
@@ -155,6 +155,13 @@ public enum MessageType: String, Codable, Hashable, CaseIterable, Sendable {
     case reviewComplete = "REVIEW_COMPLETE"
     case reviewReopen = "REVIEW_REOPEN"
     case reviewGet = "REVIEW_GET"
+    // Agent briefing (v21): the context package a doper agent assembles for a
+    // phase; consumed by spawned agents via the stub -> get pull.
+    case briefingOpen = "BRIEFING_OPEN"
+    case briefingComplete = "BRIEFING_COMPLETE"
+    case briefingGet = "BRIEFING_GET"
+    case briefingList = "BRIEFING_LIST"
+    case briefingStub = "BRIEFING_STUB"
     // DOPED domain modeling (v11; dopeList v12)
     case dopeInit = "DOPE_INIT"
     case dopeList = "DOPE_LIST"

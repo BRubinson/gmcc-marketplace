@@ -26,12 +26,23 @@ struct Prompt: ParsableCommand {
         @Option(name: .long) var backstory: String?
         @Option(name: .long) var goal: String?
         @Option(name: .long) var detail: String?
+        @Option(name: .long, help: "Detail from a file (the argv-quoting/budget escape hatch).")
+        var detailFile: String?
         @Option(name: .long, help: "Bot command that will run this prompt (e.g. /gm_bot).")
         var command: String?
         @Option(name: .long, help: "Reuse a ckfs uuid for the db row.")
         var uuid: String?
 
         func run() throws {
+            guard detail == nil || detailFile == nil else {
+                throw ValidationError("--detail and --detail-file are mutually exclusive")
+            }
+            let detailText = try detailFile.map { file -> String in
+                guard let content = try? String(contentsOfFile: file, encoding: .utf8) else {
+                    throw ValidationError("cannot read --detail-file: \(file)")
+                }
+                return content
+            } ?? detail
             let response = try withClient { client in
                 let session = try sessionUuid ?? ContextBuilder.resolveSessionUuid(client)
                 return try client.createPrompt(PromptCreateRequest(
@@ -41,7 +52,7 @@ struct Prompt: ParsableCommand {
                     name: name,
                     backstory: backstory ?? "",
                     goal: goal ?? "",
-                    detail: detail ?? "",
+                    detail: detailText ?? "",
                     command: command
                 ))
             }
@@ -165,15 +176,26 @@ struct Prompt: ParsableCommand {
         @Option(name: .long) var backstory: String?
         @Option(name: .long) var goal: String?
         @Option(name: .long) var detail: String?
+        @Option(name: .long, help: "Detail from a file (the argv-quoting/budget escape hatch).")
+        var detailFile: String?
 
         func run() throws {
+            guard detail == nil || detailFile == nil else {
+                throw ValidationError("--detail and --detail-file are mutually exclusive")
+            }
+            let detailText = try detailFile.map { file -> String in
+                guard let content = try? String(contentsOfFile: file, encoding: .utf8) else {
+                    throw ValidationError("cannot read --detail-file: \(file)")
+                }
+                return content
+            } ?? detail
             let response = try withClient { client in
                 try client.updatePromptContent(PromptUpdateContentRequest(
                     promptUuid: promptUuid,
                     expectedVersion: expectedVersion,
                     backstory: backstory,
                     goal: goal,
-                    detail: detail
+                    detail: detailText
                 ))
             }
             if output.json {
@@ -202,7 +224,8 @@ struct Prompt: ParsableCommand {
                 try client.setPromptStatus(PromptSetStatusRequest(
                     promptUuid: promptUuid,
                     expectedVersion: expectedVersion,
-                    status: status
+                    status: status,
+                    clientKey: ClientKey.resolve()
                 ))
             }
             if output.json {

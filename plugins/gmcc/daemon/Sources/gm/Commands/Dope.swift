@@ -200,14 +200,16 @@ struct Dope: ParsableCommand {
             abstract: "Enumerate dope scopes for a picker. Without --prompt-uuid: the session's SESSION_INSTANCE scopes; with it: ONLY that prompt's PROMPT scopes (never a union). Empty is normal; an unknown uuid is NOT_FOUND.")
 
         @OptionGroup var output: OutputOptions
-        @Option(name: .long) var sessionUuid: String
+        @Option(name: .long, help: "Session uuid (defaults to the current repo/branch session, matching gm session get).")
+        var sessionUuid: String?
         @Option(name: .long, help: "Restrict to this prompt's PROMPT scopes instead of the session's SESSION_INSTANCE scopes.")
         var promptUuid: String?
 
         func run() throws {
-            let response = try withClient {
-                try $0.dopeList(DopeListRequest(
-                    sessionUuid: sessionUuid, promptUuid: promptUuid))
+            let response = try withClient { client in
+                let uuid = try sessionUuid ?? ContextBuilder.resolveSessionUuid(client)
+                return try client.dopeList(DopeListRequest(
+                    sessionUuid: uuid, promptUuid: promptUuid))
             }
             if output.json { printJSON(response) } else {
                 print("[gm] \(response.scopes.count) dope scope(s)")

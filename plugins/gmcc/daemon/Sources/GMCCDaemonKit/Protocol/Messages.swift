@@ -73,6 +73,11 @@ public enum DaemonEventKind: String, Codable, Hashable, CaseIterable, Sendable {
     // from diagramChange on purpose — nothing about the CANVAS moved, so a
     // diagram listener must not be told to refetch a tree.
     case promptDiagramQualified = "PROMPT_DIAGRAM_QUALIFIED"
+    // v21 — durable rows: the agent-briefing machine (open/reset, complete,
+    // and nothing else — reads never event). Payload carries the step, the
+    // status edge, and the stamped scope revision so GMVibes can refresh a
+    // briefing panel without a fetch-diff.
+    case briefingChange = "BRIEFING_CHANGE"
     /// Ephemeral broadcast only (id 0, never a daemon_event row, never a
     /// replay cursor) — emitted by MemoryWatcher when a prompt's memory/
     /// directory changes on disk.
@@ -769,19 +774,34 @@ public struct SessionUpdateRequest: Codable, Hashable, Sendable {
     public let name: String?
     public let backstory: String?
     public let goal: String?
+    /// v21-era additive OPTIONAL fields (no bump needed): manual override of
+    /// the activation claim that PROMPT_SET_STATUS normally maintains for the
+    /// calling Claude instance. activePromptUuid claims for clientKey;
+    /// clearActivePrompt releases clientKey's claim. Exactly one of the pair.
+    public let activePromptUuid: String?
+    public let clearActivePrompt: Bool?
+    /// The calling instance's identity (gm resolves it from process
+    /// ancestry); required when either activation field is set.
+    public let clientKey: String?
 
     public init(
         sessionUuid: String,
         expectedVersion: Int64,
         name: String? = nil,
         backstory: String? = nil,
-        goal: String? = nil
+        goal: String? = nil,
+        activePromptUuid: String? = nil,
+        clearActivePrompt: Bool? = nil,
+        clientKey: String? = nil
     ) {
         self.sessionUuid = sessionUuid
         self.expectedVersion = expectedVersion
         self.name = name
         self.backstory = backstory
         self.goal = goal
+        self.activePromptUuid = activePromptUuid
+        self.clearActivePrompt = clearActivePrompt
+        self.clientKey = clientKey
     }
 }
 
@@ -900,11 +920,21 @@ public struct PromptSetStatusRequest: Codable, Hashable, Sendable {
     public let promptUuid: String
     public let expectedVersion: Int64
     public let status: PromptStatus
+    /// v21-era additive OPTIONAL (no bump): the calling Claude instance's
+    /// identity, resolved from process ancestry by gm. Entering implementing
+    /// claims an activation for this key; done releases the prompt's claim.
+    public let clientKey: String?
 
-    public init(promptUuid: String, expectedVersion: Int64, status: PromptStatus) {
+    public init(
+        promptUuid: String,
+        expectedVersion: Int64,
+        status: PromptStatus,
+        clientKey: String? = nil
+    ) {
         self.promptUuid = promptUuid
         self.expectedVersion = expectedVersion
         self.status = status
+        self.clientKey = clientKey
     }
 }
 
@@ -1056,6 +1086,15 @@ public struct FileChangeAdd: Codable, Hashable, Sendable {
     public let relativePath: String
     public let changeKind: ChangeKind
     public let ranges: [ChangeRange]
+    /// v21-era additive OPTIONAL fields (no bump needed): when autoAttribute
+    /// is true and promptUuid is nil, the daemon attributes via the
+    /// activation registry — the caller's own claim (clientKey) first, then
+    /// the session's single claim when unambiguous, else unattributed.
+    /// OPT-IN so the long-standing "omitted prompt means deliberately
+    /// session-scoped" semantic stays intact for existing callers; the
+    /// PostToolUse bookkeeping hook is the intended caller.
+    public let autoAttribute: Bool?
+    public let clientKey: String?
 
     public init(
         project: ProjectContext,
@@ -1064,7 +1103,9 @@ public struct FileChangeAdd: Codable, Hashable, Sendable {
         promptUuid: String? = nil,
         relativePath: String,
         changeKind: ChangeKind,
-        ranges: [ChangeRange]
+        ranges: [ChangeRange],
+        autoAttribute: Bool? = nil,
+        clientKey: String? = nil
     ) {
         self.project = project
         self.instance = instance
@@ -1073,6 +1114,8 @@ public struct FileChangeAdd: Codable, Hashable, Sendable {
         self.relativePath = relativePath
         self.changeKind = changeKind
         self.ranges = ranges
+        self.autoAttribute = autoAttribute
+        self.clientKey = clientKey
     }
 }
 
@@ -2276,6 +2319,190 @@ public struct ConfigSetResponse: Codable, Hashable, Sendable {
     public init(key: ConfigKey, value: String) {
         self.key = key
         self.value = value
+    }
+}
+
+// MARK: - BRIEFING_* (v21)
+
+/// Reserve (or reset) the briefing row for one (owner, step) pair. Exactly
+/// one owner may be supplied: promptUuid for bot-workflow briefings, or
+/// sessionUuid alone for /gm_task-owned ones. The daemon derives session_uuid
+/// from the prompt's owner chain when prompt-owned, so the two can never
+/// disagree. OPEN on an existing pair RESETS the row to `building` (version
+/// bump, content kept for wholesale replacement at complete) — a step's
+/// briefing is always its CURRENT briefing, never a pile of drafts.
+public struct BriefingOpenRequest: Codable, Hashable, Sendable {
+    public let promptUuid: String?
+    public let sessionUuid: String?
+    public let briefingForStep: String
+    /// The calling instance's identity. A prompt-owned open ALSO claims the
+    /// activation for this key: briefings are consumed during explore
+    /// (prompt still draft) and architect phases — long before set-status
+    /// implementing would claim — and opening a briefing IS declaring "this
+    /// instance works this prompt". Without it the zero-uuid resolution
+    /// ladder had no path to success in the documented flows.
+    public let clientKey: String?
+
+    public init(
+        promptUuid: String? = nil,
+        sessionUuid: String? = nil,
+        briefingForStep: String,
+        clientKey: String? = nil
+    ) {
+        self.promptUuid = promptUuid
+        self.sessionUuid = sessionUuid
+        self.briefingForStep = briefingForStep
+        self.clientKey = clientKey
+    }
+}
+
+public struct BriefingRowResponse: Codable, Hashable, Sendable {
+    public let briefing: AgentBriefingRow
+    public let created: Bool
+
+    public init(briefing: AgentBriefingRow, created: Bool = false) {
+        self.briefing = briefing
+        self.created = created
+    }
+}
+
+/// building → ready. The daemon stamps dope_scope_uuid + dope_scope_revision
+/// ITSELF from the session's SESSION_INSTANCE scope (the writing agent cannot
+/// mis-stamp), and denormalizes each kbite ref's brief by joining the kbite
+/// tables — the doper passes file uuids only.
+public struct BriefingCompleteRequest: Codable, Hashable, Sendable {
+    public let briefingUuid: String
+    public let expectedVersion: Int64
+    public let body: String
+    /// DOT-PATH strings (domain.entity.property style), never uuids.
+    public let dopeRefs: [String]?
+    /// KBite file uuids; the daemon resolves each brief at write time.
+    public let kbiteRefs: [String]?
+
+    public init(
+        briefingUuid: String,
+        expectedVersion: Int64,
+        body: String,
+        dopeRefs: [String]? = nil,
+        kbiteRefs: [String]? = nil
+    ) {
+        self.briefingUuid = briefingUuid
+        self.expectedVersion = expectedVersion
+        self.body = body
+        self.dopeRefs = dopeRefs
+        self.kbiteRefs = kbiteRefs
+    }
+}
+
+/// Fetch one briefing: by uuid, by (prompt, step), or by (session, step) —
+/// the ACTIVE resolution: the caller's own activation claim (clientKey) →
+/// the session's single claim when unambiguous → the session-owned task row.
+/// This is what makes the lookup DETERMINISTIC for spawned agents: gm
+/// resolves session (cwd) and clientKey (process ancestry) itself, so no
+/// uuid ever has to survive a spawn prompt or an agent's echo. A real owner
+/// with no rows is SUMMARY_ABSENT, never an empty fabrication.
+public struct BriefingGetRequest: Codable, Hashable, Sendable {
+    public let briefingUuid: String?
+    public let promptUuid: String?
+    public let sessionUuid: String?
+    public let step: String?
+    public let clientKey: String?
+
+    public init(
+        briefingUuid: String? = nil,
+        promptUuid: String? = nil,
+        sessionUuid: String? = nil,
+        step: String? = nil,
+        clientKey: String? = nil
+    ) {
+        self.briefingUuid = briefingUuid
+        self.promptUuid = promptUuid
+        self.sessionUuid = sessionUuid
+        self.step = step
+        self.clientKey = clientKey
+    }
+}
+
+/// Staleness is COMPUTED at every read, never trusted from the row alone:
+/// the stored scope revision is compared against the live scope, and each
+/// dope ref dot-path is re-resolved — dangling paths come back as ghosts
+/// (a legal state, diagram-binding precedent). Warn, never block.
+public struct BriefingStaleness: Codable, Hashable, Sendable {
+    public let stampedRevision: Int64?
+    public let currentRevision: Int64?
+    public let drifted: Bool
+    public let ghostDotPaths: [String]
+
+    public init(
+        stampedRevision: Int64?,
+        currentRevision: Int64?,
+        drifted: Bool,
+        ghostDotPaths: [String]
+    ) {
+        self.stampedRevision = stampedRevision
+        self.currentRevision = currentRevision
+        self.drifted = drifted
+        self.ghostDotPaths = ghostDotPaths
+    }
+}
+
+public struct BriefingGetResponse: Codable, Hashable, Sendable {
+    public let briefing: AgentBriefingRow
+    public let staleness: BriefingStaleness
+
+    public init(briefing: AgentBriefingRow, staleness: BriefingStaleness) {
+        self.briefing = briefing
+        self.staleness = staleness
+    }
+}
+
+public struct BriefingListRequest: Codable, Hashable, Sendable {
+    public let promptUuid: String?
+    public let sessionUuid: String?
+
+    public init(promptUuid: String? = nil, sessionUuid: String? = nil) {
+        self.promptUuid = promptUuid
+        self.sessionUuid = sessionUuid
+    }
+}
+
+public struct BriefingListResponse: Codable, Hashable, Sendable {
+    public let briefings: [AgentBriefingRow]
+
+    public init(briefings: [AgentBriefingRow]) {
+        self.briefings = briefings
+    }
+}
+
+/// The SubagentStart hook's one call. The daemon resolves cwd → instance →
+/// current session → active_prompt_uuid, maps the agent role to its step via
+/// BriefingStepSpec, and composes a compact plain-text stub (uuids, one-line
+/// summary, staleness flag, and the exact `gm briefing get` pull command).
+/// Roles without a step — and sessions with nothing applicable — yield an
+/// EMPTY stub with ok=true: the hook must never wedge a spawn.
+public struct BriefingStubRequest: Codable, Hashable, Sendable {
+    public let agentType: String?
+    /// Client-resolved session (the gm CLI resolves cwd context; the daemon
+    /// does not see the caller's working directory).
+    public let sessionUuid: String?
+    /// Client-resolved instance identity (process ancestry) — scopes the
+    /// stub to the SPAWNING Claude instance's activation, so concurrent
+    /// prompts on one session each hand their agents the right briefing.
+    public let clientKey: String?
+
+    public init(agentType: String? = nil, sessionUuid: String? = nil, clientKey: String? = nil) {
+        self.agentType = agentType
+        self.sessionUuid = sessionUuid
+        self.clientKey = clientKey
+    }
+}
+
+public struct BriefingStubResponse: Codable, Hashable, Sendable {
+    /// Plain text, ≤2KB by construction; empty when nothing applies.
+    public let stub: String
+
+    public init(stub: String) {
+        self.stub = stub
     }
 }
 

@@ -17,7 +17,7 @@ struct GM: ParsableCommand {
             Setup.self, Cheatsheet.self, Doctor.self, Status.self, Ping.self, Daemon.self, Backup.self, Events.self,
             Context.self, Project.self, Instance.self, Session.self, Catalog.self, Search.self,
             Prompt.self,
-            Clarify.self, Arch.self, Explore.self, Review.self, Dope.self, Cog.self, Diagram.self,
+            Clarify.self, Arch.self, Explore.self, Review.self, Briefing.self, Dope.self, Cog.self, Diagram.self,
             Render.self,
             Artifact.self, PromptDiagram.self, FileChange.self,
             Kbite.self,

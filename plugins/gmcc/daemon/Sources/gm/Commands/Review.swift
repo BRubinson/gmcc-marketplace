@@ -39,7 +39,9 @@ struct Review: ParsableCommand {
         @Option(name: .long, help: "correctness_bug, spec_deviation, regression_risk, security, simplification, or other")
         var kind: ReviewFindingKind
         @Option(name: .long) var title: String
-        @Option(name: .long) var body: String
+        @Option(name: .long) var body: String?
+        @Option(name: .long, help: "Finding body from a file (the argv-quoting/budget escape hatch).")
+        var bodyFile: String?
         @Option(name: .long, help: "Repo-relative path; omit for cross-cutting findings.")
         var filePath: String?
         @Option(name: .long) var lineStart: Int?
@@ -51,9 +53,10 @@ struct Review: ParsableCommand {
         var rating: Int?
 
         func run() throws {
+            let bodyText = try resolveText(inline: body, file: bodyFile, flag: "body")
             let response = try withClient {
                 try $0.reviewFindingAdd(ReviewFindingAddRequest(
-                    summaryUuid: summaryUuid, kind: kind, title: title, body: body,
+                    summaryUuid: summaryUuid, kind: kind, title: title, body: bodyText,
                     filePath: filePath, lineStart: lineStart, lineEnd: lineEnd,
                     agentName: agentName, rating: rating))
             }

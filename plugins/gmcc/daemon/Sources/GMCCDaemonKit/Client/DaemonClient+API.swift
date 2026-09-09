@@ -279,6 +279,30 @@ extension DaemonClient {
     }
 }
 
+// MARK: - Briefing (v21)
+
+extension DaemonClient {
+    public func briefingOpen(_ req: BriefingOpenRequest) throws -> BriefingRowResponse {
+        try request(type: .briefingOpen, payload: req, responseType: BriefingRowResponse.self)
+    }
+
+    public func briefingComplete(_ req: BriefingCompleteRequest) throws -> BriefingRowResponse {
+        try request(type: .briefingComplete, payload: req, responseType: BriefingRowResponse.self)
+    }
+
+    public func briefingGet(_ req: BriefingGetRequest) throws -> BriefingGetResponse {
+        try request(type: .briefingGet, payload: req, responseType: BriefingGetResponse.self)
+    }
+
+    public func briefingList(_ req: BriefingListRequest) throws -> BriefingListResponse {
+        try request(type: .briefingList, payload: req, responseType: BriefingListResponse.self)
+    }
+
+    public func briefingStub(_ req: BriefingStubRequest) throws -> BriefingStubResponse {
+        try request(type: .briefingStub, payload: req, responseType: BriefingStubResponse.self)
+    }
+}
+
 // MARK: - Architecture (v7)
 
 extension DaemonClient {

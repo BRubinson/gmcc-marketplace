@@ -14,19 +14,18 @@ shipping three products:
 - **`gm`** — the single CLI. Claude calls it directly; no per-command
   symlinks or shims. It is a socket client of the daemon.
 - **`GMCCDaemonKit`** — shared library; GMVibes imports it as a local package
-  and speaks the same protocol (typed facade on `DaemonClient`, event stream
-  via `DaemonEventSubscription`).
+  and speaks the same protocol.
 
-Transport: NDJSON over a unix socket at `~/gmcc/daemon.sock` (wire protocol
-v15, schema m0010, one spec-named message per handler). Clients autostart the daemon when
-the socket is dead. The protocol handshake is DIRECTIONAL: a newer client
-makes a stale daemon self-exit after rebuilds; an older client is rejected
-while the daemon stays up — you never need to manage daemon lifecycle
-manually.
+Transport: NDJSON over a unix socket at `~/gmcc/daemon.sock`. Clients
+autostart the daemon when the socket is dead. The protocol handshake is
+DIRECTIONAL: a newer client makes a stale daemon self-exit after rebuilds;
+an older client is rejected while the daemon stays up — you never manage
+daemon lifecycle manually. (The current wire version is whatever the
+cheatsheet header says — never hardcode it in docs.)
 
 Note: `~/gmcc/` (runtime: binaries, socket, db, log, pidfile, backups) is
-distinct from `~/gmcc_ckfs/` (the CKFS yaml tree). Neither is in git. The
-daemon writes the db ONLY — it never touches ckfs yamls.
+distinct from `~/gmcc_ckfs/` (the CKFS tree). Neither is in git. The
+daemon writes the db ONLY — it never touches ckfs files.
 
 ## Invocation pattern
 
@@ -37,116 +36,35 @@ at SessionStart) resolves it to the correct prod or sandbox binary:
 gm <subcommand> [options]
 ```
 
-All subcommands accept `--json` for the raw response. Subcommands (grouped by
-message family):
+Every subcommand accepts `--json` (the raw wire response — the form
+skills/bots should parse).
 
-| Subcommand | Purpose |
-|------------|---------|
-| `gm cheatsheet` | Full-surface signature sheet: one exact-signature line per verb + invariant lines, compiled into the binary (pure client-side, works with the daemon down). Printed into context at SessionStart by `gmcc_session_startup.sh`; subagent tiers paste it into worker prompts. Drift-guarded by `CheatsheetTests` (every subcommand path must appear in the sheet). |
-| `gm ping` | Liveness + build identity (sha/date stamped by build_daemon.sh), uptime. |
-| `gm status` | Daemon + db health: pid, protocol, socket, schema version, per-table row counts, and `last_event_id` — the REAL event-log horizon (highest daemon_event.id). `table_counts` is a row census and MUST NOT be used as an event cursor. |
-| `gm setup [--launchd]` | Client-side init of `~/gmcc/` dirs + daemon autostart. `--launchd` installs a login agent. |
-| `gm daemon start\|stop\|restart\|status` | Lifecycle. `stop` = SHUTDOWN: drain, WAL checkpoint, pidfile + socket removal, exit 0. |
-| `gm backup` | SQLite online backup to a timestamped copy under `~/gmcc/backups/`. |
-| `gm events [--kind K] [--subject-uuid U] [--since-id N] [--since-time T] [--until-time T] [--limit N] [--follow]` | Query the daemon_event audit log; `--follow` streams live (with `--since-id` replay — no missed events across reconnects). |
-| `gm context ensure` | Upsert project → instance → session from the current repo/branch (idempotent; reuses ckfs uuids; seeds kbite inheritance at create time). Returns the uuid triple. |
-| `gm context get` | Read-only resolution of the current gmcc environment (never creates rows). |
-| `gm project list` | All projects (full rows incl. ckfs paths), ordered by code — the Landing browse entry point. |
-| `gm instance list [--project-uuid U]` | Instances, ordered by code. Omit the filter to list ALL instances (rows carry their project uuid); an unknown supplied uuid ⇒ NOT_FOUND. |
-| `gm session list [--instance-uuid U]` | Session stubs (full scalars minus backstory/goal bodies), ordered by code, each carrying `last_activity_at` (latest of session update, prompt update, file change — the landing recency key). Same optional-filter contract as `gm instance list`. `status` is retired from the wire (v7); checked-out state is git-derived via `gm session resolve`. |
-| `gm session resolve [--session-uuid U]` | Session row + git-derived checked-out state (reads `.git/HEAD` directly; worktree `gitdir:` handled; detached ⇒ none). Defaults to the current repo/branch session. Returns `current_branch` (the RAW branch, nil unless `head_state` is "branch") alongside the slugged `current_session_code` — the two are never interconverted client-side. |
-| `gm instance current-session --instance-uuid U` | The session matching the instance's checked-out branch, or none (`head_state`: branch/detached/unavailable). Also returns `current_branch` (raw, nil unless on a branch). |
-| `gm catalog search <query> [--project-uuid U] [--limit N]` | Tokenized OR name/code search over instances + sessions (case-insensitive literal substrings; wildcards escaped). An instance match returns ALL its sessions; every returned session's parent instance rides along. Unknown supplied project uuid ⇒ NOT_FOUND; whitespace-only query ⇒ BAD_REQUEST. |
-| `gm session get [--session-uuid U]` | Session row + prompt stubs + change summaries (per-prompt where attributed). Always singular; the uuid defaults to the current repo/branch session. |
-| `gm session update --expected-version N [--session-uuid U] [--name] [--backstory] [--goal]` | Guarded scalar update (at least one field required); stale version ⇒ VERSION_CONFLICT. Always singular; the uuid defaults to the current repo/branch session. |
-| `gm prompt create --name N [--session-uuid U] [--code] [--backstory] [--goal] [--detail] [--command] [--uuid]` | Create a prompt; the daemon allocates the next per-session seq atomically. Session defaults to the current repo/branch. |
-| `gm prompt list [--session-uuid U] [--all] [--with-reports]` | Lightweight stubs (uuid, session_uuid, seq, code, name, status, version, ckfs_relative_storage_path, created_at, updated_at). Session defaults to the current repo/branch — **not** every session in the db; `--all` lists every prompt in the db (stubs carry `session_uuid` for grouping; seq is only unique per session). `--all` is not combinable with `--session-uuid`; an unknown supplied uuid ⇒ NOT_FOUND, never a silent empty list. `--with-reports` attaches each prompt's clarification + architecture + exploration + review summary stubs (status, refined_goal/backstory_note, verdict, summary versions, question/change/finding counts incl. sub-100, unranked, and open-finding resume signals) — ONE call for the whole session's report state, replacing the per-prompt get fan-out. A nil report means that summary was never opened. |
-| `gm prompt get --prompt-uuid U` | Full prompt + artifact pointers + kbites + change summary. |
-| `gm prompt update-content --prompt-uuid U --expected-version N [--backstory] [--goal] [--detail]` | Draft-only edit of the STAY TRUE triple; CONTENT_LOCKED past draft (the ONE exemption: `gm clarify finalize` copies the refined goal into `prompt.goal` daemon-side). |
-| `gm prompt set-status --prompt-uuid U --expected-version N --status S` | Lifecycle v2, forward-only + adjacent-only: draft → clarifying → architecting → implementing → reviewing → done, with one skip edge implementing → done (reviewing optional). THE single door for prompt transitions (clarify/arch verbs never move the prompt). Gates enforced in-transaction: entering `clarifying` creates the clarification summary; `clarifying → architecting` requires it `complete` (and creates the architecture summary); `architecting → implementing` requires the architecture `approved`. There is no bypass — an absent backing row fails the gate. |
-| `gm clarify open --prompt-uuid U` | Create-or-return the clarification summary (status `building`). Idempotent; never transitions the prompt. |
-| `gm clarify ask --summary-uuid S --category goal\|detail --question Q [--answer A --source bot_inferred]` | Insert a question while `building`. A judgment call the prompt already grants lands pre-answered as `bot_inferred`. |
-| `gm clarify seal --summary-uuid S --expected-version N` | `building → answering`: lock the question list. |
-| `gm clarify answer --clarification-uuid C --expected-version N [--answer A] [--source user\|bot_inferred] [--skip]` | Answer (or skip) one row; summary must be `answering`; `--expected-version` targets the clarification ROW. Revives a skipped row. |
-| `gm clarify reopen --summary-uuid S --expected-version N` | `complete → answering`: the revision edge (re-finalize after). |
-| `gm clarify finalize --summary-uuid S --expected-version N --refined-goal G --refined-detail D [--backstory-note]` | `answering → complete`: every non-skipped question must be answered, both refined fields non-empty; copies refined_goal into `prompt.goal`. |
-| `gm clarify get --prompt-uuid U` | Summary + ordered clarification rows. A prompt with no summary ⇒ `SUMMARY_ABSENT` (see error codes) ⇒ `gm clarify open`. Plain NOT_FOUND means only the uuid itself is unknown. |
-| `gm arch open --prompt-uuid U` | Create-or-return the architecture summary (status `drafting`). Idempotent; never transitions the prompt. |
-| `gm arch summarize --summary-uuid S --expected-version N --body B` | Concept-level body only (approach/components/flow/tradeoffs — file specifics belong in change rows). Drafting only. |
-| `gm arch persist-add --summary-uuid S --class-name C --file-path P --reason R` | Persistence-layer change row (ORM/schema class). Paths are normalized repo-relative; absolute-outside-instance ⇒ BAD_REQUEST. |
-| `gm arch field-add --persistence-uuid PC --field-name F --data-type T --reason R --purpose P --nullable\|--no-nullable [--foreign-key --fk-target t.col] [--indexed]` | Field-level row under a persistence change. |
-| `gm arch general-add --summary-uuid S --file-path P [--class-name C] --reason R --depth pseudo\|draft\|actual --code CODE` | Non-persistence change with its change code (2 MB cap). |
-| `gm arch propose --summary-uuid S --expected-version N` | `drafting → proposed`: change rows sealed for review. |
-| `gm arch approve --summary-uuid S --expected-version N` | `proposed → approved` (terminal): unlocks `architecting → implementing`. |
-| `gm arch revise --summary-uuid S --expected-version N` | `proposed → drafting`: the revision edge. |
-| `gm arch get --prompt-uuid U` | Summary + ordered changes (persistence FIRST — the implementation order contract) each decorated with derived implementation state (`file_change_count`, `first/last_changed_at` from the path join), plus `unplanned_changes` (touched but not planned — scope drift) and `ordering_respected` (persistence-first audit). Comparison joins on daemon-normalized repo-relative paths and sees only file changes recorded with `--prompt-uuid`. No summary ⇒ `SUMMARY_ABSENT` ⇒ `gm arch open`. |
-| `gm explore open --prompt-uuid U` | Create-or-return the exploration summary (status `exploring`). Idempotent, EXPLICIT-only — prompt transitions never create it (exploration runs while the prompt is still `draft`); never transitions the prompt. |
-| `gm explore key-file-add --summary-uuid S --file-path P` | Add one key file (summary must be `exploring`). Deduped set: a duplicate path is an idempotent upsert-ignore returning the existing row (`created: false`), never an error. Paths normalized repo-relative. |
-| `gm explore finding-add --summary-uuid S --kind persistence_model\|implementation_pattern\|existing_functionality\|scope_creep_risk\|general_relevant_change\|other --title T --body B --agent-name A [--rating 0-999]` | Insert a finding while `exploring`. Rating optional — NULL marks it unranked (work-in-progress); bodies capped at 2 MB. `--agent-name` is the producing persona (self-reported). |
-| `gm explore rank --summary-uuid S --rating <finding-uuid>:<0-999> ...` | Atomic version-less batch rank (0 = critical … 999 = always-false-positive tombstone; read threshold 100). Whole batch validates first — one bad pair (range, duplicate, or finding not belonging to this summary) rejects everything. Refused once `complete` (reopen first); re-running re-ranks (last write wins — the team re-ranker's contract). |
-| `gm explore complete --summary-uuid S --expected-version N (--overview O \| --overview-file P)` | `exploring → complete`: REFUSES while any finding is unranked. EXACTLY ONE overview source is required (neither is optional; both together is an error) — `--overview-file` exists because a long narrative exceeds the argv budget well before the 2 MB cap. The overview is writable ONLY here — primary-agent-only by write-path shape. |
-| `gm explore reopen --summary-uuid S --expected-version N` | `complete → exploring`: the revision edge for re-runs. Everything is preserved (findings, ratings, key files, overview); the next complete must re-carry the overview. |
-| `gm explore get --prompt-uuid U [--full \| --max-rating N \| --rating-range A:B]` | Summary + key files + findings, PARTITIONED server-side: full rows for ratings inside the window (default under 100) PLUS every unranked row (always full — the resume work-queue), title/kind/rating stubs outside it. The three window flags are MUTUALLY EXCLUSIVE. No summary ⇒ `SUMMARY_ABSENT` ⇒ `gm explore open`. |
-| `gm review open --prompt-uuid U` | Create-or-return the review summary (status `reviewing`). Idempotent, EXPLICIT-only — prompt status never creates or gates it (skip-to-done runs simply never open one). |
-| `gm review finding-add --summary-uuid S --kind correctness_bug\|spec_deviation\|regression_risk\|security\|simplification\|other --title T --body B [--file-path P --line-start N [--line-end M]] --agent-name A [--rating 0-999]` | Insert a finding while `reviewing`. file/line fields optional (nil = cross-cutting); line_end requires line_start. |
-| `gm review rank --summary-uuid S --rating <uuid>:<n> ...` | Same batch contract as `gm explore rank`. |
-| `gm review resolve --finding-uuid F --expected-version N --status fixed\|accepted\|wont_fix` | Record one finding's fix-loop outcome. Pure child update (`--expected-version` targets the FINDING) and deliberately UNGATED on summary status — the fix loop runs AFTER complete. Edges: open → fixed\|accepted\|wont_fix + lateral corrections among resolved values, never back to open. |
-| `gm review complete --summary-uuid S --expected-version N (--overview O \| --overview-file P) --verdict approved\|approved_with_nits\|changes_requested` | `reviewing → complete`: refuses unranked findings; requires the verdict. Same exactly-one-overview-source rule as explore complete. overview + verdict writable ONLY here. |
-| `gm review reopen --summary-uuid S --expected-version N` | `complete → reviewing`: revision edge, same preservation contract as explore. |
-| `gm review get --prompt-uuid U [--full \| --max-rating N \| --rating-range A:B]` | Same partitioned read as explore get (window flags mutually exclusive); stubs additionally carry each finding's resolution status for the fix loop. |
-| `gm search "<query>" [--all] [--session-uuid U] [--kind K...] [--limit N]` | FTS5 full-text search over prompt name/goal/detail/backstory, clarification questions/answers/refined fields, architecture bodies/reasons/change code, exploration overviews/key files/findings, and review overviews/findings. bm25-ranked stubs with prompt lineage (prompt uuid/seq/name/status, session) and a bounded excerpt — never full content. Scope defaults to the current repo/branch session; `--all` for the whole db (not combinable with `--session-uuid`). Kinds: prompt, clarification, clarification_summary, architecture_summary, architecture_general_change, architecture_persistence_change, exploration_summary, exploration_key_file, exploration_finding, review_summary, review_finding. Whitespace-only query ⇒ BAD_REQUEST; unknown supplied session uuid ⇒ NOT_FOUND. Scores are comparable only within a kind. |
-| `gm paths` | The daemon's typed roots: gmcc runtime, db, socket, backups (from conventions) + ckfs/kbite roots (from db-backed config). |
-| `gm config set --key ckfs_root\|kbite_root\|kbite_open_root\|kbite_digested_root --value V` | Write one config key (enum-bound; unknown ⇒ BAD_REQUEST). The daemon never reads `$GMCC_*` env vars. |
-| `gm artifact add --prompt-uuid U --file-path P [--note]` | Register a pointer to a prompt-scoped file (content stays in the file). NEVER use it to mirror a report — the db-native rows ARE the record and `gm clarify/arch/explore/review get` are the render. |
-| `gm artifact list --prompt-uuid U` | Artifact pointers for a prompt. |
-| `gm file-change add --path <repo-rel> [--kind edit\|create\|delete\|rename] [--range start:end]... [--content <text>] [--prompt-uuid <uuid>]` | Record a file edit: session_file + file_change + ranges + FILE_CHANGE event. `--content` requires EXACTLY ONE `--range` (the CLI rejects the pair otherwise). Run from inside the repo — git context is auto-detected and ckfs uuids reused. |
-| `gm file-change list [--session-uuid U] [--prompt-uuid] [--path] [--limit] [--all]` | Query changes for the current session with ranges joined. `--all` drops the current-session default and queries the whole db (`--prompt-uuid`/`--path` still narrow); not combinable with `--session-uuid`; an unknown supplied uuid ⇒ NOT_FOUND. |
-| `gm kbite list [--scope project\|instance\|session\|prompt] [--owner-uuid U] [--all]` | Registered kbites at a scope, resolved through the inheritance chain at read time. Scope defaults to session; owner defaults to the current repo/branch context (prompt scope needs an explicit uuid). `--all` ignores scope and lists every kbite row in the db (the cleanup drift-check listing; not combinable with `--owner-uuid`). |
-| `gm kbite add --code C [--scope S] [--owner-uuid U]` | Explicit-only registration at one scope (v11 model — never auto-add). Db-only — the db is the sole registry. Idempotent. |
-| `gm kbite remove --code C [--scope S] [--owner-uuid U]` | Remove a kbite from one scope's registry. Db-only. |
-| `gm kbite maw-open --name N [--maw-path P]` | Create the open-maw filesystem skeleton + MAW_INDEX.md (no db rows; maws are not tracked in the db). Path defaults to `{kbite_open_root}/{name}` (kbite_open_root from `gm paths --json`) — resolved client-side. KBITE_PURPOSE.md stays an interactive skill step. |
-| `gm kbite digest --code C [--kbite-open-path P]` | One-step import: parse `*_chewed.md` under the scan root (default: the open maw) into kbite_resource / kbite_resource_file / keyword rows (full text inline for text types), then DELETE the chewed files. Raw sources are kept on disk; the db is canonical for digested text. Re-digesting a resource replaces its rows. The client-side follow-up (move raw sources open/ → digested/, delete the maw) lives in `/gm_crunch_digest`. |
-| `gm kbite get --code C` | One kbite: resources, file stubs (names + summaries, NO content), keywords. |
-| `gm kbite file-get --file-uuid U` | A single resource file including full content — the targeted load replacing "cat the chewed file". |
-| `gm kbite search "<query>" [--code C] [--kbite-uuids U...] [--limit N]` | FTS5 full-text search across kbite files; bm25-ranked stubs (name ≫ summary ≫ content) with `file_summary` briefs and attached keywords (the human render prints the brief per hit). `--code` scopes to one kbite (resolved client-side; composes with `--kbite-uuids`); omit both to search everything. |
-| `gm kbite keyword-tag --level kbite\|file --target-uuid U --keywords K... [--detach]` | Attach/detach normalized snake_case keywords at kbite or resource-file level. |
+**The signature reference is `gm cheatsheet --full`** — one exact-signature
+line per verb plus the invariants, compiled into the binary so it cannot
+drift from installed capabilities (pure client-side, works with the daemon
+down; drift-guarded by `CheatsheetTests`). Bare `gm cheatsheet` is the
+compact core (family index + agent pen verbs + invariants) that
+SessionStart injects into every session — it is NOT the full surface.
+Consult the sheet instead of `gm ... --help` roundtrips; never guess
+flags, and never copy signatures from prose docs (including this one).
 
 Exit codes: `0` ok · `1` generic/db/domain error · `2` daemon unreachable
-after autostart · `3` unrecoverable protocol mismatch · `64` bad flags/usage
-(ArgumentParser validation).
+after autostart · `3` unrecoverable protocol mismatch · `64` bad
+flags/usage.
 
 Domain error codes (typed, branch on these — never parse messages):
 `NOT_FOUND` (the uuid itself is unknown), `VERSION_CONFLICT` (stale
-`--expected-version`), `INVALID_TRANSITION` (illegal status jump — reasons
-are now human-phrased and name the legal next states), `CONTENT_LOCKED`
-(content edit outside Draft), `SUMMARY_ABSENT` (the prompt exists but has no
-clarification/architecture/exploration/review summary — open one via the
-family's `open` verb; never fall back to a file).
+`--expected-version` — re-run the matching get, take `.version`, retry),
+`INVALID_TRANSITION` (illegal status jump; the reason names the legal next
+states), `CONTENT_LOCKED` (content edit outside draft), `SUMMARY_ABSENT`
+(the owner exists but that summary/scope was never opened — open it via
+the family's `open`/`init` verb; never fall back to a file).
 
-**Storage path contract (A4)**: `gm prompt create` derives and returns
-`ckfs_relative_storage_path`, SLUGGING the name (forward-only and lossy, like
-branch → session code). The memory watcher resolves prompts by EXACT
-case-sensitive equality against that stored value, so clients MUST mkdir the
-returned path verbatim (relative to `gm paths` → ckfs_root) and MUST NOT
-re-derive `{seq}_{name}` themselves. Existing rows are untouched.
+Workflow semantics (prompt lifecycle, pen contract, briefings, ratings)
+live in `skills/gmcc/ref/bot_workflows.md`, not here. For editing the
+repo's `.gmcc` dope files directly, load `skills/gmcc/ref/doped_files.md`.
 
-**Ephemeral events (id 0, never a daemon_event row, never a replay cursor)**:
-`PROMPT_MEMORY_CHANGED` (a prompt's memory/ subtree changed on disk) and
-`CHECKOUT_CHANGE` (an instance repo's HEAD changed; subject = instance uuid;
-payload carries `head_state` / `current_branch` / `current_session_code`).
-Clients subscribe instead of running their own .git watchers; on reconnect
-ask `gm instance current-session` once rather than replaying. The watcher set
-re-roots itself on `CONFIG_SET ckfs_root` and rebuilds on instance creation —
-no daemon restart needed.
-
-**GM task rule**: bot workflows record their file edits with
-`gm file-change add` as they make them, **always passing `--prompt-uuid`** —
-the `gm arch get` implementation-state comparison joins on prompt-attributed
-changes only, so an unattributed change is invisible to it. Paths are
-repo-relative (the daemon normalizes absolute-inside-instance and rejects
-anything it can't anchor).
-
-## Self-heal rule
+## Build / self-heal
 
 If `gm` is not found on the PATH, or any `gm` call exits 2 with a
 "daemon binary missing" message, build first:
@@ -155,189 +73,41 @@ If `gm` is not found on the PATH, or any `gm` call exits 2 with a
 bash $GMCC_PLUGIN_ROOT/scripts/build_daemon.sh
 ```
 
-The script is staleness-checked (no-ops when binaries are current; `--force`
-to override), stamps BuildInfo (git sha + date, returned by `gm ping`), and
-installs both binaries into `~/gmcc/bin/`. After a rebuild, the next `gm`
-command retires the stale daemon automatically via the handshake.
+The script is staleness-checked (no-ops when binaries are current;
+`--force` to override), stamps BuildInfo (git sha + date, returned by
+`gm ping`), and installs both binaries into `~/gmcc/bin/`. After a
+rebuild, the next `gm` command retires the stale daemon automatically via
+the handshake. The SessionStart hook `scripts/check_daemon_stale.sh`
+prints a warning when binaries are missing/stale — treat it as a prompt
+to run the build.
 
-The SessionStart hook `scripts/check_daemon_stale.sh` prints a warning when
-binaries are missing/stale — treat that warning as a prompt to run the build.
+The full dev loop when changing daemon code:
+
+```bash
+cd $GMCC_PLUGIN_ROOT/daemon && swift test      # full suite; must stay green
+bash $GMCC_PLUGIN_ROOT/scripts/build_daemon.sh # release build → ~/gmcc/bin/
+gm daemon restart                              # pick up the new daemon
+```
 
 Two lifecycle commands wrap these rules end-to-end:
 `/refresh_daemon_state` (build if stale + restart if the running build
 predates the installed binaries + verify) and `/archive_gmcc_daemon_data`
 (stop → move `gmcc.db*` + `daemon.log` to `~/gmcc/_archive/cold_storage/{ts}/`
-→ restart on a fresh db; never touches the ckfs yaml tree).
+→ restart on a fresh db; never touches the ckfs tree).
 
-**Schema migration rule (the re-baseline era is OVER)**: since m0002 the db
-is append-only — schema changes land as new migrations and existing databases
+**Schema migration rule (the re-baseline era is OVER)**: the db is
+append-only — schema changes land as new migrations and existing databases
 upgrade in place at daemon boot, preserving all data. **NEVER delete
-`~/gmcc/gmcc.db*`** to fix a schema error. If prompt/kbite commands fail with
-"no such column" DB_ERRORs after an upgrade, the running daemon predates the
-installed binaries: run `/refresh_daemon_state` (rebuild + restart) so the new
-daemon applies its pending migrations.
+`~/gmcc/gmcc.db*`** to fix a schema error; `gm backup` before risky work.
+If commands fail with "no such column" DB_ERRORs after an upgrade, the
+running daemon predates the installed binaries: run `/refresh_daemon_state`
+so the new daemon applies its pending migrations.
 
 ## Inspecting the db (read-only)
 
 For debugging you may READ the db directly (`sqlite3 ~/gmcc/gmcc.db`), but
 NEVER write to it from outside the daemon — all writes go through `gm`.
-Schema: BaseEntity wrap (id serial PK, uuid v4 join key, version — the
-optimistic-concurrency token, created_at/updated_at) on every domain table;
-all FKs reference `uuid`. Tables: project, instance, session, prompt,
-prompt_artifact, clarification_summary, clarification, architecture_summary,
-architecture_persistence_change, architecture_persistence_field_change,
-architecture_general_change, daemon_config, kbite,
-{prompt,session,instance,project}_active_kbite,
-keyword, kbite_keyword_junction, kbite_resource, kbite_resource_file,
-resource_file_keyword_junction, kbite_resource_file_fts (FTS5 mirror backing
-KBITE_SEARCH, trigger-synced), prompt_fts, clarification_summary_fts,
-clarification_fts, architecture_summary_fts, architecture_general_change_fts,
-architecture_persistence_change_fts (six FTS5 mirrors backing SEARCH,
-trigger-synced, backfilled once by m0003), session_file, file_change,
-file_change_range, daemon_event (append-only — its `id` is the SUBSCRIBE
-replay cursor), dope_scope, dope_domain, dope_domain_entity,
-dope_domain_enum, dope_domain_enum_option, dope_domain_entity_property,
-schema_migrations (unwrapped ledger).
-
-## KBite data model (v16 prompt 4)
-
-- Maws are NOT in the db — `maw-open` is filesystem-only, chew stays an
-  external step writing `{name}_chewed.md` files.
-- `digest` is the db-import step: the ENTIRE chewed body lands verbatim in
-  `kbite_resource.resource_summary`; each RAW source file gets a
-  `kbite_resource_file` row (content inline for text types ≤ 2 MB, NULL for
-  images/binaries/oversized — the filesystem keeps those raw); chewed
-  Keywords become normalized vocabulary rows + junctions at both kbite and
-  file level; the chewed files are deleted only after the commit.
-- resource_type mirrors axis2 (documentation|example_project|api_reference|
-  blogs|all_others); resource_trust mirrors axis1 (0 = primary,
-  100 = secondary; ints in between reserved).
-- Discovery is SEARCH-first: `gm kbite search` → ranked file stubs →
-  `gm kbite file-get` for full content — not by browsing the digested
-  filesystem tree.
-
-## DOPE — DOPED domain modeling
-
-`gm dope` models a codebase's persistence layer as a tree:
-scope → domain → { entity → property, enum → option }. `dope_scope.revision`
-is the whole-tree content counter and IS the `version` field of
-`scope.doped.json`; every granular verb bumps it by exactly 1 and leaves row
-`version` to `--expected-version`.
-
-| Subcommand | Purpose |
-|------------|---------|
-| `gm dope init` | Create-or-return a scope. PROMPT-typed iff `--prompt-uuid`; `--clone-from-session-base` forks the session's tree. |
-| `gm dope list` / `get` | Picker enumeration (SESSION_INSTANCE scopes, or ONLY a prompt's PROMPT scopes — never a union) / the full tree (PROMPT preferred, SESSION_INSTANCE fallback). No scope ⇒ `SUMMARY_ABSENT` ⇒ `gm dope init`. |
-| `gm dope {persistence,entity,property,enum,option}-{add,update,delete}` | Granular db-native edits. Uuids + `--expected-version`; deletes cascade the subtree and refuse still-referenced targets by naming the referrer. |
-| `gm dope read-repo` / `write-repo` / `ingest` | Whole-tree JSON I/O against `{instance_root}/.gmcc/`. `ingest` requires the on-disk version to be EXACTLY db revision + 1 and mints fresh child uuids (no smart diff). |
-
-**Editing the `.gmcc` files directly?** Load
-`skills/gmcc/ref/doped_files.md` — the on-disk layout, file shape, and the
-rules that get a write refused. Not needed for a normal run: consuming the
-DOPE dump never touches the files.
-
-**References are dot-path CODES in the JSON, uuids in the verbs.** Three ref
-shapes: `domain.entity.property` (relationship targets), `domain.enums.code`
-(enum types), `domain.entity` (base composables). A uuid never appears in a
-`.doped.json` file — the document types have nowhere to put one.
-
-### Base entities
-
-An entity's `entity_type` is `MODEL`, `JUNCTION`, or `BASE_COMPOSABLE`. A
-BASE_COMPOSABLE is not persisted on its own — it is a shared column block /
-mixin (think the id/uuid/version/created_at/updated_at wrap every ORM table
-carries) that other entities point at via `--base-composable-uuid`
-(`base_composable_ref` in the JSON):
-
-- **Lookup, not inheritance.** The base's properties are NOT copied onto the
-  composing entity in the db or in the JSON — exactly like an enum ref. Every
-  consumer of the gmcc protocol knows to union the base's properties in at
-  render time — except where a composing entity deliberately **materializes**
-  one (below), in which case the local row wins and the inherited copy is
-  suppressed.
-- **Materialized properties.** A property that must exist as a real,
-  FK-referenceable row (relationship refs target `domain.entity.property`, so
-  `uuid` is the canonical case) may be materialized on the composing entity
-  and TAGGED with its origin: `--base-origin-uuid` on the verbs,
-  `base_origin_ref: "domain.entity.property"` in the JSON. Rules, enforced
-  granularly and by the whole-tree validator: the origin must live on a
-  BASE_COMPOSABLE the entity composes (directly or through the chain), the
-  materialized property keeps the origin's data_type, changing an entity's
-  base in a way that strands a tag is refused naming the property, and
-  deleting a tagged origin (or its entity/domain) is refused naming the
-  referrer. The tag is provenance and orthogonal to data_type.
-- **Same scope, enforced type.** The target must live in the same scope and
-  must itself be a BASE_COMPOSABLE. Demoting a still-composed entity to
-  MODEL/JUNCTION is refused naming its composers.
-- **Chaining allowed, cycles refused.** A BASE_COMPOSABLE may compose
-  another; the chain must stay acyclic, checked by the granular verbs and by
-  the whole-tree validator. Consumers resolve the chain transitively.
-- **Deletion is guarded.** Deleting a composed base — or the domain holding
-  it — is refused, naming the composer. Cross-domain refs are legal.
-- **The `base` domain is a CONVENTION, not a daemon concept.** Nothing in the
-  daemon creates, seeds, or special-cases a domain coded `base`; it is simply
-  where a scope keeps its shared blocks by convention. Create it like any
-  other domain.
-
-### Boot-time sync and session env
-
-`gm dope sync` reconciles the session's SESSION_INSTANCE scope from the on-disk
-files at `{instance_root}/.gmcc` into the db: it seeds a virgin scope,
-re-adopts when the files are ahead (any forward gap), and WARNS ONLY when the
-db is ahead. It runs automatically at boot via `gm context ensure`; the
-underlying `gm dope ingest --adopt` is the boot-sync-only files-win mode —
-never for interactive use. Relatedly, `gm context env` is the SessionStart
-env owner: it emits the session environment (GMCC_BOOTED, GMCC_PLUGIN_ROOT,
-GMCC_CKFS_ROOT, PATH, plus GMCC_ROOT when sandboxed).
-
-## DIAGRAM — db-persisted canvases
-
-`gm diagram` persists visual canvases over the dope subsystem:
-diagram → element → (joined subtype + vertex rows). Two element families:
-dope bindings (`dope_scope`, `dope_entity` — the dbdiagram-style rendering
-path) and the drawing family (`drawing_layer` holding `drawing_stroke` /
-`drawing_shape`). Only `dope_scope` and `drawing_layer` may sit at top
-level; `dope_entity` lives under a scope, strokes/shapes under a layer.
-`diagram.revision` is the whole-tree content counter (the dope split:
-element edits bump it without touching row versions).
-
-**Ownership is a four-tier ladder** (`PROJECT|INSTANCE|SESSION|PROMPT`):
-exactly one owner flag picks the tier, the daemon derives and persists the
-full ancestor chain, and promotion (`gm diagram update --promote-tier T
---promote-owner-uuid O`) is an UPDATE that re-derives it (same project,
-always). `gmcc_diagram_path` is refused at PROJECT tier (no instance root).
-
-| Subcommand | Purpose |
-|------------|---------|
-| `gm diagram init` / `list` / `get` | Create-or-return / picker rows (one tier, never a union) / full tree + binding resolutions. Real owner with no diagram ⇒ `SUMMARY_ABSENT` ⇒ `gm diagram init`. `get` has NO cross-tier fallback and does NOT embed dope trees — pair it with `gm dope get` per resolved binding. |
-| `gm diagram element-add/-update/-delete` | Granular element edits — each is a ONE-MUTATION BATCH over the same daemon body as batch-apply, so semantics cannot drift. Subtype fields ride `--content` (`{"kind":"<element_type>","fields":{...}}`, vertices inside); a present content on update REPLACES the subtype row + vertex set wholesale (no clear flags anywhere). Omitted `--code`/`--name` are minted (`stroke_0007` style). |
-| `gm diagram update` | Diagram-row edits: rename/describe, path set/clear, tier promotion. |
-| `gm diagram batch-apply` | THE interactive write: many mutations, one transaction, ONE revision bump, ONE `DIAGRAM_CHANGE` event. Strict array order; all-or-nothing; `elementAdd.clientRef` temp ids are parentable by later mutations in the same batch (a gesture creates a layer + strokes atomically); `--expected-revision` is a whole-diagram CAS gate (`VERSION_CONFLICT` when stale) — GMVibes commits at gesture end. |
-| `gm render` | Headless render in the gm CLIENT process (never the daemon — `ImageRenderer` is @MainActor and the daemon's serial write loop must not host one) to `{ckfs_root}/{owner ckfs path}/{gmcc_diagram_path or 'diagrams'}/screenshots/{code}.png`, printing the path for an agent to read. CKFS-rooted at EVERY tier, so a project-tier diagram renders too and no `.gitignore` is involved. ONE mutable file per code; freshness is a fingerprint sidecar covering the diagram revision AND every bound dope scope revision (a dope edit changes the picture without touching the diagram row, so a timestamp check would silently serve a stale image). `--force` overrides. Zero db writes unless `--artifact`. Replaced `gm diagram screenshot`, retired in prompt 9. The `/gm_screenshot_session_domain_diagram_state` slash command wraps it. |
-
-**fk-by-code bindings, ghost semantics.** Diagram→dope references are TEXT
-codes, never uuids or SQL FKs (`gm dope ingest` re-mints every child uuid,
-so uuid refs are structurally impossible). Resolution happens at READ time
-through the diagram's own session/prompt context via the dope ladder
-(PROMPT preferred, SESSION_INSTANCE fallback), surfaced per binding as
-`resolved_via`; PROJECT/INSTANCE-tier diagrams resolve all-absent by
-construction. A dangling code is a LEGAL state rendered as a ghost card —
-never an error, and never a delete guard: dope evolution is never blocked
-by a picture. Existence is deliberately unchecked on write; only the code
-SHAPE is validated (`snake_case`; entity codes are 2-segment
-`domain.entity`).
-
-**Geometry.** `center_x/y` are parent-space, vertices are element-local
-(dragging a 500-point stroke is one element UPDATE), `scale` composes
-multiplicatively, `element_z` orders siblings only. Vertex rows are full
-BaseEntity rows written as whole-set replacements — their uuids are NOT
-stable (vertices are not elements). The element row's `version` is the
-optimistic lock for the whole element aggregate.
-
-**GMVibes surface.** `DaemonClient.diagram*` methods + the in-kit
-`DiagramUI/` component library: `DiagramResolver` (pure pre-pass:
-transforms, z, ghost injection, FK edges, deterministic FNV-1a domain
-colors) → `ResolvedDiagram` values → `DiagramCanvasView` and friends
-(exhaustive-switch rendering, zero daemon dependency), plus
-`DiagramCommitting` / `DiagramEditSession` for gesture-end batch commits.
-Live refresh: follow `DIAGRAM_CHANGE` events via `gm events`.
+Every domain table carries the BaseEntity wrap (id serial PK, uuid v4 join
+key, version — the optimistic-concurrency token, created_at/updated_at);
+all FKs reference `uuid`; `daemon_event.id` is the append-only event-log
+replay cursor (`gm events --since-id`).

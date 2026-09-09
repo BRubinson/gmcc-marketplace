@@ -105,8 +105,17 @@ struct Session: ParsableCommand {
         @Option(name: .long) var name: String?
         @Option(name: .long) var backstory: String?
         @Option(name: .long) var goal: String?
+        @Option(name: .long, help: "Manually claim a prompt as active for THIS Claude instance (set-status implementing normally maintains the claim).")
+        var activePromptUuid: String?
+        @Flag(name: .long, help: "Release this Claude instance's activation claim.")
+        var clearActivePrompt = false
 
         func run() throws {
+            let clientKey = ClientKey.resolve()
+            if (activePromptUuid != nil || clearActivePrompt), clientKey == nil {
+                throw ValidationError(
+                    "activation claims are per Claude instance and no claude ancestor process was found — run this from inside a Claude Code session")
+            }
             let response = try withClient { client in
                 let uuid = try sessionUuid ?? ContextBuilder.resolveSessionUuid(client)
                 return try client.updateSession(SessionUpdateRequest(
@@ -114,7 +123,10 @@ struct Session: ParsableCommand {
                     expectedVersion: expectedVersion,
                     name: name,
                     backstory: backstory,
-                    goal: goal
+                    goal: goal,
+                    activePromptUuid: activePromptUuid,
+                    clearActivePrompt: clearActivePrompt ? true : nil,
+                    clientKey: clientKey
                 ))
             }
             if output.json {

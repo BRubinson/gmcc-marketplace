@@ -28,12 +28,52 @@ extension Store {
             if let name = req.name { set["name"] = name }
             if let backstory = req.backstory { set["backstory"] = backstory }
             if let goal = req.goal { set["goal"] = goal }
-            guard !set.isEmpty else {
+            // Manual override of the activation claim PROMPT_SET_STATUS
+            // normally maintains for the calling instance. Exactly one of
+            // the pair; the prompt must belong to this session (a Swift
+            // guard — CHECK cannot cross tables).
+            var activationTouched = false
+            if let activePromptUuid = req.activePromptUuid {
+                guard req.clearActivePrompt != true else {
+                    throw StoreError.badRequest(
+                        detail: "activePromptUuid and clearActivePrompt are mutually exclusive")
+                }
+                guard let clientKey = req.clientKey else {
+                    throw StoreError.badRequest(
+                        detail: "activation claims need a client key — run via gm, which resolves it")
+                }
+                guard let owner = try String.fetchOne(
+                    db, sql: "SELECT session_uuid FROM prompt WHERE uuid = ?",
+                    arguments: [activePromptUuid]
+                ) else {
+                    throw StoreError.notFound(entity: "prompt", key: activePromptUuid)
+                }
+                guard owner == req.sessionUuid else {
+                    throw StoreError.badRequest(
+                        detail: "prompt \(activePromptUuid) belongs to session \(owner), not \(req.sessionUuid)")
+                }
+                try self.claimActivation(
+                    db, sessionUuid: req.sessionUuid,
+                    promptUuid: activePromptUuid, clientKey: clientKey)
+                activationTouched = true
+            } else if req.clearActivePrompt == true {
+                guard let clientKey = req.clientKey else {
+                    throw StoreError.badRequest(
+                        detail: "activation claims need a client key — run via gm, which resolves it")
+                }
+                try db.execute(
+                    sql: "DELETE FROM prompt_activation WHERE client_key = ?",
+                    arguments: [clientKey])
+                activationTouched = true
+            }
+            guard !set.isEmpty || activationTouched else {
                 throw StoreError.emptyUpdate(entity: "session")
             }
-            try self.updateBase(
-                db, table: "session", uuid: req.sessionUuid,
-                expectedVersion: req.expectedVersion, set: set)
+            if !set.isEmpty {
+                try self.updateBase(
+                    db, table: "session", uuid: req.sessionUuid,
+                    expectedVersion: req.expectedVersion, set: set)
+            }
             try self.appendEvent(
                 db, kind: .updateSession, subjectUuid: req.sessionUuid,
                 payload: Store.jsonPayload(["fields": set.keys.sorted()]))
@@ -63,8 +103,105 @@ extension Store {
             backstory: row["backstory"],
             goal: row["goal"],
             createdAt: row["created_at"],
-            updatedAt: row["updated_at"]
+            updatedAt: row["updated_at"],
+            activations: try self.fetchActivations(db, sessionUuid: uuid)
         )
+    }
+
+    // MARK: - Activation registry (v21)
+
+    /// One claim per running Claude instance (client_key) and per prompt:
+    /// re-claiming replaces both sides' old rows so the two partial-unique
+    /// indexes can never collide on a legitimate re-claim.
+    func claimActivation(
+        _ db: Database, sessionUuid: String, promptUuid: String, clientKey: String
+    ) throws {
+        try self.evictDeadActivations(db, sessionUuid: sessionUuid)
+        try db.execute(
+            sql: "DELETE FROM prompt_activation WHERE client_key = ? OR prompt_uuid = ?",
+            arguments: [clientKey, promptUuid])
+        _ = try self.insertBase(db, table: "prompt_activation", extra: [
+            "session_uuid": sessionUuid,
+            "prompt_uuid": promptUuid,
+            "client_key": clientKey,
+        ])
+    }
+
+    /// Opportunistic liveness eviction (review finding 033dad8f): only
+    /// `done` releases a claim, so a crashed/restarted Claude instance would
+    /// otherwise poison the single-claim fallback forever. The key embeds
+    /// pid + start time, so liveness is checkable server-side; unknown key
+    /// shapes are left alone (they can't lie about liveness we can't check).
+    func evictDeadActivations(_ db: Database, sessionUuid: String) throws {
+        let rows = try Row.fetchAll(
+            db,
+            sql: "SELECT uuid, client_key FROM prompt_activation WHERE session_uuid = ?",
+            arguments: [sessionUuid])
+        for row in rows where !Store.clientKeyLooksAlive(row["client_key"]) {
+            try db.execute(
+                sql: "DELETE FROM prompt_activation WHERE uuid = ?",
+                arguments: [row["uuid"] as String])
+        }
+    }
+
+    /// Liveness by key shape: "claude:<pid>:<starttime>" keys are checked
+    /// against the process table; unknown shapes are presumed alive (we
+    /// cannot check what we cannot parse, and false eviction is the worse
+    /// failure).
+    static func clientKeyLooksAlive(_ key: String) -> Bool {
+        let parts = key.split(separator: ":")
+        guard parts.count == 3, parts[0] == "claude",
+              let pid = Int32(parts[1]), let start = Int64(parts[2]) else { return true }
+        return Store.processAlive(pid: pid, startTimeSeconds: start)
+    }
+
+    static func processAlive(pid: Int32, startTimeSeconds: Int64) -> Bool {
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        guard sysctl(&mib, UInt32(mib.count), &info, &size, nil, 0) == 0,
+              size > 0, info.kp_proc.p_pid == pid else {
+            return false
+        }
+        return Int64(info.kp_proc.p_starttime.tv_sec) == startTimeSeconds
+    }
+
+    func fetchActivations(_ db: Database, sessionUuid: String) throws -> [PromptActivationRow] {
+        try Row.fetchAll(
+            db,
+            sql: """
+                SELECT uuid, session_uuid, prompt_uuid, client_key, created_at
+                FROM prompt_activation WHERE session_uuid = ? ORDER BY created_at
+                """,
+            arguments: [sessionUuid]
+        ).map { row in
+            PromptActivationRow(
+                uuid: row["uuid"],
+                sessionUuid: row["session_uuid"],
+                promptUuid: row["prompt_uuid"],
+                clientKey: row["client_key"],
+                createdAt: row["created_at"]
+            )
+        }
+    }
+
+    /// The attribution ladder shared by file-change auto-attribution and the
+    /// briefing active resolution: the caller's own claim first, then the
+    /// session's single claim when unambiguous, else nil (never a guess
+    /// between two concurrent prompts).
+    func resolveActivePrompt(
+        _ db: Database, sessionUuid: String, clientKey: String?
+    ) throws -> String? {
+        // Dead claims are FILTERED here rather than deleted: this runs inside
+        // read transactions (briefing get/stub). Deletion happens on the
+        // write paths (claimActivation) — filtering keeps read results
+        // correct in the meantime.
+        let live = try self.fetchActivations(db, sessionUuid: sessionUuid)
+            .filter { Store.clientKeyLooksAlive($0.clientKey) }
+        if let clientKey, let own = live.first(where: { $0.clientKey == clientKey }) {
+            return own.promptUuid
+        }
+        return live.count == 1 ? live[0].promptUuid : nil
     }
 
     /// nil sessionUuid = every prompt in the db, grouped by session (seq is

@@ -81,15 +81,26 @@ struct Clarify: ParsableCommand {
         @Option(name: .long, help: "The clarification row version this answer was based on.")
         var expectedVersion: Int64
         @Option(name: .long) var answer: String?
+        @Option(name: .long, help: "Answer from a file (the argv-quoting/budget escape hatch).")
+        var answerFile: String?
         @Option(name: .long, help: "user (default) or bot_inferred") var source: AnswerSource?
         @Flag(name: .long, help: "Mark the question skipped instead of answered.")
         var skip = false
 
         func run() throws {
+            guard answer == nil || answerFile == nil else {
+                throw ValidationError("--answer and --answer-file are mutually exclusive")
+            }
+            let answerText = try answerFile.map { file -> String in
+                guard let content = try? String(contentsOfFile: file, encoding: .utf8) else {
+                    throw ValidationError("cannot read --answer-file: \(file)")
+                }
+                return content
+            } ?? answer
             let response = try withClient {
                 try $0.clarifyAnswer(ClarifyAnswerRequest(
                     clarificationUuid: clarificationUuid, expectedVersion: expectedVersion,
-                    answer: answer, answerSource: source, skip: skip))
+                    answer: answerText, answerSource: source, skip: skip))
             }
             if output.json { printJSON(response) } else {
                 let c = response.clarification
@@ -126,16 +137,24 @@ struct Clarify: ParsableCommand {
         @Option(name: .long, help: "The summary version this transition was based on.")
         var expectedVersion: Int64
         @Option(name: .long, help: "The synthesized goal (acceptance criteria) — becomes prompt.goal.")
-        var refinedGoal: String
+        var refinedGoal: String?
+        @Option(name: .long, help: "Refined goal from a file (the argv-budget escape hatch).")
+        var refinedGoalFile: String?
         @Option(name: .long, help: "The synthesized approach detail (answers integrated).")
-        var refinedDetail: String
+        var refinedDetail: String?
+        @Option(name: .long, help: "Refined detail from a file (the argv-budget escape hatch).")
+        var refinedDetailFile: String?
         @Option(name: .long) var backstoryNote: String?
 
         func run() throws {
+            let goalText = try resolveText(
+                inline: refinedGoal, file: refinedGoalFile, flag: "refined-goal")
+            let detailText = try resolveText(
+                inline: refinedDetail, file: refinedDetailFile, flag: "refined-detail")
             let response = try withClient {
                 try $0.clarifyFinalize(ClarifyFinalizeRequest(
                     summaryUuid: summaryUuid, expectedVersion: expectedVersion,
-                    refinedGoal: refinedGoal, refinedDetail: refinedDetail,
+                    refinedGoal: goalText, refinedDetail: detailText,
                     backstoryNote: backstoryNote))
             }
             if output.json { printJSON(response) } else {

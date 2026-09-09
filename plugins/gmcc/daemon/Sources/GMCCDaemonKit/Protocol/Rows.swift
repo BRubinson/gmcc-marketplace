@@ -151,6 +151,11 @@ public struct SessionRow: Codable, Hashable, Sendable {
     public let goal: String
     public let createdAt: String
     public let updatedAt: String
+    /// v21-era additive OPTIONAL field: this session's activation registry —
+    /// one entry per running Claude Code instance (client key → prompt).
+    /// Several prompts are routinely active at once, so this is a LIST, never
+    /// a single pointer. nil from a pre-v21 peer.
+    public let activations: [PromptActivationRow]?
 
     public init(
         uuid: String,
@@ -160,7 +165,8 @@ public struct SessionRow: Codable, Hashable, Sendable {
         backstory: String,
         goal: String,
         createdAt: String,
-        updatedAt: String
+        updatedAt: String,
+        activations: [PromptActivationRow]? = nil
     ) {
         self.uuid = uuid
         self.version = version
@@ -170,6 +176,32 @@ public struct SessionRow: Codable, Hashable, Sendable {
         self.goal = goal
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+        self.activations = activations
+    }
+}
+
+/// One activation claim (v21): a running Claude Code instance (client_key,
+/// resolved from process ancestry by gm) is working prompt X. Claimed by
+/// set-status implementing, released at done.
+public struct PromptActivationRow: Codable, Hashable, Sendable {
+    public let uuid: String
+    public let sessionUuid: String
+    public let promptUuid: String
+    public let clientKey: String
+    public let createdAt: String
+
+    public init(
+        uuid: String,
+        sessionUuid: String,
+        promptUuid: String,
+        clientKey: String,
+        createdAt: String
+    ) {
+        self.uuid = uuid
+        self.sessionUuid = sessionUuid
+        self.promptUuid = promptUuid
+        self.clientKey = clientKey
+        self.createdAt = createdAt
     }
 }
 
@@ -936,6 +968,58 @@ public struct ExplorationSummaryRow: Codable, Hashable, Sendable {
         self.promptUuid = promptUuid
         self.status = status
         self.overview = overview
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+}
+
+/// One agent briefing (v21): the context package a doper agent assembles for
+/// a phase. `kbiteRefs` is the denormalized {file_uuid, brief} JSON the
+/// daemon wrote at complete; `dopeRefs` is a JSON array of dot-paths.
+public struct AgentBriefingRow: Codable, Hashable, Sendable {
+    public let uuid: String
+    public let version: Int64
+    public let sessionUuid: String
+    /// nil = task-owned (a /gm_task run, no prompt row).
+    public let promptUuid: String?
+    public let briefingForStep: String
+    public let status: String
+    public let body: String
+    /// JSON array of DOT-PATH strings.
+    public let dopeRefs: String
+    /// JSON array of {"file_uuid", "brief"} objects.
+    public let kbiteRefs: String
+    public let dopeScopeUuid: String?
+    public let dopeScopeRevision: Int64?
+    public let createdAt: String
+    public let updatedAt: String
+
+    public init(
+        uuid: String,
+        version: Int64,
+        sessionUuid: String,
+        promptUuid: String?,
+        briefingForStep: String,
+        status: String,
+        body: String,
+        dopeRefs: String,
+        kbiteRefs: String,
+        dopeScopeUuid: String?,
+        dopeScopeRevision: Int64?,
+        createdAt: String,
+        updatedAt: String
+    ) {
+        self.uuid = uuid
+        self.version = version
+        self.sessionUuid = sessionUuid
+        self.promptUuid = promptUuid
+        self.briefingForStep = briefingForStep
+        self.status = status
+        self.body = body
+        self.dopeRefs = dopeRefs
+        self.kbiteRefs = kbiteRefs
+        self.dopeScopeUuid = dopeScopeUuid
+        self.dopeScopeRevision = dopeScopeRevision
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }

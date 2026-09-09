@@ -83,6 +83,53 @@ final class CheatsheetTests: XCTestCase {
         XCTAssertGreaterThan(checked, 80, "flag walk looks broken")
     }
 
+    /// The two-tier diet's guard rails: the compact core (what SessionStart
+    /// injects into every session) must stay small, must point at --full,
+    /// must name every top-level family, and must carry the INVARIANTS block
+    /// — otherwise the diet silently regresses into either a bloated core or
+    /// a core that hides capabilities with no pointer out.
+    func testCompactCoreStaysOnItsDiet() {
+        XCTAssertLessThan(
+            Cheatsheet.coreText.utf8.count, 8192,
+            "the compact core outgrew its budget — trim it, don't let SessionStart re-bloat")
+        XCTAssertTrue(Cheatsheet.coreText.contains("gm cheatsheet --full"))
+        XCTAssertTrue(Cheatsheet.coreText.contains("INVARIANTS"))
+        for family in ["PROMPT", "CLARIFY", "ARCH", "EXPLORE", "REVIEW", "BRIEFING",
+                       "DOPE", "DIAGRAM", "COGS", "KBITE", "FILE-CHANGE", "SANDBOX"] {
+            XCTAssertTrue(
+                Cheatsheet.coreText.contains(family),
+                "compact core no longer names the \(family) family")
+        }
+    }
+
+    /// Core/full parity: every `gm ...` signature line in the core's
+    /// AGENT PEN VERBS block must exist VERBATIM in the full sheet — the
+    /// block is extracted, not copied, and this is the guard that keeps it
+    /// that way (a failed extraction leaves a loud MISSING sentinel).
+    func testPenVerbBlockIsExtractedNotCopied() throws {
+        XCTAssertFalse(
+            Cheatsheet.coreText.contains("MISSING FULL-SHEET LINE"),
+            "a pen-verb prefix no longer matches any full-sheet line")
+        guard let blockStart = Cheatsheet.coreText.range(of: "AGENT PEN VERBS"),
+              let blockEnd = Cheatsheet.coreText.range(of: "INVARIANTS") else {
+            return XCTFail("core lost its AGENT PEN VERBS / INVARIANTS structure")
+        }
+        let block = Cheatsheet.coreText[blockStart.upperBound..<blockEnd.lowerBound]
+        var checked = 0
+        for raw in block.split(separator: "\n") {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            guard line.hasPrefix("gm ") else { continue }
+            // The zero-uuid briefing-get line is the one deliberate
+            // core-specific phrasing (the full sheet documents all selectors).
+            if line.hasPrefix("gm briefing get") { continue }
+            checked += 1
+            XCTAssertTrue(
+                Cheatsheet.text.contains(line),
+                "core pen-verb line drifted from the full sheet:\n  \(line)")
+        }
+        XCTAssertGreaterThan(checked, 5, "pen-verb block walk looks broken")
+    }
+
     /// Long flag names a command accepts, read out of ArgumentParser's own
     /// rendered help so the walk can never disagree with the parser. Only the
     /// leading token group of an option line is scanned, so a flag NAMED in

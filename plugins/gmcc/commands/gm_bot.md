@@ -1,21 +1,27 @@
 ---
 name: gm_bot
-description: Lightweight GMCC workflow. Authors a prompt into the current session over the daemon, clarifies it, and implements. All phases run in primary context with no subagents.
+description: Lightweight GMCC workflow. Authors a prompt into the current session over the daemon, clarifies it, and implements. All phases run in primary context; the only spawns are the gmcc:doper briefing passes.
 argument-hint: <prompt-name|seq> <task/prompt content>
 disable-model-invocation: true
-allowed-tools: Read, Write, Edit, Grep, Glob, Bash, Task, AskUserQuestion
+allowed-tools: Bash(gm:*)
 ---
 
 # GM-CDE Bot (Lightweight)
 
-You are executing a lightweight development workflow entirely in the primary context.
+You are executing a lightweight development workflow in the primary context.
+The only spawns are the `gmcc:doper` briefing passes at phase boundaries —
+exploration, planning, and review run in the primary, which holds its own
+pen for every db row it writes.
 
-All persistence goes through the `gm` CLI (bare `gm` — it is on the session PATH) — see `skills/gmcc_daemon/SKILL.md` for the subcommand reference and `skills/gmcc/ref/bot_workflows.md` for the canonical lifecycle. Never read or write ckfs yamls.
+All persistence goes through the `gm` CLI (bare `gm` — it is on the session
+PATH) — see `skills/gmcc_daemon/SKILL.md` for the subcommand reference and
+`skills/gmcc/ref/bot_workflows.md` for the canonical lifecycle (state
+machine, rating polarity, SUMMARY_ABSENT / version-conflict rules,
+doper/briefing protocol). Never read or write ckfs yamls.
 
-The full gm verb surface is already in context: the SessionStart hook prints
-`gm cheatsheet` (exact signatures + invariants). Never run `gm ... --help`
-roundtrips or guess flags — consult the sheet; run `gm cheatsheet` again only
-if it is missing from context.
+SessionStart injects the compact `gm cheatsheet` core (family index + agent
+pen verbs + invariants). For exact signatures run `gm cheatsheet --full` —
+never `gm ... --help` roundtrips, never guess flags.
 
 ---
 
@@ -32,8 +38,22 @@ Exit without proceeding.
 
 The SessionStart hook runs `gm context ensure`; the session env is emitted by `gm context env` (GMCC_BOOTED, GMCC_PLUGIN_ROOT, GMCC_CKFS_ROOT, PATH — plus GMCC_ROOT when sandboxed), and all paths come from `gm paths`.
 
-1. `gm session get --json` for current session state (session row + prompt stubs + change summary). If this exits 2 (daemon unreachable), self-heal: `bash $GMCC_PLUGIN_ROOT/scripts/build_daemon.sh`, then `gm context ensure`, then retry.
-2. One call for the whole session's report state: `gm prompt list --with-reports --json`. Each stub carries its clarification/architecture status, refined goal, backstory note, summary version, and counts; a null report means that summary was never opened. For topic lookup across prompts use `gm search "<topic>" --json` — do NOT grep the ckfs and do NOT open memory files to find prior context. (`gm search` covers prompt/clarification/architecture/exploration/review text; the stubs also carry exploration/review state — findings, sub-100 counts, unranked resume signals, verdicts.)
+Current session state (inlined at invocation):
+
+!`gm session get --json`
+!`gm prompt list --with-reports --json`
+!`gm dope list --json`
+
+The session row carries backstory + prompt stubs + change summary. Each
+prompt stub carries its clarification/architecture status, refined goal,
+backstory note, summary version, exploration/review state (findings, sub-100
+counts, unranked resume signals, verdicts); a null report means that summary
+was never opened. For topic lookup across prompts use
+`gm search "<topic>" --json` — do NOT grep the ckfs and do NOT open memory
+files to find prior context. If the inlined calls errored with exit 2
+(daemon unreachable), self-heal:
+`bash $GMCC_PLUGIN_ROOT/scripts/build_daemon.sh`, then `gm context ensure`,
+then re-run them.
 
 ---
 
@@ -53,10 +73,10 @@ by a prior run. Either way, a bare `/gm_bot {seq}` runs it through the
 normal pipeline from its current status entry point — no continuation text
 required.
 
-1. `gm prompt list --json`; find the stub with `seq: 3`, then `gm prompt get --prompt-uuid U --json` (full content + artifacts + version).
+1. Find the stub with `seq: 3` in the inlined prompt list, then `gm prompt get --prompt-uuid U --json` (full content + artifacts + version).
 2. If not found: error "No prompt with seq 3 in current session".
 3. Determine the entry point from the row's `status` (lifecycle v2):
-   - `draft` → run on the row's verbatim content, jump to Phase 2
+   - `draft` → run on the row's verbatim content, jump to Phase 1 (briefing) then Phase 2
    - `clarifying` → re-enter Phase 3 from where it stalled (`gm clarify get` shows the summary status and open questions; content is locked)
    - `architecting` → jump to Phase 4 (`gm arch get` shows what is already authored)
    - `implementing` → jump to Phase 5 (`gm arch get` is the approved plan + implementation state)
@@ -104,6 +124,9 @@ gm prompt create --name {name} \
   --command /gm_bot --json
 ```
 
+(For a very long passed prompt, write it to a scratch file and pass
+`--detail-file` instead — still verbatim.)
+
 Capture `uuid`, `seq`, `version` (0 on create) from the JSON.
 
 **STAY TRUE — do NOT split, infer, or author `backstory`/`goal`/`detail`.**
@@ -111,7 +134,8 @@ These are human-authored only. The entire passed prompt is `--detail`,
 **verbatim**. `goal` is omitted (empty at create; the Phase 3 Clarify suite
 fleshes it out later). `backstory` is inherited from the session row
 (empty if unset). Never move part of the prompt into `goal`, never
-paraphrase, never invent an outcome.
+paraphrase, never invent an outcome. Full rules:
+`skills/gmcc/ref/bot_workflows.md`.
 
 The daemon seeds the prompt's kbite list from the session's active kbites
 at create time.
@@ -127,72 +151,77 @@ at create time.
 
 ---
 
-## Phase 1: KBite Loading (New Prompt Only)
+## Phase 1: Initial Briefing (doper)
 
-Skip if resuming a prompt whose kbites were already loaded.
+Skip if resuming a prompt whose initial briefing already exists
+(`gm briefing list --prompt-uuid U`).
 
-KBites are **inherited, not auto-detected**. The relevant kbites are already
-declared up the chain — project → instance → session → prompt — and were
-seeded into the prompt row's active list at create time. There is no trigger
-matching and no kbite picker.
+Kbites are **inherited, not auto-detected** — seeded into the prompt row at
+create time. Add one only on explicit user request
+(`gm kbite add --code C --scope prompt --owner-uuid U`); never on your own.
 
-1. Read the inherited kbite list from `gm prompt get --prompt-uuid U --json` (`kbite_codes`).
-2. **Explicit add only.** If the user's prompt text explicitly asks to add a
-   kbite (e.g. "add the swift_ui kbite"), register it
-   (`gm kbite add --code C --scope prompt --owner-uuid U`). Never add a
-   kbite on your own initiative.
-3. For each inherited/added kbite, load its context from the db (digested
-   knowledge is db-canonical): read the purpose at the kbite root
-   (`{kbite_root}/{name}/KBITE_PURPOSE.md`, kbite_root from
-   `gm paths --json`), then
-   `gm kbite get --code {name} --json` for the resource/file-stub/keyword
-   overview, then `gm kbite search "<topic>" --json` (bm25 relevance-ordered;
-   `--code {name}` scopes to one kbite). Read the `file_summary` brief on
-   every hit and `gm kbite file-get --file-uuid U --json` every file whose
-   brief is relevant to this prompt — typically 5-10 files, not a fixed
-   top-N cap.
+Context assembly is delegated to the doper — do NOT hand-load kbite content
+or dump dope trees into your context:
 
-If the inherited list is empty and the prompt names no kbite, load nothing
-and proceed to Phase 2.
+```bash
+gm briefing open --prompt-uuid U --step initial --json     # → briefing uuid
+```
 
-### Phase 1b: DOPE Dump
+```
+Task tool:
+  subagent_type: gmcc:doper
+  prompt: |
+    Owner prompt uuid: {U}
+    Step: initial
+    Topic: {one line — what this prompt is about}
+```
 
-`gm dope list --session-uuid U` — if the session carries a SESSION_INSTANCE
-scope, `gm dope get --session-uuid U --json` and keep the tree in primary
-context through Phase 2 (this tier has no explore spawns, so primary
-context IS the injection). The dump is always the persistence layer's
-source of truth, boot-synced from `.gmcc`. No scope → note it and
-move on. Full protocol: `skills/gmcc/ref/bot_workflows.md`.
+The doper searches the dope tree and kbites (full-tree dumps are forbidden)
+and completes the `agent_briefing` row. This tier has no downstream spawns,
+so the PRIMARY is the consumer — after the doper's receipt, pull it:
+
+```bash
+gm briefing get --prompt-uuid U --step initial --json
+```
+
+Hold the briefing body in context; it names the exact commands for deeper
+pulls (`gm dope get --code`, `gm kbite file-get`). Heed its staleness
+warnings (revision drift, ghost dot-paths).
 
 ---
 
 ## Phase 2: Implementation Overview
 
-Explore the codebase using Glob/Grep/Read. Identify the files relevant to this prompt, the integration points, and any ambiguities to resolve in Clarify. Keep this in primary context — no subagents.
+Explore the codebase using Glob/Grep/Read, grounded by the briefing.
+Identify the files relevant to this prompt, the integration points, and any
+ambiguities to resolve in Clarify.
 
-**Persist the exploration db-natively** — never write it to a file:
+**Persist the exploration db-natively** — never write it to a file. The
+primary holds its own pen here:
 
 ```bash
 gm explore open --prompt-uuid U --json                  # explicit; works at draft
 gm explore key-file-add --summary-uuid S --file-path <repo-relative>   # per key file (deduped)
 gm explore finding-add --summary-uuid S --kind <kind> --title "..." \
-  --body "..." --agent-name primary [--rating N]        # per finding
+  (--body "..." | --body-file P) --agent-name primary [--rating N]     # per finding
 gm explore rank --summary-uuid S --rating <uuid>:<0-999> ...   # rank everything (0=critical, 999=ignore)
-gm explore complete --summary-uuid S --expected-version V --overview "<narrative>"
+gm explore complete --summary-uuid S --expected-version V (--overview "<narrative>" | --overview-file P)
 ```
 
-`complete` refuses while any finding is unranked; the overview is writable only there, and exactly one of `--overview` / `--overview-file` is required. `key-file-add`/`finding-add`/`rank` are refused once complete — on a re-run: `gm explore reopen` → update → re-complete.
+`complete` refuses while any finding is unranked; the overview is writable
+only there. `key-file-add`/`finding-add`/`rank` are refused once complete —
+on a re-run: `gm explore reopen` → update → re-complete.
 
 ---
 
 ## Phase 3: Clarify (db-native)
 
-The clarification is DB-NATIVE — no file mirror, no "grep-ability"
-duplicate: the db rows ARE the record and `gm clarify get` is the render.
+The db rows ARE the record and `gm clarify get` is the render.
 `SUMMARY_ABSENT` means open a summary (`gm clarify open`).
 Thread `--expected-version` on every transition (capture `.version` from each
 response; on `VERSION_CONFLICT`, re-read and retry). `gm prompt set-status`
 is the ONLY door that moves the prompt; clarify verbs touch the summary only.
+Full rules: `skills/gmcc/ref/bot_workflows.md`.
 
 1. **Enter clarifying** (locks the STAY TRUE triple; the daemon creates the summary):
    ```bash
@@ -205,7 +234,7 @@ is the ONLY door that moves the prompt; clarify verbs touch the summary only.
 3. **Seal and answer.** Lock the question list, put the open questions to the user (AskUserQuestion), and record each answer:
    ```bash
    gm clarify seal   --summary-uuid S --expected-version {sv}
-   gm clarify answer --clarification-uuid C --expected-version {cv} --answer "<user's answer>" --source user
+   gm clarify answer --clarification-uuid C --expected-version {cv} --answer "<user's answer>" --source user            # long answers: --answer-file
    gm clarify answer --clarification-uuid C --expected-version {cv} --answer "<judgment call>" --source bot_inferred   # granted-by-prompt resolutions
    gm clarify answer --clarification-uuid C --expected-version {cv} --skip                                             # explicitly not applicable
    ```
@@ -216,7 +245,22 @@ is the ONLY door that moves the prompt; clarify verbs touch the summary only.
      --refined-goal "<acceptance criteria>" --refined-detail "<integrated detail>" [--backstory-note "..."]
    gm prompt set-status --prompt-uuid U --expected-version {v} --status architecting --json   # gate: summary must be complete
    ```
+   (Long refined text: `--refined-goal-file` / `--refined-detail-file`.)
    A wrong answer discovered later: `gm clarify reopen` → re-answer → re-finalize.
+
+### Phase 3b: Pre-Architecture Briefing (doper)
+
+Same shape as Phase 1, second step:
+
+```bash
+gm briefing open --prompt-uuid U --step pre_architecture --json
+```
+
+Spawn `gmcc:doper` (owner prompt uuid, step `pre_architecture`, one-line
+topic) — it folds in the clarification outcome and exploration overview.
+After its receipt, pull the briefing
+(`gm briefing get --prompt-uuid U --step pre_architecture --json`) and hold
+it through Phase 4.
 
 ---
 
@@ -229,10 +273,10 @@ The architecture is DB-NATIVE — the db rows ARE the record and
 1. **Persistence check FIRST (universal):** determine whether this prompt touches the persistence layer (SQLite schema, GRDB records, any ORM entity). Record the outcome as `gm arch persist-add` rows — possibly zero — BEFORE any general change.
 2. Author the plan:
    ```bash
-   gm arch summarize   --summary-uuid S --expected-version {v} --body "<concept-level: approach, components, data flow, tradeoffs — NO file specifics>"
+   gm arch summarize   --summary-uuid S --expected-version {v} (--body "<concept-level: approach, components, data flow, tradeoffs — NO file specifics>" | --body-file P)
    gm arch persist-add --summary-uuid S --class-name C --file-path <repo-rel> --reason "..."      # per persistence class
    gm arch field-add   --persistence-uuid PC --field-name F --data-type T --reason "..." --purpose "..." --nullable|--no-nullable [--foreign-key --fk-target t.col] [--indexed]
-   gm arch general-add --summary-uuid S --file-path <repo-rel> [--class-name C] --reason "..." --depth pseudo|draft|actual --code "<change code>"
+   gm arch general-add --summary-uuid S --file-path <repo-rel> [--class-name C] --reason "..." --depth pseudo|draft|actual (--code "<change code>" | --code-file P)
    ```
    Change rows record ONLY implementation changes (test infra/config counts; individual test cases at most one summary row — never per-case).
 3. **Propose and get approval:**
@@ -244,20 +288,19 @@ The architecture is DB-NATIVE — the db rows ARE the record and
    ```bash
    gm prompt set-status --prompt-uuid U --expected-version {v} --status implementing --json   # gate: architecture must be approved
    ```
+   This claims the prompt_activation row for this Claude instance —
+   file-change auto-attribution rides on it.
 
 ---
 
 ## Phase 5: Implement
 
 1. Execute the approved architecture — **persistence changes first, always** (general changes may assume the post-migration schema, never the reverse).
-2. Make edits with Read/Edit/Write.
-3. After each file write, record it (run from inside the repo; **always pass `--prompt-uuid`** — the implementation-state comparison sees only attributed changes):
+2. Make edits with Read/Edit/Write. File-change bookkeeping is **automatic**: the plugin's PostToolUse hook records every Edit/Write via `gm file-change add --auto-attribute` against the activation claim. The residual manual case is repo files changed through Bash (scripts, generators, `git mv`) — record those yourself:
    ```bash
-   gm file-change add --path <repo-relative path> --kind edit|create|delete|rename \
-     [--range start:end]... [--content "<short note>"] --prompt-uuid U
+   gm file-change add --path <repo-relative> --kind edit|create|delete|rename --auto-attribute
    ```
-   `--content` requires EXACTLY ONE `--range`; pass neither to record the file as touched without line detail.
-4. `gm arch get --prompt-uuid U` at any point shows implementation state per change row (touched/untouched), unplanned changes (scope drift), and the persistence-first audit — use it to find what is left and debug drift.
+3. `gm arch get --prompt-uuid U` at any point shows implementation state per change row (touched/untouched), unplanned changes (scope drift), and the persistence-first audit — use it to find what is left and debug drift.
 
 ---
 
@@ -265,8 +308,8 @@ The architecture is DB-NATIVE — the db rows ARE the record and
 
 1. **Advance to reviewing** (`gm prompt set-status ... --status reviewing`), or skip straight to `done` when the user wants no review pass (`implementing → done` is the one legal skip edge).
 2. Present a summary: files modified, key decisions, known limitations; check `gm arch get` for unimplemented rows and unplanned drift.
-3. **Persist the review db-natively** — never write it to a file: `gm review open --prompt-uuid U`, `gm review finding-add` per finding (kind/title/body, optional --file-path/--line-start/--line-end), `gm review rank`, then `gm review complete --overview "<narrative>" --verdict approved|approved_with_nits|changes_requested`. During the fix loop record each outcome: `gm review resolve --finding-uuid F --expected-version V --status fixed|accepted|wont_fix` (works after complete — that is when the loop runs; address every finding rated under 100).
-4. Wait for user feedback; iterate. When satisfied: `gm prompt set-status ... --status done`.
+3. **Persist the review db-natively** — never write it to a file. The primary holds its own pen: `gm review open --prompt-uuid U`, `gm review finding-add` per finding (kind/title/body or `--body-file`, optional --file-path/--line-start/--line-end, `--agent-name primary`), `gm review rank`, then `gm review complete (--overview "<narrative>" | --overview-file P) --verdict approved|approved_with_nits|changes_requested`. During the fix loop record each outcome: `gm review resolve --finding-uuid F --expected-version V --status fixed|accepted|wont_fix` (works after complete — that is when the loop runs; address every finding rated under 100).
+4. Wait for user feedback; iterate. When satisfied: `gm prompt set-status ... --status done` (releases the prompt's activation claim).
 
 There is no phase-history record — completion is prompt status `done` plus
 the clarification/architecture/exploration/review rows and file-change trail.
@@ -290,9 +333,14 @@ Bot Complete: prompt {seq} ({name})
 
 **VERSION_CONFLICT:** re-run `gm prompt get --prompt-uuid U --json`, take the fresh `version`, retry the mutation.
 
+**Doper spawn failure:** fall back to primary-context retrieval — search-first
+(`gm dope search`, `gm kbite search` → briefs → `gm kbite file-get`), never
+full-tree dumps; complete the briefing row yourself so downstream steps can
+still pull it.
+
 **Session paused (user stops responding):**
 ```
-State preserved: prompt row (gm prompt get) + report rows (gm clarify/arch/explore/review get)
+State preserved: prompt row (gm prompt get) + report rows (gm clarify/arch/explore/review get) + briefings (gm briefing list)
 
 To resume: /gm_bot {seq} <continuation prompt>
 ```

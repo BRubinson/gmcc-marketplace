@@ -134,16 +134,19 @@ struct Explore: ParsableCommand {
         @Option(name: .long, help: "persistence_model, implementation_pattern, existing_functionality, scope_creep_risk, general_relevant_change, or other")
         var kind: ExplorationFindingKind
         @Option(name: .long) var title: String
-        @Option(name: .long) var body: String
+        @Option(name: .long) var body: String?
+        @Option(name: .long, help: "Finding body from a file (the argv-quoting/budget escape hatch).")
+        var bodyFile: String?
         @Option(name: .long, help: "Producing agent/persona (self-reported).")
         var agentName: String
         @Option(name: .long, help: "0 (critical) … 999 (ignore); omit to insert unranked.")
         var rating: Int?
 
         func run() throws {
+            let bodyText = try resolveText(inline: body, file: bodyFile, flag: "body")
             let response = try withClient {
                 try $0.exploreFindingAdd(ExploreFindingAddRequest(
-                    summaryUuid: summaryUuid, kind: kind, title: title, body: body,
+                    summaryUuid: summaryUuid, kind: kind, title: title, body: bodyText,
                     agentName: agentName, rating: rating))
             }
             if output.json { printJSON(response) } else {

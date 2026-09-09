@@ -15,20 +15,21 @@ content store.
 ├── skills/
 │   ├── gmcc/SKILL.md              # Core rules (slim)
 │   ├── gmcc/ref/                  # Reference files (read on-demand)
-│   ├── gmcc_agent/                # Agent system definition
 │   ├── gmcc_daemon/               # gm CLI + daemon invocation reference
 │   ├── gmcc_kbite/                # KBite knowledge system
 │   ├── gmcc_maw/                  # KBite web-fetch skill
 │   ├── gmcc_boot/                 # Boot validation
 │   └── gmcc_cleanup/              # Environment auditing
 ├── commands/gm_*.md               # All GM commands
-├── prompts/gmcc_agent_*.md        # Agent prompt files
+├── agents/*.md                    # Native agent defs (gmcc:code-explorer, doper, …) — identity + pen contract
+├── prompts/gmcc_agent_*.md        # Crunch/maw agent prompts (the bot roles moved to agents/)
 ├── scripts/gmcc_session_startup.sh         # SessionStart hook script
+├── scripts/gmcc_subagent_context.sh        # SubagentStart briefing-stub shim
+├── scripts/gmcc_file_change_hook.sh        # PostToolUse file-change bookkeeping shim
 ├── scripts/build_daemon.sh        # Daemon/gm build + install
 ├── scripts/check_daemon_stale.sh  # SessionStart staleness warning
 ├── daemon/                        # Swift package: gmcc_daemon + gm + GMCCDaemonKit
-├── hooks/hooks.json               # Hook configuration
-└── output-styles/                 # Methodology output styles
+└── hooks/hooks.json               # Hook configuration (SessionStart, SubagentStart, PostToolUse)
 ```
 
 ## Runtime Layout (Per-User)

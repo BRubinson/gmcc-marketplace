@@ -78,6 +78,7 @@ public enum StoreError: Error, Sendable {
             case "architecture": verb = "gm clarify open / gm arch open"
             case "exploration": verb = "gm explore open"
             case "review": verb = "gm review open"
+            case "briefing": verb = "gm briefing open"
             default: verb = "gm clarify open / gm arch open"
             }
             return ErrorPayload(

@@ -23,6 +23,18 @@ extension Store {
             let (projectUuid, _) = try self.ensureProject(db, req.project)
             let (instanceUuid, _) = try self.ensureInstance(db, req.instance, projectUuid: projectUuid)
             let (sessionUuid, _) = try self.ensureSession(db, req.session, instanceUuid: instanceUuid)
+            // OPT-IN activation attribution (v21): the long-standing "omitted
+            // prompt means deliberately session-scoped" semantic stays intact
+            // for every existing caller; only autoAttribute callers (the
+            // PostToolUse bookkeeping hook) walk the ladder — the caller's
+            // own instance claim first, then the session's single claim when
+            // unambiguous, else the change stays unattributed (never a guess
+            // between two concurrent prompts).
+            var attributedPromptUuid = req.promptUuid
+            if attributedPromptUuid == nil, req.autoAttribute == true {
+                attributedPromptUuid = try self.resolveActivePrompt(
+                    db, sessionUuid: sessionUuid, clientKey: req.clientKey)
+            }
             // The comparison join key: normalized at the boundary so
             // architecture change rows and file changes always meet on the
             // same repo-relative string (absolute-outside-instance rejected).
@@ -38,7 +50,7 @@ extension Store {
             let fileChangeUuid = try self.insertBase(db, table: "file_change", extra: [
                 "session_file_uuid": sessionFileUuid,
                 "session_uuid": sessionUuid,
-                "prompt_uuid": req.promptUuid,
+                "prompt_uuid": attributedPromptUuid,
                 "change_kind": req.changeKind.rawValue,
             ])
 

@@ -425,6 +425,17 @@ final class Server: @unchecked Sendable {
             case .reviewGet:
                 return try ReviewGetHandler.handle(line: line, head: head, store: store)
 
+            case .briefingOpen:
+                return try BriefingOpenHandler.handle(line: line, head: head, store: store)
+            case .briefingComplete:
+                return try BriefingCompleteHandler.handle(line: line, head: head, store: store)
+            case .briefingGet:
+                return try BriefingGetHandler.handle(line: line, head: head, store: store)
+            case .briefingList:
+                return try BriefingListHandler.handle(line: line, head: head, store: store)
+            case .briefingStub:
+                return try BriefingStubHandler.handle(line: line, head: head, store: store)
+
             case .dopeInit:
                 return try DopeInitHandler.handle(line: line, head: head, store: store)
             case .dopeList:

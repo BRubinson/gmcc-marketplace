@@ -14,6 +14,29 @@
           }
         ]
       }
+    ],
+    "SubagentStart": [
+      {
+        "matcher": "^gmcc:(doper|code-explorer|code-architect|code-quality-reviewer|finding-reranker)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/gmcc_subagent_context.sh"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "async": true,
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/gmcc_file_change_hook.sh"
+          }
+        ]
+      }
     ]
   }
 }

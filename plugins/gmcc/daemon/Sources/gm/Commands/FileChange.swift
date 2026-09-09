@@ -31,6 +31,9 @@ struct FileChange: ParsableCommand {
         @Option(name: .long, help: "Prompt uuid this change belongs to (optional).")
         var promptUuid: String?
 
+        @Flag(name: .long, help: "Without --prompt-uuid, attribute to the session's active prompt (the PostToolUse hook's flag). Opt-in: omitting it keeps the plain session-scoped semantic.")
+        var autoAttribute = false
+
         func run() throws {
             if content != nil && range.count != 1 {
                 throw ValidationError("--content requires exactly one --range")
@@ -44,7 +47,9 @@ struct FileChange: ParsableCommand {
                 promptUuid: promptUuid,
                 relativePath: path,
                 changeKind: kind,
-                ranges: ranges
+                ranges: ranges,
+                autoAttribute: autoAttribute ? true : nil,
+                clientKey: autoAttribute ? ClientKey.resolve() : nil
             )
             let response = try withClient { client in
                 try client.addFileChange(payload)

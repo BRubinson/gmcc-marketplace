@@ -41,12 +41,15 @@ struct Arch: ParsableCommand {
         @Option(name: .long) var summaryUuid: String
         @Option(name: .long, help: "The summary version this write was based on.")
         var expectedVersion: Int64
-        @Option(name: .long) var body: String
+        @Option(name: .long) var body: String?
+        @Option(name: .long, help: "Body from a file (the argv-budget escape hatch).")
+        var bodyFile: String?
 
         func run() throws {
+            let bodyText = try resolveText(inline: body, file: bodyFile, flag: "body")
             let response = try withClient {
                 try $0.archSummarize(ArchSummarizeRequest(
-                    summaryUuid: summaryUuid, expectedVersion: expectedVersion, body: body))
+                    summaryUuid: summaryUuid, expectedVersion: expectedVersion, body: bodyText))
             }
             if output.json { printJSON(response) } else {
                 print("[gm] architecture body set (v\(response.summary.version))")
@@ -129,13 +132,16 @@ struct Arch: ParsableCommand {
         @Option(name: .long, help: "pseudo, draft, or actual — how literal --code is.")
         var depth: ChangeDepth
         @Option(name: .long, help: "The change's code (fidelity per --depth).")
-        var code: String
+        var code: String?
+        @Option(name: .long, help: "The change's code from a file (the argv-quoting/budget escape hatch).")
+        var codeFile: String?
 
         func run() throws {
+            let codeText = try resolveText(inline: code, file: codeFile, flag: "code")
             let response = try withClient {
                 try $0.archGeneralAdd(ArchGeneralAddRequest(
                     summaryUuid: summaryUuid, filePath: filePath, className: className,
-                    reasonBrief: reason, changeDepth: depth, changeCode: code))
+                    reasonBrief: reason, changeDepth: depth, changeCode: codeText))
             }
             if output.json { printJSON(response) } else {
                 let c = response.change

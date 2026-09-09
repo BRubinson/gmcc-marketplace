@@ -210,10 +210,26 @@ extension Store {
                 db, table: "prompt", uuid: req.promptUuid,
                 expectedVersion: req.expectedVersion,
                 set: ["status": req.status.rawValue])
+            // Activation is a SIDE EFFECT of the lifecycle door, not a verb:
+            // declaring work active already WAS set-status implementing. One
+            // claim per running Claude instance (client_key), so concurrent
+            // prompts on one session each keep their own claim — never a
+            // last-writer-wins pointer. done releases the PROMPT's claim
+            // regardless of which instance calls it.
+            let sessionUuid: String = head["session_uuid"]
+            if req.status == .implementing, let clientKey = req.clientKey {
+                try self.claimActivation(
+                    db, sessionUuid: sessionUuid,
+                    promptUuid: req.promptUuid, clientKey: clientKey)
+            } else if req.status == .done {
+                try db.execute(
+                    sql: "DELETE FROM prompt_activation WHERE prompt_uuid = ?",
+                    arguments: [req.promptUuid])
+            }
             try self.appendEvent(
                 db, kind: .promptStatusChange, subjectUuid: req.promptUuid,
                 payload: Store.jsonPayload(["from": from.rawValue, "to": req.status.rawValue]))
-            try self.touchSession(db, uuid: head["session_uuid"])
+            try self.touchSession(db, uuid: sessionUuid)
             guard let row = try self.fetchPromptRow(db, uuid: req.promptUuid) else {
                 throw StoreError.notFound(entity: "prompt", key: req.promptUuid)
             }

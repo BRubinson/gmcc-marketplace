@@ -303,7 +303,10 @@ extension Store {
         title: String, body: String, agentName: String
     ) throws -> (title: String, body: String, agentName: String) {
         let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        let agentName = agentName.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Normalized at write, forward-only (no backfill — history is
+        // append-only): the db already carries case-split personas
+        // ("Aggressive" vs "aggressive") that fracture per-agent queries.
+        let agentName = Store.normalizedAgentName(agentName)
         guard !title.isEmpty else { throw StoreError.badRequest(detail: "finding title is empty") }
         guard !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw StoreError.badRequest(detail: "finding body is empty")
@@ -314,6 +317,12 @@ extension Store {
                 detail: "finding body exceeds \(Store.maxNarrativeBytes / (1024 * 1024)) MB")
         }
         return (title, body, agentName)
+    }
+
+    static func normalizedAgentName(_ raw: String) -> String {
+        raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: " ", with: "_")
     }
 
     static func validatedOverview(_ raw: String, entity: String) throws -> String {
