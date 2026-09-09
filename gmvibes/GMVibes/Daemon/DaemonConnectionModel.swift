@@ -341,10 +341,16 @@ final class DaemonConnectionModel {
             // At prompt scope the subject is the owner (prompt) uuid — refresh
             // the open editor's pills for terminal-side registry edits.
             if let uuid = event.subjectUuid?.lowercased() { hub.invalidate(.prompt(uuid)) }
-        case .kbiteDigest, .kbiteKeywordTag:
+        case .kbiteDigest, .kbiteKeywordTag, .kbiteImport:
             // No subscriber surface: the KBites browser reads the filesystem
-            // and its search hits the daemon on demand.
+            // and its search hits the daemon on demand. Import (v22) changes
+            // content only — it never registers, so no pills move.
             break
+        case .kbiteDelete:
+            // v22: the cascade drops the kbite's registrations at EVERY
+            // scope, and the subject is the kbite uuid — not routable to the
+            // prompts whose pills just lost an entry. Wake open prompt panes.
+            hub.invalidateAllPrompts()
         case .promptMemoryChange:
             // Ephemeral (id 0, never a replay cursor). The daemon resolves the
             // storage path server-side and the subject IS the prompt uuid — no
