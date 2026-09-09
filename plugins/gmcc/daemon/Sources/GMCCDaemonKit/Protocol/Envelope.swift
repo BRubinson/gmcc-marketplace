@@ -54,7 +54,11 @@ public enum GMCCWireProtocol {
     /// fails in the decoder rather than at the door. Once every peer is at
     /// v20 that risk is retired for free, because the handshake rejects a
     /// stale peer before any payload reaches a decoder.
-    public static let version = 21
+    ///
+    /// v21 → v22: KBITE_EXPORT / KBITE_IMPORT / KBITE_DELETE — the
+    /// portable-kbite family. Three new message types, so the bump is
+    /// mandatory under the same rule as v20.
+    public static let version = 22
 }
 
 /// Discriminator for every NDJSON message on the socket. One case per spec
@@ -117,6 +121,9 @@ public enum MessageType: String, Codable, Hashable, CaseIterable, Sendable {
     case kbiteFileGet = "KBITE_FILE_GET"
     case kbiteSearch = "KBITE_SEARCH"
     case kbiteKeywordTag = "KBITE_KEYWORD_TAG"
+    case kbiteExport = "KBITE_EXPORT"
+    case kbiteImport = "KBITE_IMPORT"
+    case kbiteDelete = "KBITE_DELETE"
     // Catalog search (instances + sessions, the GMVibes search bar)
     case catalogSearch = "CATALOG_SEARCH"
     // Full-text search over prompt/clarification/architecture text (v8)

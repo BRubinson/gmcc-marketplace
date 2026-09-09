@@ -176,6 +176,18 @@ extension DaemonClient {
         try request(type: .kbiteKeywordTag, payload: req, responseType: KbiteKeywordTagResponse.self)
     }
 
+    public func exportKbite(_ req: KbiteExportRequest) throws -> KbiteExportResponse {
+        try request(type: .kbiteExport, payload: req, responseType: KbiteExportResponse.self)
+    }
+
+    public func importKbite(_ req: KbiteImportRequest) throws -> KbiteImportResponse {
+        try request(type: .kbiteImport, payload: req, responseType: KbiteImportResponse.self)
+    }
+
+    public func deleteKbite(_ req: KbiteDeleteRequest) throws -> KbiteDeleteResponse {
+        try request(type: .kbiteDelete, payload: req, responseType: KbiteDeleteResponse.self)
+    }
+
     // MARK: - Audit
 
     public func listEvents(_ req: EventListRequest) throws -> EventListResponse {

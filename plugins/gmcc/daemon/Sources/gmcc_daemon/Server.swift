@@ -360,6 +360,12 @@ final class Server: @unchecked Sendable {
                 return try KbiteSearchHandler.handle(line: line, head: head, store: store)
             case .kbiteKeywordTag:
                 return try KbiteKeywordTagHandler.handle(line: line, head: head, store: store)
+            case .kbiteExport:
+                return try KbiteExportHandler.handle(line: line, head: head, store: store)
+            case .kbiteImport:
+                return try KbiteImportHandler.handle(line: line, head: head, store: store)
+            case .kbiteDelete:
+                return try KbiteDeleteHandler.handle(line: line, head: head, store: store)
 
             case .clarifyOpen:
                 return try ClarifyOpenHandler.handle(line: line, head: head, store: store)

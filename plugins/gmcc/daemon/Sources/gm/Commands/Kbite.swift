@@ -2,17 +2,19 @@ import ArgumentParser
 import Foundation
 import GMCCDaemonKit
 
-/// gm kbite list|add|remove|maw-open|digest|get|file-get|search|keyword-tag —
-/// the kbite capability set over the daemon. The db is the sole kbite
-/// registry (registry mutations are db-only); all ckfs paths are resolved
-/// HERE from $GMCC_KBITE_OPEN and passed absolute, so the daemon never needs
-/// gmcc environment variables.
+/// gm kbite list|add|remove|maw-open|digest|get|file-get|search|keyword-tag|
+/// export|import|delete — the kbite capability set over the daemon. The db
+/// is the sole kbite registry (registry mutations are db-only); all ckfs
+/// paths are resolved HERE and passed absolute, so the daemon never needs
+/// gmcc environment variables. Bulk bytes never ride the wire: export/import
+/// hand the daemon staging paths and do zip/copy work client-side.
 struct Kbite: ParsableCommand {
     static let configuration = CommandConfiguration(
-        abstract: "KBite registry, maw, digest, and knowledge queries.",
+        abstract: "KBite registry, maw, digest, knowledge queries, and portable zips.",
         subcommands: [
             List.self, Add.self, Remove.self, MawOpen.self, Digest.self,
             Get.self, FileGet.self, Search.self, KeywordTag.self,
+            Export.self, Import.self, Delete.self,
         ]
     )
 
@@ -279,6 +281,354 @@ struct Kbite: ParsableCommand {
                         print("    keywords: \(hit.matchedKeywords.joined(separator: ", "))")
                     }
                 }
+            }
+        }
+    }
+
+    // MARK: - Portable zips (export / import / delete)
+
+    /// gmcc_kbite_{code}_{YYYYMMDD}.zip contents. Single format: MANIFEST +
+    /// db_export.json + root/ (identity docs, inert) + digested/ (raw
+    /// sources, .git stripped).
+    private static let dbExportName = "db_export.json"
+    private static let manifestName = "MANIFEST.yaml"
+    private static let rootDirName = "root"
+    private static let digestedDirName = "digested"
+
+    private static func makeStaging(_ label: String) throws -> URL {
+        let staging = FileManager.default.temporaryDirectory
+            .appendingPathComponent("gm_kbite_\(label)_\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        return staging
+    }
+
+    /// YYYYMMDD from the daemon's seconds-precision ISO clock.
+    private static func dateStamp() -> String {
+        String(Store.isoNow().prefix(10)).replacingOccurrences(of: "-", with: "")
+    }
+
+    /// Collision-suffixed destination under a directory (the Backup.swift
+    /// -N loop).
+    private static func unclaimedPath(in dir: URL, base: String, ext: String?) -> URL {
+        let fm = FileManager.default
+        func candidate(_ suffix: String) -> URL {
+            let name = ext.map { "\(base)\(suffix).\($0)" } ?? "\(base)\(suffix)"
+            return dir.appendingPathComponent(name)
+        }
+        var destination = candidate("")
+        var attempt = 2
+        while fm.fileExists(atPath: destination.path) {
+            destination = candidate("-\(attempt)")
+            attempt += 1
+        }
+        return destination
+    }
+
+    /// MOVE a tree into {ckfs_root}/_archive/cold_storage/ — the house
+    /// archive convention; purge/replace never rm.
+    @discardableResult
+    private static func moveToColdStorage(_ source: URL, label: String) throws -> URL {
+        let cold = try KbitePaths.coldStorage()
+        try FileManager.default.createDirectory(at: cold, withIntermediateDirectories: true)
+        let destination = unclaimedPath(in: cold, base: label, ext: nil)
+        try FileManager.default.moveItem(at: source, to: destination)
+        return destination
+    }
+
+    /// The three machine roots that can appear inside kbite text, as
+    /// scrub/rehydrate rules. Both kbite trees collapse to ONE placeholder;
+    /// rehydrate maps it to the importing machine's digested tree.
+    private static func prefixRules(code: String, paths: PathsGetResponse) -> [KbitePrefixRule] {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let openTree = URL(fileURLWithPath: paths.kbiteOpenRoot, isDirectory: true)
+            .appendingPathComponent(code, isDirectory: true).path
+        let digestedTree = URL(fileURLWithPath: paths.kbiteDigestedRoot, isDirectory: true)
+            .appendingPathComponent(code, isDirectory: true).path
+        return [
+            KbitePrefixRule(prefix: openTree, placeholder: KbiteArchive.treePlaceholder),
+            KbitePrefixRule(prefix: digestedTree, placeholder: KbiteArchive.treePlaceholder),
+            KbitePrefixRule(prefix: home, placeholder: KbiteArchive.homePlaceholder),
+        ]
+    }
+
+    /// Rules for mapping placeholders back to THIS machine's trees.
+    private static func rehydrateRules(code: String, paths: PathsGetResponse) -> [KbitePrefixRule] {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let digestedTree = URL(fileURLWithPath: paths.kbiteDigestedRoot, isDirectory: true)
+            .appendingPathComponent(code, isDirectory: true).path
+        return [
+            KbitePrefixRule(prefix: digestedTree, placeholder: KbiteArchive.treePlaceholder),
+            KbitePrefixRule(prefix: home, placeholder: KbiteArchive.homePlaceholder),
+        ]
+    }
+
+    /// Copy root identity docs, scrubbing/rehydrating markdown text in
+    /// flight; non-markdown files copy verbatim.
+    private static func copyRootDocs(
+        from source: URL, to destination: URL,
+        transform: (String) -> String
+    ) throws -> Int {
+        let fm = FileManager.default
+        try fm.createDirectory(at: destination, withIntermediateDirectories: true)
+        var copied = 0
+        for name in (try? fm.contentsOfDirectory(atPath: source.path))?.sorted() ?? [] {
+            let sourceFile = source.appendingPathComponent(name)
+            let destFile = destination.appendingPathComponent(name)
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: sourceFile.path, isDirectory: &isDir), !isDir.boolValue else {
+                continue
+            }
+            if name.hasSuffix(".md"), let text = try? String(contentsOf: sourceFile, encoding: .utf8) {
+                try transform(text).write(to: destFile, atomically: true, encoding: .utf8)
+            } else {
+                try? fm.removeItem(at: destFile)
+                try fm.copyItem(at: sourceFile, to: destFile)
+            }
+            copied += 1
+        }
+        return copied
+    }
+
+    struct Export: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Export one kbite to a portable zip (db export + root docs + .git-stripped sources).")
+
+        @OptionGroup var output: OutputOptions
+
+        @Option(name: .long, help: "Kbite code (snake_case).")
+        var code: String
+
+        @Option(name: .long, help: "Directory for the zip (defaults to the current directory).")
+        var outputDir: String?
+
+        struct Result: Codable {
+            let zipPath: String
+            let kbiteUuid: String
+            let resourceCount: Int
+            let fileCount: Int
+            let kbiteKeywordCount: Int
+            let fileKeywordCount: Int
+            let hasRoot: Bool
+            let hasDigested: Bool
+        }
+
+        func run() throws {
+            let fm = FileManager.default
+            let paths = try withClient { try $0.pathsGet() }
+            let staging = try Kbite.makeStaging("export")
+            defer { try? fm.removeItem(at: staging) }
+
+            // Daemon writes the scrubbed db export into staging (fails fast
+            // on an unknown code, before any filesystem work).
+            let response = try withClient { client in
+                try client.exportKbite(KbiteExportRequest(
+                    code: code,
+                    dbExportPath: staging.appendingPathComponent(Kbite.dbExportName).path,
+                    anonymize: Kbite.prefixRules(code: code, paths: paths)))
+            }
+
+            // Root identity docs (scrubbed) — inert content, never parsed on
+            // import. KBITE_RELATIONSHIPS.md travels but is not resolved.
+            let identity = try KbitePaths.identity(name: code)
+            var hasRoot = false
+            if fm.fileExists(atPath: identity.path) {
+                let rules = Kbite.prefixRules(code: code, paths: paths)
+                hasRoot = try Kbite.copyRootDocs(
+                    from: identity,
+                    to: staging.appendingPathComponent(Kbite.rootDirName, isDirectory: true)
+                ) { KbiteArchive.scrub($0, rules: rules) } > 0
+            }
+
+            // Digested raw sources, .git stripped during the copy. A missing
+            // tree degrades to a db-only export with a warning.
+            let digested = try KbitePaths.digested(name: code)
+            var hasDigested = false
+            if fm.fileExists(atPath: digested.path) {
+                try Sandbox.runProcess("/usr/bin/rsync", [
+                    "-a", "--exclude=.git",
+                    digested.path + "/",
+                    staging.appendingPathComponent(Kbite.digestedDirName, isDirectory: true).path + "/",
+                ])
+                hasDigested = true
+            } else if !output.json {
+                print("[gm] warning: no digested tree at \(digested.path) — exporting db content only")
+            }
+
+            let manifest = """
+            format_version: \(KbiteArchive.formatVersion)
+            kbite_code: \(code)
+            exported_at: \(Store.isoNow())
+            wire_version: \(GMCCWireProtocol.version)
+            resource_count: \(response.resourceCount)
+            file_count: \(response.fileCount)
+            kbite_keyword_count: \(response.kbiteKeywordCount)
+            file_keyword_count: \(response.fileKeywordCount)
+            has_root: \(hasRoot)
+            has_digested: \(hasDigested)
+            """
+            try (manifest + "\n").write(
+                to: staging.appendingPathComponent(Kbite.manifestName),
+                atomically: true, encoding: .utf8)
+
+            // Courtesy warning before compressing a giant staging tree.
+            let duOut = try Sandbox.capture("/usr/bin/du", ["-sk", staging.path])
+            let sizeKB = Int(duOut.split(separator: "\t").first ?? "0") ?? 0
+            if sizeKB > 1_048_576 {
+                FileHandle.standardError.write(
+                    "[gm] warning: staging tree is \(sizeKB / 1024) MB — zipping may take a while\n"
+                        .data(using: .utf8)!)
+            }
+
+            let outDir = URL(
+                fileURLWithPath: outputDir ?? fm.currentDirectoryPath, isDirectory: true)
+            try fm.createDirectory(at: outDir, withIntermediateDirectories: true)
+            let zipURL = Kbite.unclaimedPath(
+                in: outDir, base: "gmcc_kbite_\(code)_\(Kbite.dateStamp())", ext: "zip")
+            do {
+                try Sandbox.runProcess("/usr/bin/ditto", [
+                    "-c", "-k", "--sequesterRsrc", staging.path, zipURL.path,
+                ])
+            } catch {
+                // A failed zip must not leave a partial archive behind.
+                try? fm.removeItem(at: zipURL)
+                throw error
+            }
+
+            let result = Result(
+                zipPath: zipURL.path,
+                kbiteUuid: response.kbiteUuid,
+                resourceCount: response.resourceCount,
+                fileCount: response.fileCount,
+                kbiteKeywordCount: response.kbiteKeywordCount,
+                fileKeywordCount: response.fileKeywordCount,
+                hasRoot: hasRoot,
+                hasDigested: hasDigested)
+            if output.json {
+                printJSON(result)
+            } else {
+                print("[gm] exported \(code): \(result.resourceCount) resource(s), \(result.fileCount) file(s), \(result.kbiteKeywordCount + result.fileKeywordCount) keyword attachment(s)")
+                print("  zip: \(result.zipPath)")
+                print("  root docs: \(hasRoot ? "included" : "none"); digested sources: \(hasDigested ? "included (.git stripped)" : "none")")
+            }
+        }
+    }
+
+    struct Import: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Import a kbite zip: db rows + digested sources + root docs. Never registers.")
+
+        @OptionGroup var output: OutputOptions
+
+        @Option(name: .long, help: "Path to a gmcc_kbite_*.zip.")
+        var zipFile: String
+
+        @Option(name: .long, help: "When the code already exists: skip (default, non-destructive) or overwrite (preserves the kbite uuid and registrations).")
+        var onCollision: KbiteImportCollision = .skip
+
+        func run() throws {
+            let fm = FileManager.default
+            let staging = try Kbite.makeStaging("import")
+            defer { try? fm.removeItem(at: staging) }
+            try Sandbox.runProcess("/usr/bin/ditto", ["-x", "-k", zipFile, staging.path])
+
+            let exportURL = staging.appendingPathComponent(Kbite.dbExportName)
+            guard fm.fileExists(atPath: exportURL.path) else {
+                throw ValidationError("no \(Kbite.dbExportName) in \(zipFile) — not a gmcc kbite archive")
+            }
+            // Decode once client-side for the code (rehydrate rules need it
+            // before the daemon call); format gating happens daemon-side too.
+            let document = try KbiteArchive.decode(try Data(contentsOf: exportURL))
+            let code = document.code
+            let paths = try withClient { try $0.pathsGet() }
+            let rules = Kbite.rehydrateRules(code: code, paths: paths)
+
+            // Db first, atomically. Filesystem placement only after commit.
+            let response = try withClient { client in
+                try client.importKbite(KbiteImportRequest(
+                    dbExportPath: exportURL.path,
+                    onCollision: onCollision,
+                    rehydrate: rules))
+            }
+            if response.skippedExisting {
+                if output.json {
+                    printJSON(response)
+                } else {
+                    print("[gm] kbite \(code) already exists — skipped (re-run with --on-collision overwrite to replace it)")
+                }
+                return
+            }
+
+            // Digested sources: archive any existing tree, then move the
+            // staged one into place.
+            var notes: [String] = []
+            let stagedDigested = staging.appendingPathComponent(Kbite.digestedDirName, isDirectory: true)
+            if fm.fileExists(atPath: stagedDigested.path) {
+                let digested = try KbitePaths.digested(name: code)
+                if fm.fileExists(atPath: digested.path) {
+                    let archived = try Kbite.moveToColdStorage(
+                        digested, label: "gmcc_kbite_\(code)_pre_import_\(Kbite.dateStamp())")
+                    notes.append("previous digested tree moved to \(archived.path)")
+                }
+                try fm.createDirectory(
+                    at: digested.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try fm.moveItem(at: stagedDigested, to: digested)
+                notes.append("digested sources restored to \(digested.path)")
+            } else {
+                notes.append("archive carried no digested sources (db content only)")
+            }
+
+            // Root identity docs, rehydrated to this machine's roots.
+            let stagedRoot = staging.appendingPathComponent(Kbite.rootDirName, isDirectory: true)
+            if fm.fileExists(atPath: stagedRoot.path) {
+                let identity = try KbitePaths.identity(name: code)
+                let copied = try Kbite.copyRootDocs(from: stagedRoot, to: identity) {
+                    KbiteArchive.rehydrate($0, rules: rules)
+                }
+                notes.append("\(copied) root doc(s) restored to \(identity.path)")
+            }
+
+            if output.json {
+                printJSON(response)
+            } else {
+                print("[gm] imported \(code): \(response.resourceCount) resource(s), \(response.fileCount) file(s), \(response.keywordCount) keyword(s)")
+                print("  kbite uuid: \(response.kbiteUuid ?? "—")")
+                for note in notes { print("  \(note)") }
+                print("  not registered at any scope — run: gm kbite add --code \(code)")
+            }
+        }
+    }
+
+    struct Delete: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Delete a kbite's db content (one cascade; registrations drop, events survive).")
+
+        @OptionGroup var output: OutputOptions
+
+        @Option(name: .long) var code: String
+
+        @Flag(name: .long, help: "Also MOVE the digested source tree to _archive/cold_storage/ (never rm).")
+        var purgeFilesystem = false
+
+        func run() throws {
+            let response = try withClient { client in
+                try client.deleteKbite(KbiteDeleteRequest(code: code))
+            }
+            var purgeNote: String?
+            if purgeFilesystem {
+                let digested = try KbitePaths.digested(name: code)
+                if FileManager.default.fileExists(atPath: digested.path) {
+                    let archived = try Kbite.moveToColdStorage(
+                        digested, label: "gmcc_kbite_\(code)_\(Kbite.dateStamp())")
+                    purgeNote = "digested tree moved to \(archived.path)"
+                } else {
+                    purgeNote = "no digested tree at \(digested.path) — nothing to purge"
+                }
+            }
+            if output.json {
+                printJSON(response)
+            } else {
+                print("[gm] deleted \(code): \(response.deletedResources) resource(s), \(response.deletedFiles) file(s), \(response.deletedRegistrations) registration(s) dropped, \(response.gcKeywordCount) orphan keyword(s) GC'd")
+                if let purgeNote { print("  \(purgeNote)") }
             }
         }
     }

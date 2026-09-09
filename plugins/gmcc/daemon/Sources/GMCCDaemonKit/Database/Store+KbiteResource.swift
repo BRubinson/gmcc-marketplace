@@ -340,8 +340,9 @@ extension Store {
     }
 
     /// Idempotent junction insert; returns whether a row was created.
+    /// (Internal, not private — Store+KbiteArchive's import reuses it.)
     @discardableResult
-    private func attachKeyword(
+    func attachKeyword(
         _ db: Database, table: String, ownerColumn: String, ownerUuid: String, keywordUuid: String
     ) throws -> Bool {
         let exists = try Row.fetchOne(

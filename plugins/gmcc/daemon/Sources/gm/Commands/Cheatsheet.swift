@@ -140,6 +140,9 @@ struct Cheatsheet: ParsableCommand {
       gm kbite file-get --file-uuid U
       gm kbite search "<query>" [--code C] [--kbite-uuids U ...] [--limit N]   (bm25-ranked stubs with briefs; read briefs, then file-get)
       gm kbite keyword-tag --level kbite|file --target-uuid U --keywords K ... [--detach]
+      gm kbite export --code C [--output-dir P]   (single-format gmcc_kbite_{code}_{date}.zip: MANIFEST + db_export.json + root docs + .git-stripped digested sources; paths scrubbed to placeholders)
+      gm kbite import --zip-file P [--on-collision skip|overwrite]   (db first then filesystem; skip is the default, overwrite preserves the kbite uuid + registrations; NEVER registers — compose gm kbite add)
+      gm kbite delete --code C [--purge-filesystem]   (one cascading db delete incl. registrations, orphan keywords GC'd; purge MOVES the digested tree to _archive/cold_storage/, never rm)
     SANDBOX (local-dev sandbox at {ckfs_root}/development/local_sandbox; prod db touched ONLY by the Online-Backup read; kbites never copied; never gm setup --launchd in a sandbox)
       gm sandbox refresh   (run from the gmcc-marketplace repo root, prod env only — refuses under GMCC_ROOT; quiesce -> gm backup -> OFFLINE retarget of the staged db (config roots + instance identity + storage paths) -> ckfs subtree rsync -> git clone --local / fetch+reset -> binaries+launchers -> atomic db install -> snapshot_meta.json LAST; re-run is always safe recovery)
       gm sandbox status   (generation, instance code, daemon liveness; a metaless sandbox is partial — re-run refresh)
@@ -159,7 +162,7 @@ struct Cheatsheet: ParsableCommand {
       - Values starting with a dash need --flag=value form (e.g. --content="- item").
       - After gm prompt create, mkdir -p $GMCC_CKFS_ROOT/<ckfs_relative_storage_path>/memory verbatim from the response — never re-derive {seq}_{name}.
     RESPONSE NOTES
-      - kbite file-get content may be null: the raw source lives on the filesystem (path in the row), not in the db.
+      - kbite file-get content may be null: the raw source lives on the filesystem under the kbite's digested tree (located by resource/file name — no path column exists), not in the db.
       - status table_counts are point-in-time totals, not an event cursor — replay events via gm events --since-id.
     """
 
@@ -206,7 +209,7 @@ struct Cheatsheet: ParsableCommand {
           DOPE — init · list · get · search · promote · scope/persistence/entity/property/enum/option add/update/delete · read-repo · write-repo · ingest · sync · merge-plan · resolve
           DIAGRAM — init · list · get · update · element-add/update/delete · batch-apply · from-dope   RENDER — gm render
           COGS — add · update · delete · get · element-add/update/delete   PROMPT-DIAGRAM — qualify · get · list
-          ARTIFACT — add · list   FILE-CHANGE — add · list   KBITE — list · add · remove · maw-open · digest · get · file-get · search · keyword-tag
+          ARTIFACT — add · list   FILE-CHANGE — add · list   KBITE — list · add · remove · maw-open · digest · get · file-get · search · keyword-tag · export · import · delete
           SANDBOX — refresh · status   OTHER — cheatsheet [--full]
         AGENT PEN VERBS (exact signatures, extracted verbatim from the full sheet — what spawned agents drive)
           gm briefing get --step initial|pre_architecture   (zero-uuid deterministic form: session from cwd, instance from process ancestry; uuid/prompt selectors also exist)

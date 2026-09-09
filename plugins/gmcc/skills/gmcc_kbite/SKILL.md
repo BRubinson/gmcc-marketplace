@@ -369,11 +369,54 @@ GMB should suggest creating a kbite when:
 | `/gm_crunch_chew {kbite_name}` | Process crunchables and generate chewed analysis |
 | `/gm_crunch_digest {kbite_name}` | Import chewed knowledge into the db, archive raw sources, delete the maw |
 | `/gm_kbite_relate {from} {to} {description}` | Define relationship between kbites |
+| `/gm_kbite_export {kbite_code} [output_dir]` | Export one kbite to a portable gmcc_kbite zip |
+| `/gm_kbite_import {zip_path} [overwrite]` | Import a gmcc_kbite zip (db + sources; never registers) |
 
 Direct queries: `gm kbite list [--scope S | --all]`, `gm kbite get --code C`,
 `gm kbite search "<query>"`, `gm kbite file-get --file-uuid U`,
 `gm kbite keyword-tag --level kbite|file --target-uuid U --keywords K...`.
+Lifecycle: `gm kbite export|import|delete` (see below).
 Full CLI reference: `$GMCC_PLUGIN_ROOT/skills/gmcc_daemon/SKILL.md`.
+
+---
+
+## Export / Import Archive Format
+
+One kbite per zip, single format (no payload-scope variants):
+
+```
+gmcc_kbite_{code}_{YYYYMMDD}.zip
+  MANIFEST.yaml      format_version, code, exported_at, wire_version,
+                     counts, has_root / has_digested
+  db_export.json     the db rows: kbite code, resources (name/summary/
+                     type/trust), files (name/summary/nullable content),
+                     ALL keywords by text (kbite- and file-level)
+  root/              KBITE_PURPOSE.md, KBITE_RELATIONSHIPS.md (inert —
+                     relationships are never resolved on import)
+  digested/          the raw-source archive, .git stripped
+```
+
+Rules the format guarantees:
+
+1. **No machine paths travel.** Export replaces `{kbite_open_root}/{code}`,
+   `{kbite_digested_root}/{code}`, and `$HOME` with placeholders
+   (`{{KBITE_TREE}}`, `{{GMCC_HOME}}`) across every text surface;
+   import rehydrates them to the importing machine's roots. This is a
+   correctness requirement, not cosmetics — stale absolute paths would
+   silently break future re-digests.
+2. **No uuids travel as identity.** The kbite's identity is its `code`;
+   resource/file uuids are re-minted on import (referrers are
+   ghost-tolerant by design) and keywords remap by TEXT into the importing
+   machine's shared vocabulary.
+3. **Collision policy**: `skip` (default, non-destructive) or `overwrite`
+   (replaces content under the EXISTING kbite uuid, so scope registrations
+   survive; the previous digested tree moves to `_archive/cold_storage/`).
+4. **Import never registers.** Activate explicitly with `gm kbite add`.
+5. **Delete is db-first**: `gm kbite delete --code C` cascades resources,
+   files, junctions, and registrations in one statement (FTS stays
+   consistent; orphaned keywords are garbage-collected; event history
+   survives). `--purge-filesystem` MOVES the digested tree to
+   `_archive/cold_storage/` — nothing is ever `rm`'d.
 
 ---
 

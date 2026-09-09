@@ -78,6 +78,10 @@ public enum DaemonEventKind: String, Codable, Hashable, CaseIterable, Sendable {
     // status edge, and the stamped scope revision so GMVibes can refresh a
     // briefing panel without a fetch-diff.
     case briefingChange = "BRIEFING_CHANGE"
+    // v22 — durable rows: the portable-kbite verbs. Export is a read and
+    // never events; import/delete are content mutations.
+    case kbiteImport = "KBITE_IMPORT"
+    case kbiteDelete = "KBITE_DELETE"
     /// Ephemeral broadcast only (id 0, never a daemon_event row, never a
     /// replay cursor) — emitted by MemoryWatcher when a prompt's memory/
     /// directory changes on disk.
@@ -1458,6 +1462,146 @@ public struct KbiteKeywordTagResponse: Codable, Hashable, Sendable {
     public init(attached: Int, detached: Int) {
         self.attached = attached
         self.detached = detached
+    }
+}
+
+// MARK: - KBITE_EXPORT / KBITE_IMPORT / KBITE_DELETE
+
+// The portable-kbite family (v22). Bulk data NEVER rides the wire — the 10MB
+// inbound line cap forbids it. The gm CLI resolves absolute staging paths
+// client-side and the daemon reads/writes db_export.json at those paths
+// (the KBITE_DIGEST idiom); zip assembly, source-tree copies, and
+// cold-storage moves are all CLI-side.
+
+/// Daemon writes the scrubbed db_export.json at `dbExportPath`. `anonymize`
+/// carries the CLI-resolved machine roots as prefix→placeholder rules — the
+/// daemon never learns gmcc env vars exist.
+public struct KbiteExportRequest: Codable, Hashable, Sendable {
+    public let code: String
+    public let dbExportPath: String
+    public let anonymize: [KbitePrefixRule]
+
+    public init(code: String, dbExportPath: String, anonymize: [KbitePrefixRule]) {
+        self.code = code
+        self.dbExportPath = dbExportPath
+        self.anonymize = anonymize
+    }
+}
+
+public struct KbiteExportResponse: Codable, Hashable, Sendable {
+    public let kbiteUuid: String
+    public let code: String
+    public let resourceCount: Int
+    public let fileCount: Int
+    public let kbiteKeywordCount: Int
+    public let fileKeywordCount: Int
+    public let dbExportPath: String
+
+    public init(
+        kbiteUuid: String,
+        code: String,
+        resourceCount: Int,
+        fileCount: Int,
+        kbiteKeywordCount: Int,
+        fileKeywordCount: Int,
+        dbExportPath: String
+    ) {
+        self.kbiteUuid = kbiteUuid
+        self.code = code
+        self.resourceCount = resourceCount
+        self.fileCount = fileCount
+        self.kbiteKeywordCount = kbiteKeywordCount
+        self.fileKeywordCount = fileKeywordCount
+        self.dbExportPath = dbExportPath
+    }
+}
+
+/// Collision policy when the archive's code already exists in the db.
+/// `skip` (the CLI default) leaves the existing kbite untouched; `overwrite`
+/// replaces content under the EXISTING kbite uuid so every `*_active_kbite`
+/// registration survives.
+public enum KbiteImportCollision: String, Codable, Hashable, CaseIterable, Sendable {
+    case skip
+    case overwrite
+}
+
+/// Daemon reads db_export.json at `dbExportPath`, rehydrates placeholder
+/// paths via `rehydrate`, and writes rows in one transaction. Never creates
+/// registration rows — `gm kbite add` stays the only registration door.
+public struct KbiteImportRequest: Codable, Hashable, Sendable {
+    public let dbExportPath: String
+    public let onCollision: KbiteImportCollision
+    public let rehydrate: [KbitePrefixRule]
+
+    public init(dbExportPath: String, onCollision: KbiteImportCollision, rehydrate: [KbitePrefixRule]) {
+        self.dbExportPath = dbExportPath
+        self.onCollision = onCollision
+        self.rehydrate = rehydrate
+    }
+}
+
+public struct KbiteImportResponse: Codable, Hashable, Sendable {
+    public let kbiteUuid: String?
+    public let code: String
+    public let imported: Bool
+    public let skippedExisting: Bool
+    public let resourceCount: Int
+    public let fileCount: Int
+    public let keywordCount: Int
+
+    public init(
+        kbiteUuid: String?,
+        code: String,
+        imported: Bool,
+        skippedExisting: Bool,
+        resourceCount: Int,
+        fileCount: Int,
+        keywordCount: Int
+    ) {
+        self.kbiteUuid = kbiteUuid
+        self.code = code
+        self.imported = imported
+        self.skippedExisting = skippedExisting
+        self.resourceCount = resourceCount
+        self.fileCount = fileCount
+        self.keywordCount = keywordCount
+    }
+}
+
+/// One cascading delete: resources, files, junctions, and every scope
+/// registration go with the kbite row (that unregistration is the desired
+/// behavior here, unlike overwrite). Orphaned shared-vocabulary keywords are
+/// garbage-collected in the same transaction. daemon_event history survives.
+public struct KbiteDeleteRequest: Codable, Hashable, Sendable {
+    public let code: String
+
+    public init(code: String) {
+        self.code = code
+    }
+}
+
+public struct KbiteDeleteResponse: Codable, Hashable, Sendable {
+    public let kbiteUuid: String
+    public let code: String
+    public let deletedResources: Int
+    public let deletedFiles: Int
+    public let deletedRegistrations: Int
+    public let gcKeywordCount: Int
+
+    public init(
+        kbiteUuid: String,
+        code: String,
+        deletedResources: Int,
+        deletedFiles: Int,
+        deletedRegistrations: Int,
+        gcKeywordCount: Int
+    ) {
+        self.kbiteUuid = kbiteUuid
+        self.code = code
+        self.deletedResources = deletedResources
+        self.deletedFiles = deletedFiles
+        self.deletedRegistrations = deletedRegistrations
+        self.gcKeywordCount = gcKeywordCount
     }
 }
 
