@@ -68,6 +68,27 @@ struct Context: ParsableCommand {
                 if let notice = promotion.flatMap({ DopePromotion.notice(for: $0) }) {
                     FileHandle.standardError.write(Data((notice + "\n").utf8))
                 }
+
+                // Public-diagram boot sync (v23): committed
+                // .gmcc/diagrams/*.diagram.doped.json land files → db under
+                // the same never-fatal rule. The verb is strictly
+                // forward-only, so a stale checkout cannot clobber db work,
+                // and an empty/absent directory is a silent no-op.
+                let diagrams = withClientOutcome { client in
+                    try? client.diagramIngest(
+                        DiagramIngestRequest(sessionUuid: response.sessionUuid))
+                }
+                if let ingested = diagrams??.ingested, !ingested.isEmpty {
+                    FileHandle.standardError.write(Data(
+                        ("[gm] diagram boot sync: ingested "
+                         + ingested.joined(separator: ", ") + "\n").utf8))
+                }
+                // Per-file problems must be SEEN or the family's sync goes
+                // quietly dead — the verb already tolerates them per file.
+                for warning in diagrams??.warnings ?? [] {
+                    FileHandle.standardError.write(Data(
+                        ("[gm] diagram boot sync: \(warning)\n").utf8))
+                }
             }
 
             if output.json {

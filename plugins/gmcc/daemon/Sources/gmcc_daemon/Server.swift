@@ -497,6 +497,14 @@ final class Server: @unchecked Sendable {
                 return try DiagramNodeDeleteHandler.handle(line: line, head: head, store: store)
             case .diagramBatchApply:
                 return try DiagramBatchApplyHandler.handle(line: line, head: head, store: store)
+            case .diagramSearch:
+                return try DiagramSearchHandler.handle(line: line, head: head, store: store)
+            case .diagramDelete:
+                return try DiagramDeleteHandler.handle(line: line, head: head, store: store)
+            case .diagramWriteRepo:
+                return try DiagramWriteRepoHandler.handle(line: line, head: head, store: store)
+            case .diagramIngest:
+                return try DiagramIngestHandler.handle(line: line, head: head, store: store)
 
             case .sessionResolve:
                 return try SessionResolveHandler.handle(line: line, head: head, store: store)

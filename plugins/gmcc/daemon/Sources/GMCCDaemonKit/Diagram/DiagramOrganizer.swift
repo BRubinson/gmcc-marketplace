@@ -43,12 +43,12 @@ public enum DiagramOrganizer {
                                   center: CGPoint(x: element.frame.midX,
                                                   y: element.frame.midY),
                                   size: element.frame.size))
-            case .layer, .stroke, .shape, .text, .connector,
+            case .layer, .stroke, .shape, .text, .connector, .umlNode,
                  .scopeCard, .absentScope:
                 // Organize lays out ENTITY CARDS. Hand-placed drawing
-                // content keeps the position it was drawn at, and a
-                // connector has no position of its own at all — it follows
-                // whatever its endpoints do.
+                // content (UML nodes included) keeps the position it was
+                // drawn at, and a connector has no position of its own at
+                // all — it follows whatever its endpoints do.
                 break
             }
             for child in element.children { collect(child) }

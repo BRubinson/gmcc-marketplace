@@ -26,6 +26,9 @@ struct SessionDiagramsPane: View {
     private var owner: DiagramCatalogStore.Owner { .session(scope.sessionUuid) }
     private var rows: [DiagramRow] { diagrams.rows(owner) }
     private var projectRows: [DiagramRow] { diagrams.rows(.project(projectUuid)) }
+    private var galleryScope: DiagramCatalogStore.GalleryScope {
+        .session(projectUuid: projectUuid, sessionUuid: scope.sessionUuid)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -91,35 +94,34 @@ struct SessionDiagramsPane: View {
         .padding(.vertical, 8)
     }
 
-    @ViewBuilder
+    /// The session gallery: this session's SESSION+PROMPT rows via
+    /// DIAGRAM_SEARCH — a wider net than the session-owner list the header
+    /// actions still run on (uniqueCode needs exactly the owner's codes).
     private var content: some View {
-        if rows.isEmpty {
-            // The normal pre-create state, not an error.
-            ContentUnavailableView(
-                "No Diagrams Yet",
-                systemImage: "point.3.connected.trianglepath.dotted",
-                description: Text(scopes.isEmpty
-                    ? "A diagram is drawn over a dope scope. Initialize one from the "
-                      + "Dope tab, then create a diagram here."
-                    : "Create one with New Diagram — it is scaffolded from the dope "
-                      + "scope you pick."))
-        } else {
-            List(rows, id: \.uuid) { row in
-                DiagramListRow(row: row, subtitle: subtitle(row)) {
-                    onOpen(DiagramWindowID.saved(row, session: windowID))
-                } menu: {
-                    Button("Promote to Project") { promote(row) }
-                        .help("Move this diagram up to the project tier")
-                }
-            }
-            .listStyle(.inset)
+        DiagramGalleryView(scope: galleryScope, onOpen: { row in
+            onOpen(DiagramWindowID.saved(row, session: windowID))
+        }) { row in
+            cardMenu(row)
         }
     }
 
-    private func subtitle(_ row: DiagramRow) -> String {
-        var parts = [row.code, "revision \(row.revision)"]
-        if let scopeCode = row.dopeScopeCode { parts.insert("dope \(scopeCode)", at: 1) }
-        return parts.joined(separator: " · ")
+    @ViewBuilder
+    private func cardMenu(_ row: DiagramRow) -> some View {
+        if row.tier == DiagramTier.session.rawValue {
+            Button("Promote to Project") { promote(row) }
+                .help("Move this diagram up to the project tier")
+        }
+        // PUBLIC is SESSION-tier only, but the daemon owns that rule — a
+        // refusal surfaces through the existing error alert, not a pre-block.
+        if row.visibility == DiagramVisibility.public.rawValue {
+            Button("Make Private") { setVisibility(row, .private) }
+        } else {
+            Button("Make Public") { setVisibility(row, .public) }
+                .help("PUBLIC session diagrams can serialize into the repo's "
+                      + "committed .gmcc tree via gm diagram write-repo")
+        }
+        Divider()
+        Button("Delete Diagram", role: .destructive) { delete(row) }
     }
 
     // MARK: - Actions
@@ -147,6 +149,20 @@ struct SessionDiagramsPane: View {
         run {
             try await diagrams.promote(row, to: .project, ownerUuid: projectUuid,
                                        from: owner)
+            await diagrams.refreshGallery(galleryScope)
+        }
+    }
+
+    private func setVisibility(_ row: DiagramRow, _ visibility: DiagramVisibility) {
+        run {
+            try await diagrams.setVisibility(row, to: visibility, scope: galleryScope)
+        }
+    }
+
+    private func delete(_ row: DiagramRow) {
+        run {
+            try await diagrams.delete(row, scope: galleryScope)
+            await diagrams.refresh(owner)
         }
     }
 
@@ -177,40 +193,3 @@ struct SessionDiagramsPane: View {
     }
 }
 
-/// One diagram row: name, identity line, an overflow menu of row-level
-/// actions. Shared by the session pane and the project rail.
-struct DiagramListRow<Menu: View>: View {
-    let row: DiagramRow
-    let subtitle: String
-    let onOpen: () -> Void
-    @ViewBuilder let menu: () -> Menu
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Button(action: onOpen) {
-                HStack(spacing: 10) {
-                    Image(systemName: "point.3.connected.trianglepath.dotted")
-                        .foregroundStyle(.secondary)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(row.name).font(.body).lineLimit(1)
-                        Text(subtitle)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                    Spacer(minLength: 0)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-
-            SwiftUI.Menu {
-                menu()
-            } label: {
-                Image(systemName: "ellipsis.circle")
-            }
-            .menuStyle(.borderlessButton)
-            .frame(width: 24)
-        }
-    }
-}

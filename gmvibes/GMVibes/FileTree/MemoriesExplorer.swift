@@ -1,4 +1,5 @@
 import SwiftUI
+import GMCCDaemonKit
 
 // CodeEdit-style file explorer over a prompt's memory/ folder: a recursive
 // navigator on the left, a block-markdown / find-in-page reader on the right.

@@ -1,4 +1,5 @@
 import Foundation
+import GMCCDaemonKit
 
 enum KBitePreview {
     case markdown(blocks: [MarkdownBlock], source: String)

@@ -199,6 +199,9 @@ public struct DiagramRowUpdate: Codable, Hashable, Sendable {
     public let description: String?
     public let gmccDiagramPath: FieldPatch<String>?
     public let promotion: DiagramPromotion?
+    /// v23: the visibility axis. PUBLIC is store-guarded to SESSION tier —
+    /// the same session→instance-root gate dope write-repo uses.
+    public let visibility: DiagramVisibility?
 
     public init(
         expectedVersion: Int64,
@@ -206,7 +209,8 @@ public struct DiagramRowUpdate: Codable, Hashable, Sendable {
         name: String? = nil,
         description: String? = nil,
         gmccDiagramPath: FieldPatch<String>? = nil,
-        promotion: DiagramPromotion? = nil
+        promotion: DiagramPromotion? = nil,
+        visibility: DiagramVisibility? = nil
     ) {
         self.expectedVersion = expectedVersion
         self.code = code
@@ -214,6 +218,7 @@ public struct DiagramRowUpdate: Codable, Hashable, Sendable {
         self.description = description
         self.gmccDiagramPath = gmccDiagramPath
         self.promotion = promotion
+        self.visibility = visibility
     }
 }
 

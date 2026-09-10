@@ -19,6 +19,17 @@ public enum DiagramTier: String, Codable, Hashable, CaseIterable, Sendable {
     case prompt = "PROMPT"
 }
 
+/// diagram.visibility values — an AXIS beside the tier ladder, never a rung
+/// on it (m0024). PRIVATE lives in the db only; PUBLIC additionally
+/// serializes into the repo's committed .gmcc tree via gm diagram
+/// write-repo. PUBLIC is legal ONLY on SESSION-tier rows — the same
+/// session→instance-root gate dope write-repo uses — enforced by a Swift
+/// store guard, not a CHECK (the rule crosses tables).
+public enum DiagramVisibility: String, Codable, Hashable, CaseIterable, Sendable {
+    case `private` = "PRIVATE"
+    case `public` = "PUBLIC"
+}
+
 /// diagram_element.element_type values. Raw values are the db discriminators
 /// AND the wire payload tags — one string, three layers.
 ///
@@ -34,6 +45,7 @@ public enum DiagramElementType: String, Codable, Hashable, CaseIterable, Sendabl
     case drawingShape = "drawing_shape"
     case drawingText = "drawing_text"
     case connector = "connector"
+    case umlNode = "uml_node"
     case dopeScopePersistenceLayer = "dope_scope_persistence_layer"
     case dopeEntity = "dope_entity"
 
@@ -46,6 +58,7 @@ public enum DiagramElementType: String, Codable, Hashable, CaseIterable, Sendabl
         case .drawingShape: return "shape"
         case .drawingText: return "text"
         case .connector: return "connector"
+        case .umlNode: return "node"
         case .dopeScopePersistenceLayer: return "scope"
         case .dopeEntity: return "entity"
         }
@@ -59,6 +72,7 @@ public enum DiagramElementType: String, Codable, Hashable, CaseIterable, Sendabl
         case .drawingShape: return "Shape"
         case .drawingText: return "Text"
         case .connector: return "Connector"
+        case .umlNode: return "Node"
         case .dopeScopePersistenceLayer: return "Dope Scope Persistence Layer"
         case .dopeEntity: return "Dope Entity"
         }
@@ -147,6 +161,20 @@ public enum DiagramStrokeTool: String, Codable, Hashable, CaseIterable, Sendable
     case pencil
     case marker
     case highlighter
+}
+
+/// diagram_uml_node.node_kind values — the UML vocabulary, ONE element type
+/// with a kind column (the drawing_shape/shape_kind precedent, and xyflow's
+/// node-types-are-data model). Reshaping a node is an ordinary wholesale
+/// payload update; a type-per-shape design would make it delete+recreate,
+/// ghosting every incoming connector.
+public enum DiagramNodeKind: String, Codable, Hashable, CaseIterable, Sendable {
+    case dbCylinder = "db_cylinder"
+    case roundedRect = "rounded_rect"
+    case triangle
+    case rhombus
+    case diamond
+    case circle
 }
 
 /// A typed reference from one element to ANOTHER element, declared once in
@@ -251,10 +279,23 @@ public struct DiagramElementTypeSpec: Sendable {
                 elementRefs: [], resolution: .immediate,
                 participatesInRouting: true),
             DiagramElementTypeSpec(
+                type: .umlNode, subtypeTable: "diagram_uml_node",
+                // Explicit width/height on the subtype row, like drawing_text:
+                // markdown wrapping needs a known layout width, and the kit
+                // never measures text (hosts may auto-fit and write back).
+                vertexStorage: .none,
+                allowedParentTypes: [.drawingLayer], isDopeBinding: false,
+                elementRefs: [], resolution: .immediate,
+                // Structural content: edges route around nodes.
+                participatesInRouting: true),
+            DiagramElementTypeSpec(
                 type: .connector, subtypeTable: "diagram_connector",
                 vertexStorage: .none,
                 // Rendered as a child of the element it connects FROM.
-                allowedParentTypes: [.dopeEntity, .drawingShape, .drawingText],
+                // umlNode joined in m0024 — without it nodes could not
+                // source an edge at all.
+                allowedParentTypes: [.dopeEntity, .drawingShape, .drawingText,
+                                     .umlNode],
                 isDopeBinding: false,
                 elementRefs: [DiagramElementRefSpec(
                     role: "target", column: "target_element_uuid",

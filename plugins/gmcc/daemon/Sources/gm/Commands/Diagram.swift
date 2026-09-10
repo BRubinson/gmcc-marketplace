@@ -15,7 +15,8 @@ struct Diagram: ParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "DIAGRAM canvases: init, list, get, element edits, batch apply, screenshot.",
         subcommands: [
-            Init.self, List.self, Get.self, Update.self,
+            Init.self, List.self, Get.self, Update.self, Search.self,
+            Delete.self, WriteRepo.self, Ingest.self,
             ElementAdd.self, ElementUpdate.self, ElementDelete.self,
             BatchApply.self, FromDope.self,
         ]
@@ -92,7 +93,7 @@ struct Diagram: ParsableCommand {
         var code: String
         @Option(name: .long) var name: String
         @Option(name: .long) var description: String?
-        @Option(name: .long, help: "Repo path anchor (instance tier and below; refused at PROJECT tier).")
+        @Option(name: .long, help: "Repo path anchor (session tier and below; refused at PROJECT tier).")
         var gmccDiagramPath: String?
         @Option(name: .customLong("dope-scope-code"),
                 help: "Dope scope this whole diagram reads/writes through (masking tiers only).")
@@ -121,12 +122,15 @@ struct Diagram: ParsableCommand {
 
         @OptionGroup var output: OutputOptions
         @OptionGroup var owner: OwnerOptions
+        @Option(name: .long, help: "Filter by visibility (PRIVATE|PUBLIC); absent = both.")
+        var visibility: String?
 
         func run() throws {
             let response = try withClient {
                 try $0.diagramList(DiagramListRequest(
                     projectUuid: owner.projectUuid, instanceUuid: nil,
-                    sessionUuid: owner.sessionUuid, promptUuid: owner.promptUuid))
+                    sessionUuid: owner.sessionUuid, promptUuid: owner.promptUuid,
+                    visibility: visibility.map { $0.uppercased() }))
             }
             if output.json { printJSON(response) } else {
                 print("[gm] \(response.diagrams.count) diagram(s)")
@@ -185,14 +189,16 @@ struct Diagram: ParsableCommand {
         @Option(name: .long) var code: String?
         @Option(name: .long) var name: String?
         @Option(name: .long) var description: String?
-        @Option(name: .long, help: "Set gmcc_diagram_path (instance tier and below).")
+        @Option(name: .long, help: "Set gmcc_diagram_path (session tier and below).")
         var gmccDiagramPath: String?
         @Flag(name: .long, help: "Set gmcc_diagram_path to NULL.")
         var clearGmccDiagramPath = false
-        @Option(name: .long, help: "Promotion target tier (PROJECT|INSTANCE|SESSION|PROMPT); pair with --promote-owner-uuid.")
+        @Option(name: .long, help: "Promotion target tier (PROJECT|SESSION|PROMPT); pair with --promote-owner-uuid.")
         var promoteTier: String?
         @Option(name: .long, help: "The owner row at the new tier (must resolve to the same project).")
         var promoteOwnerUuid: String?
+        @Option(name: .long, help: "PRIVATE (db-only) | PUBLIC (repo-serializable; SESSION tier only).")
+        var visibility: String?
 
         func run() throws {
             if gmccDiagramPath != nil, clearGmccDiagramPath {
@@ -215,9 +221,17 @@ struct Diagram: ParsableCommand {
                 throw ValidationError("--promote-tier and --promote-owner-uuid come together")
             }
 
+            var visibilityValue: DiagramVisibility?
+            if let raw = visibility {
+                guard let parsed = DiagramVisibility(rawValue: raw.uppercased()) else {
+                    throw ValidationError("unknown visibility '\(raw)' (PRIVATE|PUBLIC)")
+                }
+                visibilityValue = parsed
+            }
             let update = DiagramRowUpdate(
                 expectedVersion: expectedVersion, code: code, name: name,
-                description: description, gmccDiagramPath: pathPatch, promotion: promotion)
+                description: description, gmccDiagramPath: pathPatch,
+                promotion: promotion, visibility: visibilityValue)
             let response = try withClient {
                 try $0.diagramBatchApply(DiagramBatchApplyRequest(
                     diagramUuid: diagramUuid, mutations: [.diagramUpdate(update)]))
@@ -226,6 +240,128 @@ struct Diagram: ParsableCommand {
                 let version = response.results.first?.version ?? 0
                 print("[gm] diagram updated: \(response.diagramUuid) "
                     + "(v\(version), revision \(response.revision))")
+            }
+        }
+    }
+
+    struct Search: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Cross-tier browse/search (the gallery backend). Empty/absent query = every project diagram by recency; a query = bm25 over the diagram FTS. LIST's one-owner picker contract is untouched.")
+
+        @OptionGroup var output: OutputOptions
+        @Argument(help: "FTS query over code/name/description; omit to browse.")
+        var query: String?
+        @Option(name: .long, help: "Project scope (defaults to the current repo's project).")
+        var projectUuid: String?
+        @Option(name: .long, help: "Narrow to one session's SESSION+PROMPT rows.")
+        var sessionUuid: String?
+        @Option(name: .long, help: "Filter by visibility (PRIVATE|PUBLIC).")
+        var visibility: String?
+        @Option(name: .long) var limit: Int?
+
+        func run() throws {
+            let response = try withClient { client in
+                let project = try projectUuid
+                    ?? client.ensureContext(try ContextBuilder.ensureRequest()).projectUuid
+                return try client.diagramSearch(DiagramSearchRequest(
+                    projectUuid: project, sessionUuid: sessionUuid, query: query,
+                    visibility: visibility.map { $0.uppercased() }, limit: limit))
+            }
+            if output.json { printJSON(response) } else {
+                print("[gm] \(response.diagrams.count) diagram(s)")
+                for d in response.diagrams {
+                    print("  \(d.code) \(d.uuid)  \(d.tier)/\(d.visibility)  "
+                        + "revision \(d.revision)  \(d.name)")
+                }
+            }
+        }
+    }
+
+    struct Delete: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Delete a diagram row (elements/FTS/qualified readings cascade). gm backup first for anything precious; the ckfs screenshot is removed best-effort.")
+
+        @OptionGroup var output: OutputOptions
+        @Option(name: .long) var diagramUuid: String
+        @Option(name: .long, help: "Whole-diagram CAS gate (refuse unless revision matches).")
+        var expectedRevision: Int64?
+
+        func run() throws {
+            let response = try withClient {
+                try $0.diagramDelete(DiagramDeleteRequest(
+                    diagramUuid: diagramUuid, expectedRevision: expectedRevision))
+            }
+            // Screenshot cleanup is CLIENT territory (Render writes there):
+            // best-effort, never fails the delete — and it must clean the
+            // SAME paths gm render writes (DiagramStorage owns both names;
+            // the sidecar is {code}.render.json, and gmcc_diagram_path
+            // overrides the "diagrams" segment).
+            if let ownerPath = response.ownerStoragePath,
+               let ckfsRoot = try? withClient({ try $0.pathsGet() }).ckfsRoot {
+                let root = URL(fileURLWithPath: ckfsRoot)
+                let relatives = [
+                    try? DiagramStorage.screenshotRelativePath(
+                        ownerStoragePath: ownerPath,
+                        gmccDiagramPath: response.gmccDiagramPath,
+                        diagramCode: response.code),
+                    try? DiagramStorage.fingerprintRelativePath(
+                        ownerStoragePath: ownerPath,
+                        gmccDiagramPath: response.gmccDiagramPath,
+                        diagramCode: response.code),
+                ]
+                for relative in relatives.compactMap({ $0 }) {
+                    try? FileManager.default.removeItem(
+                        at: root.appendingPathComponent(relative))
+                }
+            }
+            if output.json { printJSON(response) } else {
+                print("[gm] diagram deleted: \(response.deletedUuid) "
+                    + "('\(response.code)', \(response.cascadedElements) element(s))")
+            }
+        }
+    }
+
+    struct WriteRepo: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "write-repo",
+            abstract: "Serialize the session's PUBLIC SESSION-tier diagrams into the repo's committed .gmcc/diagrams tree (explicit — PUBLIC alone never writes files). Refuses when a file is ahead unless --force.")
+
+        @OptionGroup var output: OutputOptions
+        @Option(name: .long, help: "Session whose instance root receives the files (defaults to the current repo's session).")
+        var sessionUuid: String?
+        @Flag(name: .long, help: "Overwrite files stamped ahead of the db.")
+        var force = false
+
+        func run() throws {
+            let response = try withClient { client in
+                let session = try sessionUuid ?? ContextBuilder.resolveSessionUuid(client)
+                return try client.diagramWriteRepo(DiagramWriteRepoRequest(
+                    sessionUuid: session, force: force))
+            }
+            if output.json { printJSON(response) } else {
+                print("[gm] wrote \(response.written.count) diagram file(s) → \(response.root)")
+                for code in response.written { print("  \(code)") }
+                for code in response.pruned { print("  pruned \(code)") }
+            }
+        }
+    }
+
+    struct Ingest: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "files→db for committed public diagrams, strictly forward-only (a file lands only when its version is ahead; PRIVATE collisions are skipped). The boot-sync door.")
+
+        @OptionGroup var output: OutputOptions
+        @Option(name: .long, help: "Session whose instance root is read (defaults to the current repo's session).")
+        var sessionUuid: String?
+
+        func run() throws {
+            let response = try withClient { client in
+                let session = try sessionUuid ?? ContextBuilder.resolveSessionUuid(client)
+                return try client.diagramIngest(DiagramIngestRequest(sessionUuid: session))
+            }
+            if output.json { printJSON(response) } else {
+                print("[gm] ingested \(response.ingested.count) diagram(s) from \(response.root)"
+                    + (response.skipped.isEmpty ? "" : "; skipped: \(response.skipped.joined(separator: ", "))"))
             }
         }
     }

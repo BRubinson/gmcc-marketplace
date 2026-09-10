@@ -141,6 +141,7 @@ public enum ResolvedElementKind: Sendable {
     case shape(ResolvedShape)
     case text(ResolvedText)
     case connector(ResolvedConnector)
+    case umlNode(ResolvedUmlNode)
     case scopeCard(ResolvedScopeCard)
     case entityCard(EntityCardModel)
     /// The LEGAL dangling-binding state: a dope_scope code matching no scope,
@@ -185,17 +186,49 @@ public struct ResolvedConnector: Hashable, Sendable {
     public let lineWidth: Double
     public let lineStyle: DiagramConnectorLineStyle
     public let headKind: DiagramConnectorHead
+    public let routingKind: DiagramConnectorRouting
+    public let tailKind: DiagramConnectorHead
     public let label: String
 
     public init(target: Target, strokeColor: String, lineWidth: Double,
                 lineStyle: DiagramConnectorLineStyle,
-                headKind: DiagramConnectorHead, label: String) {
+                headKind: DiagramConnectorHead,
+                routingKind: DiagramConnectorRouting = .orthogonalStep,
+                tailKind: DiagramConnectorHead = .none,
+                label: String) {
         self.target = target
         self.strokeColor = strokeColor
         self.lineWidth = lineWidth
         self.lineStyle = lineStyle
         self.headKind = headKind
+        self.routingKind = routingKind
+        self.tailKind = tailKind
         self.label = label
+    }
+}
+
+/// A resolved UML node: explicit frame (never text-measured), a kind that
+/// picks the chrome, and the markdown interior. Optional chrome is
+/// nil-means-theme-default so unstyled nodes stay legible in both schemes.
+public struct ResolvedUmlNode: Hashable, Sendable {
+    public let nodeKind: DiagramNodeKind
+    public let markdown: String
+    public let fontSize: Double
+    public let textColor: String?
+    public let strokeColor: String?
+    public let lineWidth: Double
+    public let fillColor: String?
+
+    public init(nodeKind: DiagramNodeKind, markdown: String, fontSize: Double,
+                textColor: String?, strokeColor: String?, lineWidth: Double,
+                fillColor: String?) {
+        self.nodeKind = nodeKind
+        self.markdown = markdown
+        self.fontSize = fontSize
+        self.textColor = textColor
+        self.strokeColor = strokeColor
+        self.lineWidth = lineWidth
+        self.fillColor = fillColor
     }
 }
 
@@ -218,12 +251,18 @@ public struct ResolvedStroke: Sendable {
     /// Scales with the accumulated transform.
     public let lineWidth: Double
     public let tool: DiagramStrokeTool
+    /// The perfect-freehand outline polygon, derived at resolve time from
+    /// the persisted centerline+pressure (renderAlgoVersion 2). Empty =
+    /// degenerate stroke; the view falls back to the plain stroked line.
+    public let outline: [CGPoint]
 
-    public init(points: [CGPoint], color: String, lineWidth: Double, tool: DiagramStrokeTool) {
+    public init(points: [CGPoint], color: String, lineWidth: Double,
+                tool: DiagramStrokeTool, outline: [CGPoint] = []) {
         self.points = points
         self.color = color
         self.lineWidth = lineWidth
         self.tool = tool
+        self.outline = outline
     }
 }
 
@@ -493,9 +532,16 @@ public enum DiagramResolver {
             let points = payload.vertices.map {
                 CGPoint(x: center.x + $0.x * scale, y: center.y + $0.y * scale)
             }
+            // Pressure-aware outline for the drawing tools; the highlighter
+            // keeps its flat translucent band (an outline would read as
+            // marker). Derivation only — nothing is persisted.
+            let outline = payload.tool == .highlighter ? [] : StrokeOutliner.outline(
+                points: points,
+                pressures: payload.vertices.map(\.pressure),
+                options: StrokeOutliner.Options(size: payload.strokeWidth * scale * 2))
             kind = .stroke(ResolvedStroke(points: points, color: payload.strokeColor,
                                           lineWidth: payload.strokeWidth * scale,
-                                          tool: payload.tool))
+                                          tool: payload.tool, outline: outline))
             frame = points.isEmpty
                 ? CGRect(origin: center, size: .zero)
                 : points.dropFirst().reduce(CGRect(origin: points[0], size: .zero)) {
@@ -544,7 +590,32 @@ public enum DiagramResolver {
                 target: .absent, strokeColor: payload.strokeColor,
                 lineWidth: payload.strokeWidth * scale,
                 lineStyle: payload.lineStyle, headKind: payload.headKind,
+                routingKind: payload.routingKind, tailKind: payload.tailKind,
                 label: payload.label))
+
+        case .umlNode(let payload):
+            // Connectors are children of the element they connect FROM, so
+            // a node walks its children like an entity card does — and like
+            // the card, its frame is its OWN explicit size, never a child
+            // extent (a connector must not inflate the node it hangs off).
+            children = sortedChildren.map {
+                resolveElement($0, parentCenter: center, parentScale: scale,
+                               parentUuid: node.identity.uuid,
+                               scope: scope, environment: environment,
+                               entityFrames: &entityFrames, obstacles: &obstacles,
+                               pass: &pass)
+            }
+            let width = payload.width * scale
+            let height = payload.height * scale
+            frame = CGRect(x: center.x - width / 2, y: center.y - height / 2,
+                           width: width, height: height)
+            kind = .umlNode(ResolvedUmlNode(
+                nodeKind: payload.nodeKind, markdown: payload.markdown,
+                fontSize: (payload.fontSize ?? 13) * scale,
+                textColor: payload.textColor,
+                strokeColor: payload.strokeColor,
+                lineWidth: (payload.strokeWidth ?? 2) * scale,
+                fillColor: payload.fillColor))
 
         case .dopeScopePersistenceLayer(let payload):
             children = sortedChildren.map {
@@ -605,8 +676,11 @@ public enum DiagramResolver {
         // EVERY element's frame goes in the index, not just entity cards —
         // that is what lets phase 2 resolve a connector against any element.
         let type = node.payload.elementType
+        var nodeKind: DiagramNodeKind?
+        if case .umlNode(let payload) = node.payload { nodeKind = payload.nodeKind }
         pass.frames[node.identity.uuid] = ResolvePass.Frame(
-            frame: frame, type: type, parentUuid: parentUuid, scale: scale)
+            frame: frame, type: type, parentUuid: parentUuid, scale: scale,
+            nodeKind: nodeKind)
 
         // Obstacle participation is now DATA on the registry rather than a
         // hardcoded branch: structural content (entity cards, shapes, text
@@ -702,6 +776,17 @@ public enum DiagramResolver {
             let type: DiagramElementType
             let parentUuid: String?
             let scale: Double
+            var nodeKind: DiagramNodeKind?
+
+            /// The frame ANCHORS attach to. A triangle's side midpoints are
+            /// empty space (the outline slopes inward), so its anchor frame
+            /// insets horizontally to where the outline actually is at
+            /// mid-height. Obstacles keep the FULL frame — edges must still
+            /// route around the base.
+            var anchorFrame: CGRect {
+                guard nodeKind == .triangle else { return frame }
+                return frame.insetBy(dx: frame.width * 0.24, dy: 0)
+            }
         }
         /// Every immediate element, by uuid.
         var frames: [String: Frame] = [:]
@@ -736,11 +821,11 @@ public enum DiagramResolver {
                   let targetUuid = deferred.payload.targetElementUuid,
                   let target = pass.frames[targetUuid]
             else { continue }
-            let (from, to) = anchorPoints(source.frame, target.frame)
+            let (from, to) = anchorPoints(source.anchorFrame, target.anchorFrame)
             seeds.append(EdgeSeed(
                 request: DiagramEdgeRouter.EdgeRequest(
-                    fromFrame: source.frame, toFrame: target.frame,
-                    sourceRowY: source.frame.midY,
+                    fromFrame: source.anchorFrame, toFrame: target.anchorFrame,
+                    sourceRowY: source.anchorFrame.midY,
                     propertyRef: deferred.code,
                     fromElementUuid: parentUuid),
                 fallbackFrom: from, fallbackTo: to,
@@ -754,6 +839,8 @@ public enum DiagramResolver {
                         lineWidth: deferred.payload.strokeWidth * deferred.scale,
                         lineStyle: deferred.payload.lineStyle,
                         headKind: deferred.payload.headKind,
+                        routingKind: deferred.payload.routingKind,
+                        tailKind: deferred.payload.tailKind,
                         label: deferred.payload.label))))
         }
         return seeds
@@ -787,6 +874,8 @@ public enum DiagramResolver {
                 lineWidth: placeholder.lineWidth,
                 lineStyle: placeholder.lineStyle,
                 headKind: placeholder.headKind,
+                routingKind: placeholder.routingKind,
+                tailKind: placeholder.tailKind,
                 label: placeholder.label)),
             frame: source.frame.union(target.frame),
             children: children)

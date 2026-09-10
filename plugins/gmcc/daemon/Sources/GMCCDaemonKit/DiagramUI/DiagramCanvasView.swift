@@ -89,6 +89,8 @@ public struct ResolvedElementView: View {
                 TextBoxView(element: element, text: text, offset: offset)
             case .connector(let connector):
                 ConnectorView(element: element, connector: connector, offset: offset)
+            case .umlNode(let node):
+                UmlNodeView(element: element, node: node, offset: offset)
             case .scopeCard(let card):
                 DopeScopeOutlineView(element: element, card: card,
                                      environment: environment, offset: offset)
@@ -138,14 +140,24 @@ struct StrokeView: View {
             guard stroke.points.count >= 2 else { return }
             // Translate INSIDE the canvas — see the coordinate contract.
             context.translateBy(x: offset.width, y: offset.height)
-            var path = Path()
-            path.move(to: stroke.points[0])
-            for point in stroke.points.dropFirst() { path.addLine(to: point) }
             var color = Color(hex: stroke.color)
             if stroke.tool == .highlighter { color = color.opacity(0.4) }
-            context.stroke(path, with: .color(color),
-                           style: StrokeStyle(lineWidth: stroke.lineWidth,
-                                              lineCap: .round, lineJoin: .round))
+            // Pressure-aware outline when the resolver derived one
+            // (renderAlgoVersion 2); plain centerline stroke otherwise.
+            if stroke.outline.count >= 3 {
+                var path = Path()
+                path.move(to: stroke.outline[0])
+                for point in stroke.outline.dropFirst() { path.addLine(to: point) }
+                path.closeSubpath()
+                context.fill(path, with: .color(color))
+            } else {
+                var path = Path()
+                path.move(to: stroke.points[0])
+                for point in stroke.points.dropFirst() { path.addLine(to: point) }
+                context.stroke(path, with: .color(color),
+                               style: StrokeStyle(lineWidth: stroke.lineWidth,
+                                                  lineCap: .round, lineJoin: .round))
+            }
         }
         .allowsHitTesting(false)
     }
@@ -153,30 +165,21 @@ struct StrokeView: View {
 
 /// A markdown text box at its explicit size.
 ///
-/// `AttributedString(markdown:)` gives inline markdown (emphasis, code,
-/// links) for free and degrades to the raw string when it cannot parse.
-/// Block-level layout — headings, lists — is deliberately not here yet; the
-/// wrapping model is the same either way, so it is an addition rather than a
-/// rewrite when it comes.
+/// v23: block-level markdown via the kit's own MarkdownBlocksView (the
+/// renderer promoted from GMVibes — headings, lists, fenced code, tables),
+/// exactly the addition the inline-only deferral anticipated. The wrapping
+/// model is unchanged: explicit frame, top-leading, clipped.
 struct TextBoxView: View {
     let element: ResolvedElement
     let text: ResolvedText
     let offset: CGSize
 
-    private var attributed: AttributedString {
-        (try? AttributedString(
-            markdown: text.markdown,
-            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
-            ?? AttributedString(text.markdown)
-    }
-
     var body: some View {
-        Text(attributed)
-            .font(.system(size: text.fontSize))
+        MarkdownBlocksView(source: text.markdown, baseFontSize: text.fontSize)
             .foregroundStyle(Color(hex: text.textColor))
-            .multilineTextAlignment(.leading)
             .frame(width: element.frame.width, height: element.frame.height,
                    alignment: .topLeading)
+            .clipped()
             .background(text.backgroundColor.map { Color(hex: $0) })
             .position(x: element.frame.midX + offset.width,
                       y: element.frame.midY + offset.height)
@@ -262,6 +265,165 @@ struct ShapeView: View {
             path.move(to: points[0])
             for point in points.dropFirst() { path.addLine(to: point) }
             path.closeSubpath()
+        }
+        return path
+    }
+}
+
+/// A UML node: kind-picked chrome + the kit's block-markdown interior on a
+/// transparent background — THE text surface for nodes. Chrome colors are
+/// nil-means-theme-default so unstyled nodes are legible in both schemes.
+/// Children (connectors) render nothing here — connector visuals ride
+/// DiagramEdgeCanvas like every other edge.
+public struct UmlNodeView: View {
+    public let element: ResolvedElement
+    public let node: ResolvedUmlNode
+    public let offset: CGSize
+    @Environment(\.diagramSelection) private var selection
+
+    public init(element: ResolvedElement, node: ResolvedUmlNode,
+                offset: CGSize = .zero) {
+        self.element = element
+        self.node = node
+        self.offset = offset
+    }
+
+    private var strokeColor: Color {
+        node.strokeColor.map { Color(hex: $0) } ?? Color.primary.opacity(0.65)
+    }
+
+    private var fillColor: Color {
+        node.fillColor.map { Color(hex: $0) } ?? Color.clear
+    }
+
+    /// Boxy chrome reads top-leading like a document; round and pointy
+    /// chrome centers, or short labels sit in a corner the shape does not
+    /// visually have.
+    private var centersText: Bool {
+        switch node.nodeKind {
+        case .circle, .diamond, .triangle: return true
+        case .roundedRect, .rhombus, .dbCylinder: return false
+        }
+    }
+
+    /// Interior insets per kind — pointed chrome needs more breathing room
+    /// than a rectangle before markdown collides with the outline.
+    private var textInsets: EdgeInsets {
+        let w = element.frame.width
+        let h = element.frame.height
+        switch node.nodeKind {
+        case .roundedRect:
+            return EdgeInsets(top: 8, leading: 10, bottom: 8, trailing: 10)
+        case .dbCylinder:
+            let cap = UmlNodeShape.cylinderCapHeight(for: element.frame)
+            return EdgeInsets(top: cap * 2 + 4, leading: 10, bottom: 8, trailing: 10)
+        case .triangle:
+            return EdgeInsets(top: h * 0.45, leading: w * 0.22,
+                              bottom: 8, trailing: w * 0.22)
+        case .rhombus:
+            return EdgeInsets(top: 8, leading: w * 0.2, bottom: 8, trailing: w * 0.2)
+        case .diamond:
+            return EdgeInsets(top: h * 0.22, leading: w * 0.22,
+                              bottom: h * 0.22, trailing: w * 0.22)
+        case .circle:
+            return EdgeInsets(top: h * 0.16, leading: w * 0.16,
+                              bottom: h * 0.16, trailing: w * 0.16)
+        }
+    }
+
+    public var body: some View {
+        ZStack(alignment: .topLeading) {
+            UmlNodeShape(kind: node.nodeKind)
+                .fill(fillColor)
+            UmlNodeShape(kind: node.nodeKind)
+                .stroke(strokeColor, lineWidth: node.lineWidth)
+            if !node.markdown.isEmpty {
+                MarkdownBlocksView(source: node.markdown, baseFontSize: node.fontSize)
+                    .foregroundStyle(node.textColor.map { Color(hex: $0) }
+                                     ?? Color.primary)
+                    .padding(textInsets)
+                    .frame(width: element.frame.width,
+                           height: element.frame.height,
+                           alignment: centersText ? .center : .topLeading)
+                    .clipped()
+            }
+        }
+        .frame(width: element.frame.width, height: element.frame.height)
+        .overlay {
+            if selection.selectedElementUuid == element.uuid {
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(Color.accentColor, lineWidth: 2)
+                    .padding(-3)
+            }
+        }
+        .opacity(selection.dimmedElementUuids.contains(element.uuid) ? 0.35 : 1)
+        .position(x: element.frame.midX + offset.width,
+                  y: element.frame.midY + offset.height)
+        .allowsHitTesting(false)
+    }
+}
+
+/// The UML chrome vocabulary as one Shape — pure geometry over the node's
+/// rect, unit-testable via path(in:).
+public struct UmlNodeShape: Shape {
+    public let kind: DiagramNodeKind
+
+    public init(kind: DiagramNodeKind) {
+        self.kind = kind
+    }
+
+    /// The cylinder's cap half-height: shallow enough that squat nodes keep
+    /// a body, deep enough to read as a disk.
+    public static func cylinderCapHeight(for rect: CGRect) -> CGFloat {
+        min(rect.height * 0.12, 18)
+    }
+
+    public func path(in rect: CGRect) -> Path {
+        var path = Path()
+        switch kind {
+        case .roundedRect:
+            path.addRoundedRect(in: rect, cornerSize: CGSize(width: 10, height: 10))
+        case .circle:
+            path.addEllipse(in: rect)
+        case .triangle:
+            path.move(to: CGPoint(x: rect.midX, y: rect.minY))
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+            path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
+            path.closeSubpath()
+        case .diamond:
+            path.move(to: CGPoint(x: rect.midX, y: rect.minY))
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
+            path.addLine(to: CGPoint(x: rect.midX, y: rect.maxY))
+            path.addLine(to: CGPoint(x: rect.minX, y: rect.midY))
+            path.closeSubpath()
+        case .rhombus:
+            // The slanted parallelogram (UML input/output), lean = 18% width.
+            let lean = rect.width * 0.18
+            path.move(to: CGPoint(x: rect.minX + lean, y: rect.minY))
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+            path.addLine(to: CGPoint(x: rect.maxX - lean, y: rect.maxY))
+            path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
+            path.closeSubpath()
+        case .dbCylinder:
+            let cap = Self.cylinderCapHeight(for: rect)
+            let topRect = CGRect(x: rect.minX, y: rect.minY,
+                                 width: rect.width, height: cap * 2)
+            // ONE closed body subpath — sides, bottom bulge, and the top
+            // ellipse's lower arc — so an explicit fill paints the whole
+            // barrel, then the top disk as its own subpath. (v1 shipped a
+            // stray zero-sweep addArc here that drew a chord across every
+            // stroked cylinder, and disjoint open subpaths that filled as
+            // wedges — the quad controls at ±cap*2 from the rim put the
+            // curve APEX exactly one cap-height beyond it.)
+            path.move(to: CGPoint(x: rect.minX, y: rect.minY + cap))
+            path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY - cap))
+            path.addQuadCurve(to: CGPoint(x: rect.maxX, y: rect.maxY - cap),
+                              control: CGPoint(x: rect.midX, y: rect.maxY + cap))
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY + cap))
+            path.addQuadCurve(to: CGPoint(x: rect.minX, y: rect.minY + cap),
+                              control: CGPoint(x: rect.midX, y: rect.minY + cap * 3))
+            path.closeSubpath()
+            path.addEllipse(in: topRect)
         }
         return path
     }
@@ -444,11 +606,11 @@ public struct DiagramEdgeCanvas: View {
             // with the pre-slot style — an empty highlight set leaves this
             // canvas byte-identical to the frozen screenshot output.
             for edge in edges {
-                let path = edge.routed && edge.points.count >= 2
-                    ? Self.roundedPolyline(edge.points)
-                    : Self.legacyCubic(from: edge.from, to: edge.to)
                 switch edge.origin {
                 case .dopeForeignKey:
+                    let path = edge.routed && edge.points.count >= 2
+                        ? Self.roundedPolyline(edge.points)
+                        : Self.legacyCubic(from: edge.from, to: edge.to)
                     // Untouched from the frozen screenshot output: a derived
                     // FK arrow is deliberately quiet.
                     context.stroke(path, with: .color(.secondary.opacity(0.7)),
@@ -461,30 +623,43 @@ public struct DiagramEdgeCanvas: View {
                     // A hand-drawn connector carries its own styling — it is
                     // something a person asserted, not something derived, and
                     // it should not read as an FK arrow.
+                    let geometry = Self.connectorGeometry(edge: edge, style: style)
                     context.stroke(
-                        path, with: .color(Color(hex: style.strokeColor)),
+                        geometry.path, with: .color(Color(hex: style.strokeColor)),
                         style: StrokeStyle(
                             lineWidth: style.lineWidth, lineCap: .round,
                             lineJoin: .round,
                             dash: style.lineStyle == .dashed
                                 ? [style.lineWidth * 3, style.lineWidth * 2] : []))
-                    switch style.headKind {
-                    case .none:
-                        break
-                    case .arrow, .dot:
-                        let r = max(3, style.lineWidth * 1.5)
-                        context.fill(
-                            Path(ellipseIn: CGRect(x: edge.to.x - r, y: edge.to.y - r,
-                                                   width: r * 2, height: r * 2)),
-                            with: .color(Color(hex: style.strokeColor)))
+                    for decoration in [
+                        DiagramConnectorHeadGeometry.headPath(
+                            kind: style.headKind, tip: edge.to,
+                            direction: geometry.headDirection,
+                            lineWidth: style.lineWidth),
+                        DiagramConnectorHeadGeometry.headPath(
+                            kind: style.tailKind, tip: edge.from,
+                            direction: geometry.tailDirection,
+                            lineWidth: style.lineWidth),
+                    ] {
+                        guard let decoration else { continue }
+                        if decoration.fill {
+                            context.fill(decoration.path,
+                                         with: .color(Color(hex: style.strokeColor)))
+                        } else {
+                            context.stroke(
+                                decoration.path,
+                                with: .color(Color(hex: style.strokeColor)),
+                                style: StrokeStyle(lineWidth: style.lineWidth,
+                                                   lineCap: .round, lineJoin: .round))
+                        }
                     }
-                    if !style.label.isEmpty, edge.points.count >= 2 {
-                        let mid = edge.points[edge.points.count / 2]
+                    if !style.label.isEmpty {
+                        let mid = Self.labelPosition(edge: edge, style: style)
                         context.draw(
                             Text(style.label)
                                 .font(.system(size: max(9, style.lineWidth * 4)))
                                 .foregroundStyle(Color(hex: style.strokeColor)),
-                            at: mid)
+                            at: CGPoint(x: mid.x, y: mid.y - max(8, style.lineWidth * 3)))
                     }
                 }
             }
@@ -494,9 +669,14 @@ public struct DiagramEdgeCanvas: View {
             if !highlighted.isEmpty {
                 for edge in edges where highlighted.contains(edge.fromElementUuid)
                     || highlighted.contains(edge.toElementUuid) {
-                    let path = edge.routed && edge.points.count >= 2
-                        ? Self.roundedPolyline(edge.points)
-                        : Self.legacyCubic(from: edge.from, to: edge.to)
+                    let path: Path
+                    if case .connector(_, let style) = edge.origin {
+                        path = Self.connectorGeometry(edge: edge, style: style).path
+                    } else {
+                        path = edge.routed && edge.points.count >= 2
+                            ? Self.roundedPolyline(edge.points)
+                            : Self.legacyCubic(from: edge.from, to: edge.to)
+                    }
                     context.stroke(path, with: .color(.accentColor),
                                    style: StrokeStyle(lineWidth: 2))
                     context.fill(Path(ellipseIn: CGRect(x: edge.to.x - 3, y: edge.to.y - 3,
@@ -506,6 +686,103 @@ public struct DiagramEdgeCanvas: View {
             }
         }
         .allowsHitTesting(false)
+    }
+
+    /// A connector's drawn path plus the directions its decorations point:
+    /// the head arrives along the LAST drawn segment, the tail points back
+    /// out along the FIRST segment reversed. Never the from→to chord — the
+    /// chord is wrong exactly when routing worked.
+    ///
+    /// routingKind selects among geometry that already existed:
+    /// orthogonal_step is the router's polyline (with the legacy cubic as
+    /// its routing-declined fallback, unchanged), straight is the 2-point
+    /// chord, curved is the legacy cubic promoted to a chosen style.
+    struct ConnectorGeometry {
+        let path: Path
+        let headDirection: CGVector
+        let tailDirection: CGVector
+    }
+
+    static func connectorGeometry(edge: ResolvedEdge,
+                                  style: ResolvedConnector) -> ConnectorGeometry {
+        switch style.routingKind {
+        case .straight:
+            var path = Path()
+            path.move(to: edge.from)
+            path.addLine(to: edge.to)
+            return ConnectorGeometry(
+                path: path,
+                headDirection: CGVector(dx: edge.to.x - edge.from.x,
+                                        dy: edge.to.y - edge.from.y),
+                tailDirection: CGVector(dx: edge.from.x - edge.to.x,
+                                        dy: edge.from.y - edge.to.y))
+        case .curved:
+            // The legacy cubic's tangents are horizontal at both ends by
+            // construction (controls offset only in x).
+            let sign: CGFloat = edge.to.x >= edge.from.x ? 1 : -1
+            return ConnectorGeometry(
+                path: Self.legacyCubic(from: edge.from, to: edge.to),
+                headDirection: CGVector(dx: sign, dy: 0),
+                tailDirection: CGVector(dx: -sign, dy: 0))
+        case .orthogonalStep:
+            if edge.routed, edge.points.count >= 2 {
+                let points = edge.points
+                return ConnectorGeometry(
+                    path: Self.roundedPolyline(points),
+                    headDirection: CGVector(
+                        dx: points[points.count - 1].x - points[points.count - 2].x,
+                        dy: points[points.count - 1].y - points[points.count - 2].y),
+                    tailDirection: CGVector(dx: points[0].x - points[1].x,
+                                            dy: points[0].y - points[1].y))
+            }
+            let sign: CGFloat = edge.to.x >= edge.from.x ? 1 : -1
+            return ConnectorGeometry(
+                path: Self.legacyCubic(from: edge.from, to: edge.to),
+                headDirection: CGVector(dx: sign, dy: 0),
+                tailDirection: CGVector(dx: -sign, dy: 0))
+        }
+    }
+
+    /// Where an edge label sits: the ARCLENGTH midpoint of the drawn
+    /// geometry, never points[count/2] — for a 2-3 point routed array that
+    /// index is a terminal point and the label crashes into the arrowhead.
+    static func labelPosition(edge: ResolvedEdge, style: ResolvedConnector) -> CGPoint {
+        switch style.routingKind {
+        case .straight:
+            return CGPoint(x: (edge.from.x + edge.to.x) / 2,
+                           y: (edge.from.y + edge.to.y) / 2)
+        case .curved:
+            // The legacy cubic at t = 0.5.
+            let dx = max(40, abs(edge.to.x - edge.from.x) / 2)
+            let lead = edge.to.x >= edge.from.x ? dx : -dx
+            let c1 = CGPoint(x: edge.from.x + lead, y: edge.from.y)
+            let c2 = CGPoint(x: edge.to.x - lead, y: edge.to.y)
+            return CGPoint(
+                x: 0.125 * (edge.from.x + 3 * c1.x + 3 * c2.x + edge.to.x),
+                y: 0.125 * (edge.from.y + 3 * c1.y + 3 * c2.y + edge.to.y))
+        case .orthogonalStep:
+            let points = edge.routed && edge.points.count >= 2
+                ? edge.points : [edge.from, edge.to]
+            var total: CGFloat = 0
+            for index in 0..<(points.count - 1) {
+                total += hypot(points[index + 1].x - points[index].x,
+                               points[index + 1].y - points[index].y)
+            }
+            guard total > 0 else { return points[0] }
+            var remaining = total / 2
+            for index in 0..<(points.count - 1) {
+                let segment = hypot(points[index + 1].x - points[index].x,
+                                    points[index + 1].y - points[index].y)
+                if remaining <= segment, segment > 0 {
+                    let t = remaining / segment
+                    return CGPoint(
+                        x: points[index].x + (points[index + 1].x - points[index].x) * t,
+                        y: points[index].y + (points[index + 1].y - points[index].y) * t)
+                }
+                remaining -= segment
+            }
+            return points[points.count / 2]
+        }
     }
 
     /// Rounded-corner orthogonal polyline. Radius clamps per corner to half

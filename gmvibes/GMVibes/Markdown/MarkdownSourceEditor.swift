@@ -164,7 +164,7 @@ struct MarkdownSourceEditor: NSViewRepresentable {
                     let c = nsString.character(at: contentRange.location + contentRange.length - 1)
                     if c == 10 || c == 13 { contentRange.length -= 1 } else { break }
                 }
-                let level = MarkdownDocument.headingLevel(of: nsString.substring(with: contentRange))
+                let level = MarkdownHeaderStyle.headingLevel(of: nsString.substring(with: contentRange))
                 ts.addAttribute(.font, value: MarkdownHeaderStyle.nsFont(forLevel: level), range: lineRange)
                 ts.addAttribute(.foregroundColor,
                                 value: level != nil ? MarkdownHeaderStyle.nsHeaderColor : MarkdownHeaderStyle.nsBodyColor,

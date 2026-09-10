@@ -409,17 +409,19 @@ final class DiagramWorkspace {
 /// Diagram tools. `select` is the only tool that can yield a `.move` intent —
 /// draw tools structurally disable node drag (the locked decision); trackpad
 /// pan keeps flowing through the scroll bridge in every tool.
+///
+/// rect/line/text were view-layer tools only and were retired for the UML
+/// node vocabulary (Insert Node) — their payloads and renderers live on, so
+/// existing diagrams keep drawing.
 enum DiagramTool: String, CaseIterable, Identifiable, Hashable {
-    case select, freehand, rect, line, text, connector
+    case select, freehand, eraser, connector
 
     var id: String { rawValue }
     var symbol: String {
         switch self {
         case .select: "cursorarrow"
         case .freehand: "scribble"
-        case .rect: "rectangle"
-        case .line: "line.diagonal"
-        case .text: "textformat"
+        case .eraser: "eraser"
         case .connector: "arrow.triangle.branch"
         }
     }
@@ -427,9 +429,7 @@ enum DiagramTool: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .select: "Click to select, drag to move a card — drag empty space to pan"
         case .freehand: "Draw freehand on the drawing layer"
-        case .rect: "Drag out a rectangle on the drawing layer"
-        case .line: "Drag a line on the drawing layer"
-        case .text: "Drag out a text box on the drawing layer"
+        case .eraser: "Drag over strokes and shapes to erase them"
         case .connector: "Drag from one card to a sibling card to connect them"
         }
     }
@@ -455,7 +455,7 @@ final class DiagramViewState {
     }
     var dragDraft: DragDraft?
 
-    /// In-progress rect/line/text draft, diagram space.
+    /// In-progress freehand/connector draft, diagram space.
     struct DrawDraft {
         let tool: DiagramTool
         let anchor: CGPoint
@@ -465,4 +465,9 @@ final class DiagramViewState {
         var points: [CGPoint] = []
     }
     var drawDraft: DrawDraft?
+
+    /// Eraser accumulation: every stroke/shape the drag has passed over,
+    /// dimmed live through the selection channel and deleted in ONE batch at
+    /// gesture end (nothing stages until pointer-up).
+    var erasedUuids: Set<String> = []
 }

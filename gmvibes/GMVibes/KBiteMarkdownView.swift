@@ -1,4 +1,5 @@
 import SwiftUI
+import GMCCDaemonKit
 
 struct KBiteMarkdownView: View {
     let url: URL

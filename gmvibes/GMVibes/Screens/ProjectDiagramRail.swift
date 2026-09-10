@@ -1,13 +1,14 @@
 import SwiftUI
 import GMCCDaemonKit
 
-/// The project page's right-hand diagram rail.
+/// The project page's right-hand diagram gallery.
 ///
-/// PROJECT-tier rows only — DIAGRAM_LIST returns exactly one tier for exactly
-/// one owner, so a session's diagrams structurally cannot leak up here, which
-/// is the intended reading: the project page is about the project.
+/// The browse surface is DIAGRAM_SEARCH across ALL tiers — the project page
+/// is where every diagram in the project is findable, which is exactly the
+/// union DIAGRAM_LIST refuses to be. The create path still runs on the
+/// PROJECT-tier owner list (uniqueCode needs exactly that tier's codes).
 ///
-/// Above the saved rows sits the COMPUTED persistence diagram: the project's
+/// Above the cards sits the COMPUTED persistence diagram: the project's
 /// own dope scope (the PROJECT_ITEM overlay, else the BASE_PROJECT scope
 /// `gm dope promote` maintains) laid out on the fly. It is a preview — no
 /// diagram row, nothing written — so opening the project's domain model never
@@ -29,34 +30,32 @@ struct ProjectDiagramRail: View {
 
     private var owner: DiagramCatalogStore.Owner { .project(projectUuid) }
     private var rows: [DiagramRow] { diagrams.rows(owner) }
+    private var galleryScope: DiagramCatalogStore.GalleryScope { .project(projectUuid) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
             Divider()
-            ScrollView {
-                VStack(alignment: .leading, spacing: 6) {
-                    computedRow
-                    if !rows.isEmpty {
-                        Divider().padding(.vertical, 4)
-                        ForEach(rows, id: \.uuid) { row in
-                            DiagramListRow(row: row, subtitle: subtitle(row)) {
-                                onOpen(DiagramWindowID.saved(row, session: nil))
-                            } menu: {
-                                moveMenu(row)
-                            }
-                        }
-                    }
-                    if let error = diagrams.errorsByOwner[owner] {
-                        Text(error)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .padding(12)
+            computedRow
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+            if let error = diagrams.errorsByOwner[owner] {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 12)
+            }
+            Divider()
+            DiagramGalleryView(scope: galleryScope, onOpen: { row in
+                // The rail has no session window to hand a SESSION/PROMPT
+                // row — nil is the legal "caller doesn't know" state.
+                onOpen(DiagramWindowID.saved(row, session: nil))
+            }) { row in
+                cardMenu(row)
             }
         }
-        .frame(width: 280)
+        // Wide enough for two thumbnail columns — a gallery, not a list.
+        .frame(width: 440)
         .background(.background.secondary)
         .task(id: daemon.generation) {
             let stream = daemon.hub.stream(for: .diagramList(projectUuid))
@@ -122,17 +121,21 @@ struct ProjectDiagramRail: View {
     }
 
     @ViewBuilder
-    private func moveMenu(_ row: DiagramRow) -> some View {
-        let sessions = projectSessions
-        if sessions.isEmpty {
-            Text("No sessions to move this into")
-        } else {
-            Menu("Move to Session") {
-                ForEach(sessions, id: \.uuid) { session in
-                    Button(session.name) { move(row, to: session.uuid) }
+    private func cardMenu(_ row: DiagramRow) -> some View {
+        if row.tier == DiagramTier.project.rawValue {
+            let sessions = projectSessions
+            if sessions.isEmpty {
+                Text("No sessions to move this into")
+            } else {
+                Menu("Move to Session") {
+                    ForEach(sessions, id: \.uuid) { session in
+                        Button(session.name) { move(row, to: session.uuid) }
+                    }
                 }
             }
+            Divider()
         }
+        Button("Delete Diagram", role: .destructive) { delete(row) }
     }
 
     /// The project's sessions, most recent first — the promote-DOWN targets.
@@ -143,12 +146,6 @@ struct ProjectDiagramRail: View {
             .sorted { $0.lastActivityAt > $1.lastActivityAt }
             .prefix(12)
             .map { $0 }
-    }
-
-    private func subtitle(_ row: DiagramRow) -> String {
-        var parts = [row.code, "revision \(row.revision)"]
-        if let scopeCode = row.dopeScopeCode { parts.insert("dope \(scopeCode)", at: 1) }
-        return parts.joined(separator: " · ")
     }
 
     // MARK: - Actions
@@ -177,6 +174,14 @@ struct ProjectDiagramRail: View {
         run {
             try await diagrams.promote(row, to: .session, ownerUuid: sessionUuid,
                                        from: owner)
+            await diagrams.refreshGallery(galleryScope)
+        }
+    }
+
+    private func delete(_ row: DiagramRow) {
+        run {
+            try await diagrams.delete(row, scope: galleryScope)
+            await diagrams.refresh(owner)
         }
     }
 

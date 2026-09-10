@@ -75,6 +75,8 @@ extension Store {
             code: row["code"], name: row["name"], description: row["description"],
             gmccDiagramPath: row["gmcc_diagram_path"],
             dopeScopeCode: row["dope_scope_code"], revision: row["revision"],
+            visibility: row.hasColumn("visibility")
+                ? row["visibility"] : DiagramVisibility.private.rawValue,
             createdAt: row["created_at"], updatedAt: row["updated_at"])
     }
 
@@ -99,7 +101,7 @@ extension Store {
         return revision
     }
 
-    private func recordDiagramChange(
+    func recordDiagramChange(
         _ db: Database, diagram: DiagramRow, action: String,
         elementUuid: String?, mutationCount: Int?, revision: Int64
     ) throws {
@@ -260,15 +262,25 @@ extension Store {
     // MARK: - List (v12 semantics: one owner, one tier, never a union)
 
     public func diagramList(_ req: DiagramListRequest) throws -> DiagramListResponse {
-        try dbQueue.read { db in
+        if let visibility = req.visibility, DiagramVisibility(rawValue: visibility) == nil {
+            throw StoreError.badRequest(detail:
+                "unknown visibility '\(visibility)' (PRIVATE|PUBLIC)")
+        }
+        return try dbQueue.read { db in
             let owner = try self.resolveDiagramOwner(
                 db, projectUuid: req.projectUuid, instanceUuid: req.instanceUuid,
                 sessionUuid: req.sessionUuid, promptUuid: req.promptUuid)
-            let rows = try Row.fetchAll(db, sql: """
+            var sql = """
                 \(Self.diagramSelect)
                  WHERE d.tier = ? AND d.\(owner.ownerColumn) = ?
-                 ORDER BY d.code
-                """, arguments: [owner.tier.rawValue, owner.ownerUuid])
+                """
+            var args: [any DatabaseValueConvertible] = [owner.tier.rawValue, owner.ownerUuid]
+            if let visibility = req.visibility {
+                sql += " AND d.visibility = ?"
+                args.append(visibility)
+            }
+            sql += " ORDER BY d.code"
+            let rows = try Row.fetchAll(db, sql: sql, arguments: StatementArguments(args))
             return DiagramListResponse(diagrams: rows.map(Self.diagramRow))
         }
     }
@@ -364,6 +376,7 @@ extension Store {
         let entities = try subtypeRows("diagram_dope_entity")
         let texts = try subtypeRows("diagram_drawing_text")
         let connectors = try subtypeRows("diagram_connector")
+        let umlNodes = try subtypeRows("diagram_uml_node")
 
         func vertexRows(_ table: String, _ parentColumn: String) throws -> [String: [DiagramVertex]] {
             let rows = try Row.fetchAll(db, sql: """
@@ -440,7 +453,22 @@ extension Store {
                     lineStyle: DiagramConnectorLineStyle(
                         rawValue: sub["line_style"]) ?? .solid,
                     headKind: DiagramConnectorHead(rawValue: sub["head_kind"]) ?? .arrow,
+                    routingKind: DiagramConnectorRouting(
+                        rawValue: sub["routing_kind"]) ?? .orthogonalStep,
+                    tailKind: DiagramConnectorHead(rawValue: sub["tail_kind"]) ?? .none,
                     label: sub["label"]))
+            case .umlNode:
+                guard let sub = umlNodes[uuid] else { break }
+                guard let kind = DiagramNodeKind(rawValue: sub["node_kind"]) else {
+                    throw StoreError.corruptState(
+                        entity: "diagram_uml_node",
+                        detail: "unknown node_kind '\(sub["node_kind"] as String)'")
+                }
+                return .umlNode(UmlNodePayload(
+                    nodeKind: kind, width: sub["width"], height: sub["height"],
+                    markdown: sub["markdown"], fontSize: sub["font_size"],
+                    textColor: sub["text_color"], strokeColor: sub["stroke_color"],
+                    strokeWidth: sub["stroke_width"], fillColor: sub["fill_color"]))
             case .dopeScopePersistenceLayer:
                 guard let sub = scopes[uuid] else { break }
                 return .dopeScopePersistenceLayer(DopeScopePersistenceLayerPayload(dopeScopeCode: sub["dope_scope_code"]))
@@ -548,14 +576,14 @@ extension Store {
 
     // MARK: - Element validation + code minting
 
-    private struct ElementRowInfo {
+    struct ElementRowInfo {
         let uuid: String
         let diagramUuid: String
         let parentElementUuid: String?
         let type: DiagramElementType
     }
 
-    private func fetchElementInfo(_ db: Database, uuid: String) throws -> ElementRowInfo {
+    func fetchElementInfo(_ db: Database, uuid: String) throws -> ElementRowInfo {
         guard let row = try Row.fetchOne(
             db, sql: "SELECT * FROM diagram_element WHERE uuid = ?", arguments: [uuid]
         ) else {
@@ -574,7 +602,7 @@ extension Store {
     /// see (which parent types may hold which child types), plus code
     /// validation on binding payloads. Existence of the dope target is
     /// deliberately NOT checked — dangling is legal.
-    private func validateDiagramElementShape(
+    func validateDiagramElementShape(
         _ db: Database, diagramUuid: String, type: DiagramElementType,
         parent: ElementRowInfo?, payload: DiagramElementPayload
     ) throws {
@@ -622,6 +650,19 @@ extension Store {
             }
             guard p.fontSize > 0 else {
                 throw StoreError.badRequest(detail: "a text box needs a positive font size")
+            }
+        case .umlNode(let p):
+            guard p.width > 0, p.height > 0 else {
+                throw StoreError.badRequest(
+                    detail: "a uml node needs a positive width and height")
+            }
+            if let fontSize = p.fontSize, fontSize <= 0 {
+                throw StoreError.badRequest(
+                    detail: "a uml node's font size must be positive when set")
+            }
+            if let strokeWidth = p.strokeWidth, strokeWidth <= 0 {
+                throw StoreError.badRequest(
+                    detail: "a uml node's stroke width must be positive when set")
             }
         case .connector(let p):
             guard p.strokeWidth > 0 else {
@@ -820,6 +861,8 @@ extension Store {
                     strokeWidth: connector.strokeWidth,
                     lineStyle: connector.lineStyle,
                     headKind: connector.headKind,
+                    routingKind: connector.routingKind,
+                    tailKind: connector.tailKind,
                     label: connector.label))
             }
         } else if add.targetClientRef != nil {
@@ -1052,6 +1095,25 @@ extension Store {
             }
         }
 
+        if let visibility = update.visibility {
+            set["visibility"] = visibility.rawValue
+        }
+        // The visibility/tier cross-guard, checked on the FINAL state so a
+        // combined promote+set cannot sneak past it in either order: PUBLIC
+        // is legal only on SESSION-tier rows (the dope write-repo gate — a
+        // session resolves to exactly one instance root; other tiers do
+        // not). Demote to PRIVATE first, or promote and stay PRIVATE.
+        let finalTier = (set["tier"] as? String) ?? diagram.tier
+        let finalVisibility = (set["visibility"] as? String) ?? diagram.visibility
+        if finalVisibility == DiagramVisibility.public.rawValue,
+           finalTier != DiagramTier.session.rawValue {
+            throw StoreError.badRequest(detail:
+                "PUBLIC visibility is legal only on SESSION-tier diagrams "
+                + "(the repo serialization root comes from the session's "
+                + "instance) — set --visibility PRIVATE first or keep the "
+                + "diagram at SESSION tier")
+        }
+
         guard !set.isEmpty else {
             throw StoreError.emptyUpdate(entity: "diagram")
         }
@@ -1070,7 +1132,7 @@ extension Store {
     // dispatched through the payload's own switch, so a sixth element type
     // cannot compile without a branch here)
 
-    private func insertSubtypeRow(
+    func insertSubtypeRow(
         _ db: Database, elementUuid: String, payload: DiagramElementPayload
     ) throws {
         switch payload {
@@ -1125,7 +1187,22 @@ extension Store {
                 "stroke_width": p.strokeWidth,
                 "line_style": p.lineStyle.rawValue,
                 "head_kind": p.headKind.rawValue,
+                "routing_kind": p.routingKind.rawValue,
+                "tail_kind": p.tailKind.rawValue,
                 "label": p.label,
+            ])
+        case .umlNode(let p):
+            _ = try insertBase(db, table: "diagram_uml_node", extra: [
+                "element_uuid": elementUuid,
+                "node_kind": p.nodeKind.rawValue,
+                "width": p.width,
+                "height": p.height,
+                "markdown": p.markdown,
+                "font_size": p.fontSize,
+                "text_color": p.textColor,
+                "stroke_color": p.strokeColor,
+                "stroke_width": p.strokeWidth,
+                "fill_color": p.fillColor,
             ])
         case .dopeScopePersistenceLayer(let p):
             _ = try insertBase(db, table: "diagram_dope_scope_persistence_layer", extra: [
@@ -1203,12 +1280,25 @@ extension Store {
             try db.execute(sql: """
                 UPDATE diagram_connector
                 SET target_element_uuid = ?, stroke_color = ?, stroke_width = ?,
-                    line_style = ?, head_kind = ?, label = ?, updated_at = ?
+                    line_style = ?, head_kind = ?, routing_kind = ?, tail_kind = ?,
+                    label = ?, updated_at = ?
                 WHERE element_uuid = ?
                 """, arguments: [p.targetElementUuid, p.strokeColor, p.strokeWidth,
-                                 p.lineStyle.rawValue, p.headKind.rawValue, p.label,
+                                 p.lineStyle.rawValue, p.headKind.rawValue,
+                                 p.routingKind.rawValue, p.tailKind.rawValue, p.label,
                                  now, elementUuid])
             try requireRow("diagram_connector")
+        case .umlNode(let p):
+            try db.execute(sql: """
+                UPDATE diagram_uml_node
+                SET node_kind = ?, width = ?, height = ?, markdown = ?,
+                    font_size = ?, text_color = ?, stroke_color = ?,
+                    stroke_width = ?, fill_color = ?, updated_at = ?
+                WHERE element_uuid = ?
+                """, arguments: [p.nodeKind.rawValue, p.width, p.height, p.markdown,
+                                 p.fontSize, p.textColor, p.strokeColor,
+                                 p.strokeWidth, p.fillColor, now, elementUuid])
+            try requireRow("diagram_uml_node")
         case .dopeScopePersistenceLayer(let p):
             try db.execute(sql: """
                 UPDATE diagram_dope_scope_persistence_layer

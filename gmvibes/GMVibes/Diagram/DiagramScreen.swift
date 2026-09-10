@@ -32,6 +32,7 @@ struct DiagramScreen: View {
     @State private var lastPan: CGSize = .zero
     @State private var hostSize: CGSize = .zero
     @State private var didInitialFit = false
+    @State private var showDopeScopeSheet = false
 
     private var workspace: DiagramWorkspace {
         workspaces.workspace(for: windowID)
@@ -47,6 +48,9 @@ struct DiagramScreen: View {
         /// Connector tool: the element the drag STARTED on. The target is
         /// whatever the drag ends over, decided at pointer-up.
         case connect(fromUuid: String, anchor: CGPoint)
+        /// Eraser: accumulate hits per sample, commit ONE delete batch at
+        /// pointer-up.
+        case erase
     }
 
     var body: some View {
@@ -58,8 +62,13 @@ struct DiagramScreen: View {
             ToolbarItemGroup(placement: .primaryAction) {
                 DiagramToolStrip(workspace: workspace, viewState: viewState,
                                  onCenter: center(on:), onFit: fit,
-                                 onOrganize: organize, onCopy: copyToClipboard)
+                                 onOrganize: organize, onCopy: copyToClipboard,
+                                 onInsertNode: insertNode(_:),
+                                 onAddDopeScope: { showDopeScopeSheet = true })
             }
+        }
+        .sheet(isPresented: $showDopeScopeSheet) {
+            DiagramDopeScopeSheet(workspace: workspace)
         }
         .task(id: daemon.generation) {
             await workspace.load(scheme: colorScheme)
@@ -198,12 +207,14 @@ struct DiagramScreen: View {
                height: viewport.offset.height / viewport.zoom)
     }
 
-    /// The dragged card dims in place while its ghost tracks the cursor.
+    /// The dragged card dims in place while its ghost tracks the cursor;
+    /// eraser-swept ink dims live until the delete batch lands.
     private var effectiveSelection: DiagramSelectionState {
         var selection = viewState.selection
         if let draft = viewState.dragDraft {
             selection.dimmedElementUuids.insert(draft.elementUuid)
         }
+        selection.dimmedElementUuids.formUnion(viewState.erasedUuids)
         return selection
     }
 
@@ -254,6 +265,20 @@ struct DiagramScreen: View {
                 case .connect(_, let anchor):
                     viewState.drawDraft = DiagramViewState.DrawDraft(
                         tool: .connector, anchor: anchor, current: p)
+                case .erase:
+                    // includeInk opts strokes/shapes into hit testing; the
+                    // launch eraser is restricted to exactly those two kinds
+                    // (never layers, cards, or scope containers).
+                    if case .element(let element)? = workspace.resolved.hitTest(
+                        at: p, edgeTolerance: 6 / viewState.viewport.zoom,
+                        includeInk: true) {
+                        switch element.kind {
+                        case .stroke, .shape:
+                            viewState.erasedUuids.insert(element.uuid)
+                        default:
+                            break
+                        }
+                    }
                 case .pan:
                     viewState.viewport.offset.width += value.translation.width - lastPan.width
                     viewState.viewport.offset.height += value.translation.height - lastPan.height
@@ -277,6 +302,8 @@ struct DiagramScreen: View {
                     if let draft = viewState.drawDraft {
                         commitConnector(from: fromUuid, to: draft.current)
                     }
+                case .erase:
+                    commitErase()
                 case .pan, nil:
                     break
                 }
@@ -290,6 +317,10 @@ struct DiagramScreen: View {
             // into the next flush.
             workspace.editSession.discard()
             viewState.dragDraft = nil
+            // A cancelled erase staged nothing — only the dim set needs
+            // clearing. A COMMITTED one clears after its flush lands, so the
+            // swept ink never flashes back between pointer-up and adopt.
+            viewState.erasedUuids = []
         }
         viewState.drawDraft = nil
         dragIntent = nil
@@ -299,8 +330,10 @@ struct DiagramScreen: View {
     private func begin(at p: CGPoint) -> DragIntent {
         let intent: DragIntent
         switch viewState.tool {
-        case .rect, .line, .text, .freehand:
-            intent = .draw(tool: viewState.tool, anchor: p)
+        case .freehand:
+            intent = .draw(tool: .freehand, anchor: p)
+        case .eraser:
+            intent = .erase
         case .connector:
             // A connector hangs off the element it starts on; starting in
             // empty space has nothing to hang it from, so that pans.
@@ -319,9 +352,9 @@ struct DiagramScreen: View {
             switch hit {
             case .element(let element):
                 switch element.kind {
-                // A text box is draggable for the same reason a card is: it
-                // is a bounded thing you positioned by hand.
-                case .entityCard, .absentEntity, .text:
+                // A text box or UML node is draggable for the same reason a
+                // card is: it is a bounded thing you positioned by hand.
+                case .entityCard, .absentEntity, .text, .umlNode:
                     if let node = workspace.node(uuid: element.uuid) {
                         select(element.uuid)
                         intent = .move(uuid: element.uuid, node: node, grab: p)
@@ -393,20 +426,27 @@ struct DiagramScreen: View {
 
     // MARK: - Draw mode
 
-    /// Commit a rect / line / text / freehand stroke: ONE batch that lazily
-    /// creates the top-level drawing_layer (high sibling z) via clientRef +
-    /// parentClientRef when it doesn't exist yet — layer and first shape land
-    /// atomically, exactly what in-batch parenting exists for.
+    /// Commit a freehand stroke through the shared drawing-layer funnel.
     private func commitDrawing(tool: DiagramTool, from anchor: CGPoint,
                                draft: DiagramViewState.DrawDraft) {
-        guard let add = drawingAdd(tool: tool, anchor: anchor, draft: draft) else { return }
+        guard tool == .freehand,
+              let add = freehandAdd(draft: draft) else { return }
+        stageOnDrawingLayer(center: add.center, payload: add.payload)
+        flushSelectingNewElement()
+    }
+
+    /// ONE batch that lazily creates the top-level drawing_layer (high
+    /// sibling z) via clientRef + parentClientRef when it doesn't exist yet —
+    /// layer and first element land atomically, exactly what in-batch
+    /// parenting exists for.
+    private func stageOnDrawingLayer(center: CGPoint, payload: DiagramElementPayload) {
         let session = workspace.editSession!
         if let layer = workspace.drawingLayer {
             session.stage(.elementAdd(DiagramElementAdd(
                 clientRef: Self.newElementRef,
                 parentElementUuid: layer.identity.uuid,
-                centerX: add.center.x, centerY: add.center.y,
-                payload: add.payload)))
+                centerX: center.x, centerY: center.y,
+                payload: payload)))
         } else {
             session.stage(.elementAdd(DiagramElementAdd(
                 clientRef: "drawing_layer",
@@ -415,56 +455,61 @@ struct DiagramScreen: View {
             session.stage(.elementAdd(DiagramElementAdd(
                 clientRef: Self.newElementRef,
                 parentClientRef: "drawing_layer",
-                centerX: add.center.x, centerY: add.center.y,
-                payload: add.payload)))
+                centerX: center.x, centerY: center.y,
+                payload: payload)))
         }
+    }
+
+    /// The stroke payload + diagram-space center. Vertices are always
+    /// ELEMENT-LOCAL (relative to that center) — the kit's storage contract.
+    /// RDP once on pointer-up: a trackpad emits far more points than the
+    /// curve needs, and every one of them costs storage and every later
+    /// render.
+    private func freehandAdd(draft: DiagramViewState.DrawDraft)
+        -> (center: CGPoint, payload: DiagramElementPayload)?
+    {
+        guard draft.points.count >= 2 else { return nil }
+        let xs = draft.points.map(\.x), ys = draft.points.map(\.y)
+        let center = CGPoint(x: (xs.min()! + xs.max()!) / 2,
+                             y: (ys.min()! + ys.max()!) / 2)
+        let vertices = DiagramStrokeCodec.decimate(draft.points.map {
+            DiagramVertex(x: $0.x - center.x, y: $0.y - center.y)
+        })
+        return (center, .drawingStroke(DrawingStrokePayload(
+            tool: .pencil, strokeColor: "#e67326", strokeWidth: 2,
+            vertices: vertices)))
+    }
+
+    /// Insert one UML node at the viewport center, parented under the (lazily
+    /// created) drawing layer — the same funnel a drawn stroke rides.
+    private func insertNode(_ kind: DiagramNodeKind) {
+        let center = hostSize == .zero
+            ? CGPoint.zero
+            : viewState.viewport.canvasPoint(
+                CGPoint(x: hostSize.width / 2, y: hostSize.height / 2))
+        stageOnDrawingLayer(center: center, payload: .umlNode(UmlNodePayload(
+            nodeKind: kind, width: 170, height: 100, markdown: "## Title")))
         flushSelectingNewElement()
     }
 
-    /// The per-tool payload + diagram-space center. Vertices are always
-    /// ELEMENT-LOCAL (relative to that center) — the kit's storage contract.
-    private func drawingAdd(tool: DiagramTool, anchor: CGPoint,
-                            draft: DiagramViewState.DrawDraft)
-        -> (center: CGPoint, payload: DiagramElementPayload)?
-    {
-        let end = draft.current
-        switch tool {
-        case .rect, .line:
-            let width = abs(end.x - anchor.x), height = abs(end.y - anchor.y)
-            guard width >= 1 || height >= 1 else { return nil }
-            let center = CGPoint(x: (anchor.x + end.x) / 2, y: (anchor.y + end.y) / 2)
-            let a = DiagramVertex(x: anchor.x - center.x, y: anchor.y - center.y)
-            let b = DiagramVertex(x: end.x - center.x, y: end.y - center.y)
-            return (center, .drawingShape(DrawingShapePayload(
-                shapeKind: tool == .rect ? .rectangle : .line,
-                strokeColor: "#e67326", strokeWidth: 2, vertices: [a, b])))
-        case .text:
-            // A text box carries its size on the subtype row (markdown
-            // wrapping needs a layout width up front), so the drag rect IS
-            // the size — with a floor, since a stray click would otherwise
-            // make an unclickable zero-sized box.
-            let width = max(abs(end.x - anchor.x), 120.0)
-            let height = max(abs(end.y - anchor.y), 44.0)
-            let center = CGPoint(x: (anchor.x + end.x) / 2, y: (anchor.y + end.y) / 2)
-            return (center, .drawingText(DrawingTextPayload(
-                markdown: "Text", width: width, height: height,
-                textColor: colorScheme == .dark ? "#f2f2f2" : "#1a1a1a")))
-        case .freehand:
-            // RDP once on pointer-up: a trackpad emits far more points than
-            // the curve needs, and every one of them costs storage and every
-            // later render.
-            guard draft.points.count >= 2 else { return nil }
-            let xs = draft.points.map(\.x), ys = draft.points.map(\.y)
-            let center = CGPoint(x: (xs.min()! + xs.max()!) / 2,
-                                 y: (ys.min()! + ys.max()!) / 2)
-            let vertices = DiagramStrokeCodec.decimate(draft.points.map {
-                DiagramVertex(x: $0.x - center.x, y: $0.y - center.y)
-            })
-            return (center, .drawingStroke(DrawingStrokePayload(
-                tool: .pencil, strokeColor: "#e67326", strokeWidth: 2,
-                vertices: vertices)))
-        case .select, .connector:
-            return nil
+    /// Gesture-end erase: ONE batch of element_delete for everything the drag
+    /// swept, CAS-gated per element on the version the tree holds. The dim
+    /// set clears only after the flush lands so dead ink never flashes back.
+    private func commitErase() {
+        let uuids = viewState.erasedUuids
+        guard !uuids.isEmpty else { return }
+        let session = workspace.editSession!
+        for uuid in uuids {
+            guard let node = workspace.node(uuid: uuid) else { continue }
+            session.stage(.elementDelete(DiagramElementDelete(
+                elementUuid: uuid, expectedVersion: node.identity.version)))
+        }
+        Task {
+            await workspace.flush()
+            // Subtract exactly what THIS gesture committed — a blanket
+            // clear here raced a second in-flight erase gesture and wiped
+            // its sweep mid-drag.
+            viewState.erasedUuids.subtract(uuids)
         }
     }
 
@@ -552,15 +597,9 @@ private struct DiagramDraftOverlay: View {
             if let draft = drawDraft {
                 var path = Path()
                 switch draft.tool {
-                case .rect, .text:
-                    path.addRect(CGRect(
-                        x: min(draft.anchor.x, draft.current.x),
-                        y: min(draft.anchor.y, draft.current.y),
-                        width: abs(draft.current.x - draft.anchor.x),
-                        height: abs(draft.current.y - draft.anchor.y)))
                 case .freehand:
                     path.addLines(draft.points)
-                case .line, .connector, .select:
+                case .connector, .select, .eraser:
                     path.move(to: draft.anchor)
                     path.addLine(to: draft.current)
                 }

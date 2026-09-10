@@ -35,10 +35,18 @@ extension ResolvedDiagram {
     ///
     /// A `.layer` is descended into but NEVER returned (its frame is the
     /// union of its children — returning it would swallow every hit in the
-    /// drawing layer's bounding box); strokes/shapes are not hit in v1.
-    public func hitTest(at point: CGPoint, edgeTolerance: CGFloat = 6) -> DiagramHit? {
+    /// drawing layer's bounding box).
+    ///
+    /// `includeInk` (m0024, the eraser's substrate) opts strokes and shapes
+    /// into the third pass — strokes by distance to their polyline inflated
+    /// by half their line width, shapes by their frame. The default is
+    /// byte-identical to the pre-m0024 behavior for every existing caller.
+    public func hitTest(at point: CGPoint, edgeTolerance: CGFloat = 6,
+                        includeInk: Bool = false) -> DiagramHit? {
         for element in topLevel.reversed() {
-            if let hit = Self.hitElement(element, at: point, cardsOnly: true) {
+            if let hit = Self.hitElement(element, at: point, cardsOnly: true,
+                                         includeInk: false,
+                                         inkTolerance: edgeTolerance) {
                 return .element(hit)
             }
         }
@@ -53,7 +61,9 @@ extension ResolvedDiagram {
             }
         }
         for element in topLevel.reversed() {
-            if let hit = Self.hitElement(element, at: point, cardsOnly: false) {
+            if let hit = Self.hitElement(element, at: point, cardsOnly: false,
+                                         includeInk: includeInk,
+                                         inkTolerance: edgeTolerance) {
                 return .element(hit)
             }
         }
@@ -76,20 +86,45 @@ extension ResolvedDiagram {
     }
 
     private static func hitElement(_ element: ResolvedElement, at point: CGPoint,
-                                   cardsOnly: Bool) -> ResolvedElement? {
+                                   cardsOnly: Bool, includeInk: Bool,
+                                   inkTolerance: CGFloat) -> ResolvedElement? {
         // Children first, reversed — the last-painted sibling wins, and an
         // entity card beats its containing scope outline.
         for child in element.children.reversed() {
-            if let hit = hitElement(child, at: point, cardsOnly: cardsOnly) { return hit }
+            if let hit = hitElement(child, at: point, cardsOnly: cardsOnly,
+                                    includeInk: includeInk,
+                                    inkTolerance: inkTolerance) { return hit }
         }
         switch element.kind {
-        case .layer, .stroke, .shape, .connector:
+        case .layer, .connector:
             return nil
+        case .stroke(let stroke):
+            // Opt-in only (the eraser): distance to the polyline, inflated
+            // by half the drawn width so a fat marker is as grabbable as it
+            // looks.
+            guard includeInk, !cardsOnly, stroke.points.count >= 2 else { return nil }
+            let tolerance = max(inkTolerance, stroke.lineWidth / 2 + 2)
+            for index in 0..<(stroke.points.count - 1) {
+                if distance(point, segment: stroke.points[index],
+                            stroke.points[index + 1]) <= tolerance {
+                    return element
+                }
+            }
+            return nil
+        case .shape:
+            guard includeInk, !cardsOnly else { return nil }
+            return element.frame.insetBy(dx: -inkTolerance, dy: -inkTolerance)
+                .contains(point) ? element : nil
         case .text:
             // A text box is a real bounded target — you click it to edit —
             // but it is drawing content, not a card, so it answers to the
             // same pass strokes and shapes would if they were hittable.
             guard !cardsOnly else { return nil }
+            return element.frame.contains(point) ? element : nil
+        case .umlNode:
+            // A node is a card-grade target: selectable, draggable, and a
+            // connector anchor — it answers in the same pass entity cards do.
+            guard cardsOnly else { return nil }
             return element.frame.contains(point) ? element : nil
         case .entityCard, .absentEntity:
             guard cardsOnly else { return nil }

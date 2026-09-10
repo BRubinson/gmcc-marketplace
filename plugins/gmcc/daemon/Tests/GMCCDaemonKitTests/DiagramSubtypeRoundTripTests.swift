@@ -124,14 +124,28 @@ final class DiagramSubtypeRoundTripTests: XCTestCase {
         case .connector:
             // targetElementUuid is filled in by the caller once the peer it
             // points at actually exists — a fixture cannot know a uuid that
-            // has not been minted yet.
+            // has not been minted yet. The update leg exercises the v23
+            // vocabulary: routing kind, tail kind, and a widened head.
             return Fixture(
                 initial: .connector(ConnectorPayload(
                     strokeColor: "#111111", strokeWidth: 2,
                     lineStyle: .solid, headKind: .arrow, label: "")),
                 updated: .connector(ConnectorPayload(
                     strokeColor: "#ff00ff", strokeWidth: 5,
-                    lineStyle: .dashed, headKind: .dot, label: "depends on")))
+                    lineStyle: .dashed, headKind: .openArrow,
+                    routingKind: .curved, tailKind: .diamond,
+                    label: "depends on")))
+        case .umlNode:
+            return Fixture(
+                initial: .umlNode(UmlNodePayload(
+                    nodeKind: .roundedRect, width: 160, height: 90,
+                    markdown: "# Node")),
+                updated: .umlNode(UmlNodePayload(
+                    nodeKind: .dbCylinder, width: 220, height: 140,
+                    markdown: "## Store\n- rows",
+                    fontSize: 15, textColor: "#222222",
+                    strokeColor: "#0044ff", strokeWidth: 3,
+                    fillColor: "#eef2ff")))
         }
     }
 
@@ -255,6 +269,7 @@ final class DiagramSubtypeRoundTripTests: XCTestCase {
             targetElementUuid: stored.targetElementUuid,
             strokeColor: fixture.strokeColor, strokeWidth: fixture.strokeWidth,
             lineStyle: fixture.lineStyle, headKind: fixture.headKind,
+            routingKind: fixture.routingKind, tailKind: fixture.tailKind,
             label: fixture.label))
     }
 
@@ -272,6 +287,7 @@ final class DiagramSubtypeRoundTripTests: XCTestCase {
             targetElementUuid: stored.targetElementUuid,
             strokeColor: update.strokeColor, strokeWidth: update.strokeWidth,
             lineStyle: update.lineStyle, headKind: update.headKind,
+            routingKind: update.routingKind, tailKind: update.tailKind,
             label: update.label))
     }
 

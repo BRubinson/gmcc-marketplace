@@ -11,9 +11,11 @@ struct DiagramToolStrip: View {
     let onFit: () -> Void
     let onOrganize: () -> Void
     let onCopy: () -> Void
+    let onInsertNode: (DiagramNodeKind) -> Void
+    let onAddDopeScope: () -> Void
 
     var body: some View {
-        // Tool picker: only `select` can drag nodes; rect/line draw on the
+        // Tool picker: only `select` can drag nodes; freehand draws on the
         // drawing layer (trackpad pan works in every tool via the bridge).
         Picker("Tool", selection: Binding(
             get: { viewState.tool },
@@ -24,7 +26,29 @@ struct DiagramToolStrip: View {
             }
         }
         .pickerStyle(.segmented)
-        .frame(width: 200)
+        .frame(width: 160)
+
+        // The UML shape vocabulary — inserts land at the viewport center on
+        // the drawing layer, replacing the retired rect/line/text tools.
+        Menu {
+            ForEach(DiagramNodeKind.allCases, id: \.rawValue) { kind in
+                Button {
+                    onInsertNode(kind)
+                } label: {
+                    Label(Self.nodeLabel(kind), systemImage: Self.nodeSymbol(kind))
+                }
+            }
+        } label: {
+            Label("Insert Node", systemImage: "plus.square.on.square")
+        }
+        .help("Insert a UML node at the center of the view")
+
+        Button {
+            onAddDopeScope()
+        } label: {
+            Label("Add Dope Scope", systemImage: "rectangle.stack.badge.plus")
+        }
+        .help("Add entities from the bound dope scope to the canvas")
 
         domainPills
 
@@ -82,6 +106,28 @@ struct DiagramToolStrip: View {
                       systemImage: "square.stack.3d.up")
             }
             .help("Filter the diagram to selected domains")
+        }
+    }
+
+    static func nodeLabel(_ kind: DiagramNodeKind) -> String {
+        switch kind {
+        case .dbCylinder: "Database"
+        case .roundedRect: "Rounded Rectangle"
+        case .triangle: "Triangle"
+        case .rhombus: "Rhombus"
+        case .diamond: "Diamond"
+        case .circle: "Circle"
+        }
+    }
+
+    static func nodeSymbol(_ kind: DiagramNodeKind) -> String {
+        switch kind {
+        case .dbCylinder: "cylinder"
+        case .roundedRect: "rectangle.roundedtop"
+        case .triangle: "triangle"
+        case .rhombus: "rhombus"
+        case .diamond: "diamond"
+        case .circle: "circle"
         }
     }
 

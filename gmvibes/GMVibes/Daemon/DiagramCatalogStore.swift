@@ -39,8 +39,42 @@ final class DiagramCatalogStore {
         }
     }
 
+    /// A GALLERY page's identity — the cross-tier DIAGRAM_SEARCH surface,
+    /// deliberately separate from `Owner` because it deliberately breaks the
+    /// one-owner contract: the project page browses every tier, the session
+    /// page that session's SESSION+PROMPT rows.
+    enum GalleryScope: Hashable {
+        case project(String)
+        case session(projectUuid: String, sessionUuid: String)
+
+        var projectUuid: String {
+            switch self {
+            case .project(let uuid): uuid
+            case .session(let projectUuid, _): projectUuid
+            }
+        }
+
+        var sessionUuid: String? {
+            if case .session(_, let uuid) = self { return uuid }
+            return nil
+        }
+
+        /// The hub domain key: the owner uuid whose DIAGRAM_CHANGE payload
+        /// arm covers every row this scope can list.
+        var streamKey: String { sessionUuid ?? projectUuid }
+    }
+
     private(set) var rowsByOwner: [Owner: [DiagramRow]] = [:]
     private(set) var errorsByOwner: [Owner: String] = [:]
+    private(set) var galleryByScope: [GalleryScope: [DiagramRow]] = [:]
+    private(set) var galleryErrors: [GalleryScope: String] = [:]
+    /// The last query each gallery ran — DIAGRAM_CHANGE refreshes re-run it
+    /// so a live event never silently widens a filtered grid.
+    @ObservationIgnored private var galleryQueries: [GalleryScope: String] = [:]
+    /// diagram uuid -> the resolve behind its LIVE thumbnail, revision-keyed
+    /// so a stale card never renders as current content.
+    private(set) var thumbnailsByUuid: [String: (revision: Int64, resolved: ResolvedDiagram)] = [:]
+    @ObservationIgnored private var thumbnailLoads: Set<String> = []
 
     private let service = GMCCDaemonService.shared
     /// Coalesced per owner: list is a pure enumeration with no
@@ -87,6 +121,88 @@ final class DiagramCatalogStore {
         } catch {
             errorsByOwner[owner] = String(describing: error)
         }
+    }
+
+    // MARK: - Gallery (DIAGRAM_SEARCH, v23)
+
+    func gallery(_ scope: GalleryScope) -> [DiagramRow] { galleryByScope[scope] ?? [] }
+
+    /// Has this gallery fetched at least once? (nil = show a spinner, not a
+    /// confident empty state.)
+    func galleryLoaded(_ scope: GalleryScope) -> Bool { galleryByScope[scope] != nil }
+
+    /// Run (and remember) a query for one gallery. Empty query = browse-all
+    /// by recency; non-empty = FTS — both are the daemon's DIAGRAM_SEARCH.
+    func searchGallery(_ scope: GalleryScope, query: String) async {
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        galleryQueries[scope] = trimmed
+        do {
+            let rows = try await service.diagramSearch(
+                projectUuid: scope.projectUuid, sessionUuid: scope.sessionUuid,
+                query: trimmed.isEmpty ? nil : trimmed)
+            // A slower response for a superseded query must not clobber the
+            // current one's rows.
+            guard galleryQueries[scope] == trimmed else { return }
+            if galleryByScope[scope] != rows { galleryByScope[scope] = rows }
+            if galleryErrors[scope] != nil { galleryErrors[scope] = nil }
+        } catch let error as DaemonError {
+            galleryErrors[scope] = error.userMessage
+        } catch {
+            galleryErrors[scope] = String(describing: error)
+        }
+    }
+
+    /// DIAGRAM_CHANGE wake: re-run whatever the gallery was last showing —
+    /// including dropping a card the "deleted" action just removed.
+    func refreshGallery(_ scope: GalleryScope) async {
+        await searchGallery(scope, query: galleryQueries[scope] ?? "")
+    }
+
+    // MARK: - Thumbnails
+
+    /// The cached resolve behind a card's live thumbnail — nil until loaded,
+    /// and nil again the moment the row's revision moves past the cache.
+    func thumbnail(for row: DiagramRow) -> ResolvedDiagram? {
+        guard let entry = thumbnailsByUuid[row.uuid],
+              entry.revision == row.revision else { return nil }
+        return entry.resolved
+    }
+
+    /// One lazy DIAGRAM_GET per card, resolved against an EMPTY dope context
+    /// (ghost cards are the legal — and cheap — thumbnail state).
+    func loadThumbnail(for row: DiagramRow) async {
+        let key = "\(row.uuid):\(row.revision)"
+        if thumbnail(for: row) != nil || thumbnailLoads.contains(key) { return }
+        thumbnailLoads.insert(key)
+        defer { thumbnailLoads.remove(key) }
+        guard let response = try? await service.diagramGet(diagramUuid: row.uuid) else { return }
+        let resolved = DiagramResolver.resolve(response.tree, dope: DiagramDopeContext())
+        // Key on the revision the GET returned, not the (possibly stale) row.
+        thumbnailsByUuid[row.uuid] = (response.tree.revision, resolved)
+    }
+
+    // MARK: - Delete / visibility
+
+    /// DIAGRAM_DELETE, CAS-gated on the revision the card was rendered from.
+    /// The galleries refresh off the durable "deleted" event; the immediate
+    /// refresh here just spares the deleting window the round-trip lag.
+    func delete(_ row: DiagramRow, scope: GalleryScope) async throws {
+        _ = try await service.diagramDelete(diagramUuid: row.uuid,
+                                            expectedRevision: row.revision)
+        thumbnailsByUuid[row.uuid] = nil
+        await refreshGallery(scope)
+    }
+
+    /// The v23 visibility axis, ridden on batch-apply like promotion. PUBLIC
+    /// is daemon-guarded to SESSION tier — refusals surface as thrown errors,
+    /// never pre-blocked here.
+    func setVisibility(_ row: DiagramRow, to visibility: DiagramVisibility,
+                       scope: GalleryScope) async throws {
+        _ = try await service.diagramBatchApply(
+            diagramUuid: row.uuid, expectedRevision: nil,
+            mutations: [.diagramUpdate(DiagramRowUpdate(
+                expectedVersion: row.version, visibility: visibility))])
+        await refreshGallery(scope)
     }
 
     // MARK: - Create

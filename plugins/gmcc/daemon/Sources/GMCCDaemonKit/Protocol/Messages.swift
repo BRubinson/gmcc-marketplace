@@ -3436,18 +3436,24 @@ public struct DiagramListRequest: Codable, Hashable, Sendable {
     public let instanceUuid: String?
     public let sessionUuid: String?
     public let promptUuid: String?
+    /// v23, additive: server-side visibility filter (PRIVATE|PUBLIC).
+    /// Absent = both. Still single-owner single-tier — never a union.
+    public let visibility: String?
 
     public init(
         projectUuid: String? = nil,
         instanceUuid: String? = nil,
         sessionUuid: String? = nil,
-        promptUuid: String? = nil
+        promptUuid: String? = nil,
+        visibility: String? = nil
     ) {
         self.projectUuid = projectUuid
         self.instanceUuid = instanceUuid
         self.sessionUuid = sessionUuid
         self.promptUuid = promptUuid
+        self.visibility = visibility
     }
+
 }
 
 public struct DiagramListResponse: Codable, Hashable, Sendable {
@@ -3612,6 +3618,146 @@ public struct DiagramBatchApplyResponse: Codable, Hashable, Sendable {
         self.diagramUuid = diagramUuid
         self.revision = revision
         self.results = results
+    }
+}
+
+// MARK: - Diagram Studio (v23)
+
+/// DIAGRAM_SEARCH — the cross-tier browse AND search surface backing the
+/// GMVibes galleries. Deliberately a SEPARATE message from DIAGRAM_LIST,
+/// whose single-owner no-union picker contract stays untouched.
+///
+/// Two modes in one message: a nil/empty `query` is a plain filtered SELECT
+/// of the project's diagrams across tiers ordered by updated_at DESC (the
+/// gallery grid); a non-empty query is a bm25-ranked FTS5 MATCH over
+/// diagram_fts (the gallery search box). `sessionUuid` narrows to one
+/// session's SESSION+PROMPT rows; `visibility` filters the axis.
+public struct DiagramSearchRequest: Codable, Hashable, Sendable {
+    public let projectUuid: String
+    public let sessionUuid: String?
+    public let query: String?
+    public let visibility: String?
+    public let limit: Int?
+
+    public init(projectUuid: String, sessionUuid: String? = nil,
+                query: String? = nil, visibility: String? = nil,
+                limit: Int? = nil) {
+        self.projectUuid = projectUuid
+        self.sessionUuid = sessionUuid
+        self.query = query
+        self.visibility = visibility
+        self.limit = limit
+    }
+}
+
+/// Rows in rank order (bm25 when a query ran, updated_at DESC otherwise).
+/// DiagramRow already carries tier/visibility/owner uuids/revision — the
+/// whole card surface — so hits are plain rows, not a parallel shape.
+public struct DiagramSearchResponse: Codable, Hashable, Sendable {
+    public let diagrams: [DiagramRow]
+
+    public init(diagrams: [DiagramRow]) {
+        self.diagrams = diagrams
+    }
+}
+
+/// DIAGRAM_DELETE — row delete with an optional whole-diagram CAS gate.
+/// Elements and subtype rows cascade via FKs, the FTS mirror via its
+/// delete trigger, and prompt-qualified readings via m0022's CASCADE. A
+/// durable DIAGRAM_CHANGE (action "deleted") is recorded BEFORE the row
+/// drops so live galleries/editors close cleanly. Screenshot cleanup is
+/// the CLIENT's (ckfs is gm territory, exactly like rendering).
+public struct DiagramDeleteRequest: Codable, Hashable, Sendable {
+    public let diagramUuid: String
+    public let expectedRevision: Int64?
+
+    public init(diagramUuid: String, expectedRevision: Int64? = nil) {
+        self.diagramUuid = diagramUuid
+        self.expectedRevision = expectedRevision
+    }
+}
+
+public struct DiagramDeleteResponse: Codable, Hashable, Sendable {
+    public let deletedUuid: String
+    public let code: String
+    /// Element rows removed with the diagram.
+    public let cascadedElements: Int
+    /// The owner storage path a screenshot may exist under (client cleanup).
+    public let ownerStoragePath: String?
+    /// The row's screenshot directory override — the client must clean the
+    /// SAME path gm render wrote, not a guessed default.
+    public let gmccDiagramPath: String?
+
+    public init(deletedUuid: String, code: String, cascadedElements: Int,
+                ownerStoragePath: String? = nil, gmccDiagramPath: String? = nil) {
+        self.deletedUuid = deletedUuid
+        self.code = code
+        self.cascadedElements = cascadedElements
+        self.ownerStoragePath = ownerStoragePath
+        self.gmccDiagramPath = gmccDiagramPath
+    }
+}
+
+/// DIAGRAM_WRITE_REPO — serialize the session's PUBLIC SESSION-tier
+/// diagrams into the repo's committed .gmcc tree, through the session's
+/// instance root (the dope write-repo gate and 4-phase orchestration,
+/// applied verbatim). Explicit only: setting PUBLIC never writes files.
+public struct DiagramWriteRepoRequest: Codable, Hashable, Sendable {
+    public let sessionUuid: String
+    /// Overwrite files stamped AHEAD of the db (the dope --force contract).
+    public let force: Bool
+
+    public init(sessionUuid: String, force: Bool = false) {
+        self.sessionUuid = sessionUuid
+        self.force = force
+    }
+}
+
+public struct DiagramWriteRepoResponse: Codable, Hashable, Sendable {
+    /// Diagram codes written this pass.
+    public let written: [String]
+    /// Files pruned because their diagram was demoted or deleted.
+    public let pruned: [String]
+    /// The absolute .gmcc/diagrams directory written under.
+    public let root: String
+
+    public init(written: [String], pruned: [String], root: String) {
+        self.written = written
+        self.pruned = pruned
+        self.root = root
+    }
+}
+
+/// DIAGRAM_INGEST — files→db, strictly forward-only (the dope ingest gate):
+/// a file version must be STRICTLY greater than the db revision to land.
+/// Code-keyed upsert into the calling session's SESSION tier as PUBLIC;
+/// connector code-path targets re-resolve, unresolvable → ghost.
+public struct DiagramIngestRequest: Codable, Hashable, Sendable {
+    public let sessionUuid: String
+
+    public init(sessionUuid: String) {
+        self.sessionUuid = sessionUuid
+    }
+}
+
+public struct DiagramIngestResponse: Codable, Hashable, Sendable {
+    /// Codes created or updated from files.
+    public let ingested: [String]
+    /// Codes skipped (db at or ahead of the file, or a PRIVATE collision).
+    public let skipped: [String]
+    /// Per-file problems (corrupt JSON, name/code mismatch, refused
+    /// content). One bad file must never abort the family's sync — and the
+    /// boot path must have something to PRINT, or the failure is silent.
+    public let warnings: [String]
+    /// The absolute .gmcc/diagrams directory read from.
+    public let root: String
+
+    public init(ingested: [String], skipped: [String], warnings: [String] = [],
+                root: String) {
+        self.ingested = ingested
+        self.skipped = skipped
+        self.warnings = warnings
+        self.root = root
     }
 }
 

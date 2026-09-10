@@ -18,6 +18,7 @@ public enum DiagramElementPayload: Codable, Hashable, Sendable {
     case drawingShape(DrawingShapePayload)
     case drawingText(DrawingTextPayload)
     case connector(ConnectorPayload)
+    case umlNode(UmlNodePayload)
     case dopeScopePersistenceLayer(DopeScopePersistenceLayerPayload)
     case dopeEntity(DopeEntityPayload)
 
@@ -30,6 +31,7 @@ public enum DiagramElementPayload: Codable, Hashable, Sendable {
         case .drawingShape: return .drawingShape
         case .drawingText: return .drawingText
         case .connector: return .connector
+        case .umlNode: return .umlNode
         case .dopeScopePersistenceLayer: return .dopeScopePersistenceLayer
         case .dopeEntity: return .dopeEntity
         }
@@ -56,6 +58,8 @@ public enum DiagramElementPayload: Codable, Hashable, Sendable {
             self = .drawingText(try c.decode(DrawingTextPayload.self, forKey: .fields))
         case .connector:
             self = .connector(try c.decode(ConnectorPayload.self, forKey: .fields))
+        case .umlNode:
+            self = .umlNode(try c.decode(UmlNodePayload.self, forKey: .fields))
         case .dopeScopePersistenceLayer:
             self = .dopeScopePersistenceLayer(try c.decode(DopeScopePersistenceLayerPayload.self, forKey: .fields))
         case .dopeEntity:
@@ -72,6 +76,7 @@ public enum DiagramElementPayload: Codable, Hashable, Sendable {
         case .drawingShape(let p): try c.encode(p, forKey: .fields)
         case .drawingText(let p): try c.encode(p, forKey: .fields)
         case .connector(let p): try c.encode(p, forKey: .fields)
+        case .umlNode(let p): try c.encode(p, forKey: .fields)
         case .dopeScopePersistenceLayer(let p): try c.encode(p, forKey: .fields)
         case .dopeEntity(let p): try c.encode(p, forKey: .fields)
         }
@@ -245,11 +250,31 @@ public enum DiagramConnectorLineStyle: String, Codable, Hashable, CaseIterable, 
     case dashed
 }
 
-/// Connector head style.
+/// Connector head style. Widened at wire v23 for UML semantics — `dot` IS
+/// the filled-circle variant and stays legal forever (pre-v23 rows carry
+/// it); `circle` is the OPEN (stroked) ring. New cases ride the v23 bump:
+/// the envelope handshake fences them from pre-v23 decoders, for which an
+/// unknown rawValue is dataCorrupted, not a skippable field.
 public enum DiagramConnectorHead: String, Codable, Hashable, CaseIterable, Sendable {
     case none
     case arrow
     case dot
+    case openArrow = "open_arrow"
+    case diamond
+    case circle
+    case cross
+}
+
+/// Connector routing style (v23). Every case selects among geometry that
+/// already existed: `orthogonalStep` is the router's polyline (the ONLY
+/// pre-v23 renderer, hence the decode default), `straight` is the 2-point
+/// chord, `curved` is the legacy cubic promoted from routing-declined
+/// fallback to a first-class choice. DiagramEdgeRouter internals are not a
+/// function of this enum.
+public enum DiagramConnectorRouting: String, Codable, Hashable, CaseIterable, Sendable {
+    case orthogonalStep = "orthogonal_step"
+    case straight
+    case curved
 }
 
 /// A hand-drawn connection from the element it is parented under to a PEER
@@ -271,23 +296,30 @@ public struct ConnectorPayload: Codable, Hashable, Sendable {
     public let strokeWidth: Double
     public let lineStyle: DiagramConnectorLineStyle
     public let headKind: DiagramConnectorHead
+    public let routingKind: DiagramConnectorRouting
+    public let tailKind: DiagramConnectorHead
     public let label: String
 
     public init(
         targetElementUuid: String? = nil, strokeColor: String = "#1a1a1a",
         strokeWidth: Double = 2, lineStyle: DiagramConnectorLineStyle = .solid,
-        headKind: DiagramConnectorHead = .arrow, label: String = ""
+        headKind: DiagramConnectorHead = .arrow,
+        routingKind: DiagramConnectorRouting = .orthogonalStep,
+        tailKind: DiagramConnectorHead = .none, label: String = ""
     ) {
         self.targetElementUuid = targetElementUuid
         self.strokeColor = strokeColor
         self.strokeWidth = strokeWidth
         self.lineStyle = lineStyle
         self.headKind = headKind
+        self.routingKind = routingKind
+        self.tailKind = tailKind
         self.label = label
     }
 
     private enum CodingKeys: String, CodingKey {
-        case targetElementUuid, strokeColor, strokeWidth, lineStyle, headKind, label
+        case targetElementUuid, strokeColor, strokeWidth, lineStyle, headKind,
+             routingKind, tailKind, label
     }
 
     public init(from decoder: Decoder) throws {
@@ -299,7 +331,66 @@ public struct ConnectorPayload: Codable, Hashable, Sendable {
             DiagramConnectorLineStyle.self, forKey: .lineStyle) ?? .solid
         headKind = try c.decodeIfPresent(
             DiagramConnectorHead.self, forKey: .headKind) ?? .arrow
+        // Defaults reproduce the pre-v23 look: the router's polyline was the
+        // only renderer, and no connector had a tail decoration.
+        routingKind = try c.decodeIfPresent(
+            DiagramConnectorRouting.self, forKey: .routingKind) ?? .orthogonalStep
+        tailKind = try c.decodeIfPresent(
+            DiagramConnectorHead.self, forKey: .tailKind) ?? .none
         label = try c.decodeIfPresent(String.self, forKey: .label) ?? ""
+    }
+}
+
+/// A UML node: one element type for the whole shape vocabulary (see
+/// DiagramNodeKind), an explicit frame (the drawing_text doctrine — markdown
+/// wrapping needs a known width, and the kit never measures text), and a
+/// block-markdown interior rendered by the kit's own renderer so gm render
+/// and every host draw the same thing. Chrome fields are nil-means-theme-
+/// default so an unstyled node is legible in both schemes.
+public struct UmlNodePayload: Codable, Hashable, Sendable {
+    public let nodeKind: DiagramNodeKind
+    public let width: Double
+    public let height: Double
+    public let markdown: String
+    public let fontSize: Double?
+    public let textColor: String?
+    public let strokeColor: String?
+    public let strokeWidth: Double?
+    public let fillColor: String?
+
+    public init(
+        nodeKind: DiagramNodeKind, width: Double = 160, height: Double = 90,
+        markdown: String = "", fontSize: Double? = nil, textColor: String? = nil,
+        strokeColor: String? = nil, strokeWidth: Double? = nil,
+        fillColor: String? = nil
+    ) {
+        self.nodeKind = nodeKind
+        self.width = width
+        self.height = height
+        self.markdown = markdown
+        self.fontSize = fontSize
+        self.textColor = textColor
+        self.strokeColor = strokeColor
+        self.strokeWidth = strokeWidth
+        self.fillColor = fillColor
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case nodeKind, width, height, markdown, fontSize, textColor,
+             strokeColor, strokeWidth, fillColor
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        nodeKind = try c.decode(DiagramNodeKind.self, forKey: .nodeKind)
+        width = try c.decodeIfPresent(Double.self, forKey: .width) ?? 160
+        height = try c.decodeIfPresent(Double.self, forKey: .height) ?? 90
+        markdown = try c.decodeIfPresent(String.self, forKey: .markdown) ?? ""
+        fontSize = try c.decodeIfPresent(Double.self, forKey: .fontSize)
+        textColor = try c.decodeIfPresent(String.self, forKey: .textColor)
+        strokeColor = try c.decodeIfPresent(String.self, forKey: .strokeColor)
+        strokeWidth = try c.decodeIfPresent(Double.self, forKey: .strokeWidth)
+        fillColor = try c.decodeIfPresent(String.self, forKey: .fillColor)
     }
 }
 

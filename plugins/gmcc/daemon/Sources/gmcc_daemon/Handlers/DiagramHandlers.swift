@@ -61,3 +61,33 @@ enum DiagramBatchApplyHandler {
         return try okResult(.diagramBatchApply, head, try store.diagramBatchApply(request))
     }
 }
+
+// Diagram Studio (v23)
+
+enum DiagramSearchHandler {
+    static func handle(line: Data, head: EnvelopeHead, store: Store) throws -> HandlerResult {
+        let request = try decodePayload(DiagramSearchRequest.self, from: line)
+        return try okResult(.diagramSearch, head, try store.diagramSearch(request))
+    }
+}
+
+enum DiagramDeleteHandler {
+    static func handle(line: Data, head: EnvelopeHead, store: Store) throws -> HandlerResult {
+        let request = try decodePayload(DiagramDeleteRequest.self, from: line)
+        return try okResult(.diagramDelete, head, try store.diagramDelete(request))
+    }
+}
+
+enum DiagramWriteRepoHandler {
+    static func handle(line: Data, head: EnvelopeHead, store: Store) throws -> HandlerResult {
+        let request = try decodePayload(DiagramWriteRepoRequest.self, from: line)
+        return try okResult(.diagramWriteRepo, head, try store.diagramWriteRepo(request))
+    }
+}
+
+enum DiagramIngestHandler {
+    static func handle(line: Data, head: EnvelopeHead, store: Store) throws -> HandlerResult {
+        let request = try decodePayload(DiagramIngestRequest.self, from: line)
+        return try okResult(.diagramIngest, head, try store.diagramIngest(request))
+    }
+}

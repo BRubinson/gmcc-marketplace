@@ -1,4 +1,5 @@
 import SwiftUI
+import GMCCDaemonKit
 import AppKit
 
 // Single source of truth for the in-editor markdown header look — the purplish hue and
@@ -30,6 +31,13 @@ enum MarkdownHeaderStyle {
     /// Multiplier from point size to approximate rendered line height. Tuned to the
     /// system monospaced font so gutter rows track the editor's per-line layout.
     static let lineHeightFactor: CGFloat = 1.3
+
+    /// The ATX heading level (1...6) for a line, or nil if it isn't a
+    /// heading — the kit's parser rule, so the editor can never highlight a
+    /// line the reader won't render as a heading.
+    static func headingLevel(of line: String) -> Int? {
+        MarkdownDocument.headingLevel(of: line)
+    }
 
     /// Heading font for level 1...6 — largest at h1, easing down to ~body at h6.
     static func font(level: Int) -> Font {

@@ -394,6 +394,29 @@ actor GMCCDaemonService {
         return try await perform { try $0.diagramInit(req) }
     }
 
+    /// Cross-tier browse AND search for the galleries (v23). nil/empty query
+    /// = the project's diagrams across tiers by recency; non-empty = FTS.
+    /// Deliberately separate from diagramList's one-owner contract.
+    func diagramSearch(projectUuid: String, sessionUuid: String? = nil,
+                       query: String? = nil, limit: Int? = nil) async throws -> [DiagramRow] {
+        let req = DiagramSearchRequest(
+            projectUuid: Self.normalized(projectUuid),
+            sessionUuid: Self.normalized(sessionUuid),
+            query: query, limit: limit)
+        return try await perform { try $0.diagramSearch(req).diagrams }
+    }
+
+    /// Row delete with an optional whole-diagram CAS gate; elements cascade
+    /// server-side and DIAGRAM_CHANGE (action "deleted") wakes the galleries.
+    func diagramDelete(diagramUuid: String,
+                       expectedRevision: Int64? = nil) async throws -> DiagramDeleteResponse {
+        let uuid = Self.normalized(diagramUuid)
+        return try await perform {
+            try $0.diagramDelete(DiagramDeleteRequest(
+                diagramUuid: uuid, expectedRevision: expectedRevision))
+        }
+    }
+
     /// THE interactive write: one transaction, one revision, one
     /// DIAGRAM_CHANGE. Every editor mutation goes through here — the
     /// granular DIAGRAM_NODE_* verbs are deliberately not wrapped, since a

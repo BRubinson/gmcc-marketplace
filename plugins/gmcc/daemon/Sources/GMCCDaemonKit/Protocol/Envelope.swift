@@ -58,7 +58,16 @@ public enum GMCCWireProtocol {
     /// v21 → v22: KBITE_EXPORT / KBITE_IMPORT / KBITE_DELETE — the
     /// portable-kbite family. Three new message types, so the bump is
     /// mandatory under the same rule as v20.
-    public static let version = 22
+    ///
+    /// v22 → v23: the Diagram Studio train. Four new message types —
+    /// DIAGRAM_SEARCH / DIAGRAM_DELETE / DIAGRAM_WRITE_REPO /
+    /// DIAGRAM_INGEST — force the bump, and every otherwise-UNSAFE addition
+    /// deliberately rides the same fence (the v20 "bonus", used on purpose
+    /// this time): the uml_node payload kind, the widened
+    /// DiagramConnectorHead vocabulary, ConnectorPayload.routingKind /
+    /// tailKind, and diagram.visibility. A pre-v23 peer never reaches the
+    /// decoders these would crash — the handshake rejects it at the door.
+    public static let version = 23
 }
 
 /// Discriminator for every NDJSON message on the socket. One case per spec
@@ -190,6 +199,13 @@ public enum MessageType: String, Codable, Hashable, CaseIterable, Sendable {
     case diagramNodeUpdate = "DIAGRAM_NODE_UPDATE"
     case diagramNodeDelete = "DIAGRAM_NODE_DELETE"
     case diagramBatchApply = "DIAGRAM_BATCH_APPLY"
+    // Diagram Studio (v23): cross-tier browse/search (LIST keeps its
+    // no-union picker contract), row delete, and the public-visibility
+    // serialization pair (the dope write-repo/ingest twins).
+    case diagramSearch = "DIAGRAM_SEARCH"
+    case diagramDelete = "DIAGRAM_DELETE"
+    case diagramWriteRepo = "DIAGRAM_WRITE_REPO"
+    case diagramIngest = "DIAGRAM_INGEST"
     // Git-state resolution (v7)
     case sessionResolve = "SESSION_RESOLVE"
     case instanceCurrentSession = "INSTANCE_CURRENT_SESSION"

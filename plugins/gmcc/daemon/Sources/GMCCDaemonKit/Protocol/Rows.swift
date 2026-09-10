@@ -1303,6 +1303,9 @@ public struct DiagramRow: Codable, Hashable, Sendable {
     /// The whole-tree content counter (bumpDiagramRevision; never the row's
     /// optimistic-lock version).
     public let revision: Int64
+    /// PRIVATE (db-only) | PUBLIC (repo-serializable; SESSION tier only).
+    /// Decodes absent as PRIVATE so pre-m0024 snapshots read unchanged.
+    public let visibility: String
     public let createdAt: String
     public let updatedAt: String
 
@@ -1320,6 +1323,7 @@ public struct DiagramRow: Codable, Hashable, Sendable {
         gmccDiagramPath: String?,
         dopeScopeCode: String? = nil,
         revision: Int64,
+        visibility: String = DiagramVisibility.private.rawValue,
         createdAt: String,
         updatedAt: String
     ) {
@@ -1336,7 +1340,35 @@ public struct DiagramRow: Codable, Hashable, Sendable {
         self.gmccDiagramPath = gmccDiagramPath
         self.dopeScopeCode = dopeScopeCode
         self.revision = revision
+        self.visibility = visibility
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case uuid, version, tier, projectUuid, instanceUuid, sessionUuid,
+             promptUuid, code, name, description, gmccDiagramPath,
+             dopeScopeCode, revision, visibility, createdAt, updatedAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        uuid = try c.decode(String.self, forKey: .uuid)
+        version = try c.decode(Int64.self, forKey: .version)
+        tier = try c.decode(String.self, forKey: .tier)
+        projectUuid = try c.decode(String.self, forKey: .projectUuid)
+        instanceUuid = try c.decodeIfPresent(String.self, forKey: .instanceUuid)
+        sessionUuid = try c.decodeIfPresent(String.self, forKey: .sessionUuid)
+        promptUuid = try c.decodeIfPresent(String.self, forKey: .promptUuid)
+        code = try c.decode(String.self, forKey: .code)
+        name = try c.decode(String.self, forKey: .name)
+        description = try c.decode(String.self, forKey: .description)
+        gmccDiagramPath = try c.decodeIfPresent(String.self, forKey: .gmccDiagramPath)
+        dopeScopeCode = try c.decodeIfPresent(String.self, forKey: .dopeScopeCode)
+        revision = try c.decode(Int64.self, forKey: .revision)
+        visibility = try c.decodeIfPresent(String.self, forKey: .visibility)
+            ?? DiagramVisibility.private.rawValue
+        createdAt = try c.decode(String.self, forKey: .createdAt)
+        updatedAt = try c.decode(String.self, forKey: .updatedAt)
     }
 }

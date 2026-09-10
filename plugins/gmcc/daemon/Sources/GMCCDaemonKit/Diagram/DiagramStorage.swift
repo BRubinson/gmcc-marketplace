@@ -105,7 +105,11 @@ public struct DiagramRenderFingerprint: Codable, Hashable, Sendable {
     /// BUMP THIS when resolver or view geometry changes: card metrics,
     /// `edgeRoutingPadding`, router cost constants, the edge canvas's
     /// stroke geometry. Renders older than the bump re-render once.
-    public static let renderAlgoVersion = 1
+    // 2 (v23): real arrowheads + tail decorations + routingKind dispatch,
+    // pressure-aware freehand outlines, uml_node chrome, block markdown in
+    // text surfaces. Bump on EVERY look change — this constant is the
+    // fingerprint's only representative of render code.
+    public static let renderAlgoVersion = 2
 
     public let diagramUuid: String
     public let diagramRevision: Int64

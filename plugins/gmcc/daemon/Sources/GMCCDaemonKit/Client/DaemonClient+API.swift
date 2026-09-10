@@ -499,4 +499,20 @@ extension DaemonClient {
     public func diagramBatchApply(_ req: DiagramBatchApplyRequest) throws -> DiagramBatchApplyResponse {
         try request(type: .diagramBatchApply, payload: req, responseType: DiagramBatchApplyResponse.self)
     }
+
+    public func diagramSearch(_ req: DiagramSearchRequest) throws -> DiagramSearchResponse {
+        try request(type: .diagramSearch, payload: req, responseType: DiagramSearchResponse.self)
+    }
+
+    public func diagramDelete(_ req: DiagramDeleteRequest) throws -> DiagramDeleteResponse {
+        try request(type: .diagramDelete, payload: req, responseType: DiagramDeleteResponse.self)
+    }
+
+    public func diagramWriteRepo(_ req: DiagramWriteRepoRequest) throws -> DiagramWriteRepoResponse {
+        try request(type: .diagramWriteRepo, payload: req, responseType: DiagramWriteRepoResponse.self)
+    }
+
+    public func diagramIngest(_ req: DiagramIngestRequest) throws -> DiagramIngestResponse {
+        try request(type: .diagramIngest, payload: req, responseType: DiagramIngestResponse.self)
+    }
 }

@@ -177,6 +177,8 @@ public enum DiagramTreeReducer {
                     strokeWidth: connector.strokeWidth,
                     lineStyle: connector.lineStyle,
                     headKind: connector.headKind,
+                    routingKind: connector.routingKind,
+                    tailKind: connector.tailKind,
                     label: connector.label))
             }
         } else if add.targetClientRef != nil {
@@ -415,6 +417,19 @@ public enum DiagramTreeReducer {
             guard p.fontSize > 0 else {
                 throw DiagramReducerError.badRequest(
                     detail: "a text box needs a positive font size")
+            }
+        case .umlNode(let p):
+            guard p.width > 0, p.height > 0 else {
+                throw DiagramReducerError.badRequest(
+                    detail: "a uml node needs a positive width and height")
+            }
+            if let fontSize = p.fontSize, fontSize <= 0 {
+                throw DiagramReducerError.badRequest(
+                    detail: "a uml node's font size must be positive when set")
+            }
+            if let strokeWidth = p.strokeWidth, strokeWidth <= 0 {
+                throw DiagramReducerError.badRequest(
+                    detail: "a uml node's stroke width must be positive when set")
             }
         case .connector(let p):
             guard p.strokeWidth > 0 else {
