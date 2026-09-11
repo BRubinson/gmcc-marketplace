@@ -118,11 +118,11 @@ struct PromptDiagramRepository: RepositoryContext {
     }
 
     func fetchRow(uuid: String) throws -> PromptQualifiedDiagramRow? {
-        try Row.fetchOne(
+        try PromptQualifiedDiagramRecord.fetchOne(
             db,
             sql: "\(Self.qualifiedDiagramSelect) WHERE uuid = ?",
             arguments: [uuid]
-        ).map(Self.qualifiedDiagramRow)
+        )?.wireRow()
     }
 
     func fetchRows(
@@ -135,8 +135,9 @@ struct PromptDiagramRepository: RepositoryContext {
             arguments.append(diagramUuid)
         }
         sql += " ORDER BY created_at, id"
-        return try Row.fetchAll(db, sql: sql, arguments: StatementArguments(arguments))
-            .map(Self.qualifiedDiagramRow)
+        return try PromptQualifiedDiagramRecord
+            .fetchAll(db, sql: sql, arguments: StatementArguments(arguments))
+            .map { $0.wireRow() }
     }
 
     private static let qualifiedDiagramSelect = """
@@ -144,19 +145,4 @@ struct PromptDiagramRepository: RepositoryContext {
                render_fingerprint, qualification, version, created_at, updated_at, id
         FROM prompt_qualified_diagram
         """
-
-    private static func qualifiedDiagramRow(_ row: Row) -> PromptQualifiedDiagramRow {
-        PromptQualifiedDiagramRow(
-            uuid: row["uuid"],
-            promptUuid: row["prompt_uuid"],
-            diagramUuid: row["diagram_uuid"],
-            renderedPath: row["rendered_path"],
-            renderedRevision: row["rendered_revision"],
-            renderFingerprint: row["render_fingerprint"],
-            qualification: row["qualification"],
-            version: row["version"],
-            createdAt: row["created_at"],
-            updatedAt: row["updated_at"]
-        )
-    }
 }

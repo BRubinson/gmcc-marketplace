@@ -279,25 +279,9 @@ struct ReviewRepository: RepositoryContext {
     private func fetchSummary(
         where condition: String, key: String
     ) throws -> ReviewSummaryRow? {
-        guard let row = try Row.fetchOne(
-            db,
-            sql: """
-                SELECT uuid, version, prompt_uuid, status, verdict, overview,
-                       created_at, updated_at
-                FROM review_summary WHERE \(condition)
-                """,
-            arguments: [key]
-        ) else { return nil }
-        return ReviewSummaryRow(
-            uuid: row["uuid"],
-            version: row["version"],
-            promptUuid: row["prompt_uuid"],
-            status: row["status"],
-            verdict: row["verdict"],
-            overview: row["overview"],
-            createdAt: row["created_at"],
-            updatedAt: row["updated_at"]
-        )
+        try ReviewSummaryRecord.fetchAll(
+            db, where: condition, arguments: [key]
+        ).first?.wireRow()
     }
 
     /// Same explicit ordering contract as ExplorationRepository.fetchFindings:
@@ -305,30 +289,9 @@ struct ReviewRepository: RepositoryContext {
     private func fetchFindings(
         where condition: String, arguments: StatementArguments
     ) throws -> [ReviewFindingRow] {
-        try Row.fetchAll(
-            db,
-            sql: """
-                SELECT uuid, version, review_summary_uuid, kind, title, body,
-                       file_path, line_start, line_end, agent_name, finding_rating, status
-                FROM review_finding WHERE \(condition)
-                ORDER BY finding_rating IS NOT NULL, finding_rating, id
-                """,
-            arguments: arguments
-        ).map { row in
-            ReviewFindingRow(
-                uuid: row["uuid"],
-                version: row["version"],
-                reviewSummaryUuid: row["review_summary_uuid"],
-                kind: row["kind"],
-                title: row["title"],
-                body: row["body"],
-                filePath: row["file_path"],
-                lineStart: row["line_start"],
-                lineEnd: row["line_end"],
-                agentName: row["agent_name"],
-                findingRating: row["finding_rating"],
-                status: row["status"]
-            )
-        }
+        try ReviewFindingRecord.fetchAll(
+            db, where: condition, arguments: arguments,
+            orderBy: "finding_rating IS NOT NULL, finding_rating, id"
+        ).map { $0.wireRow() }
     }
 }

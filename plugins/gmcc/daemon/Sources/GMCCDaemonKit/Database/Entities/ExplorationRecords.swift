@@ -45,3 +45,37 @@ struct ExplorationKeyFileRecord: BaseRecordFields {
     var explorationSummaryUuid: String
     var filePath: String
 }
+
+extension ExplorationSummaryRecord {
+    /// db → wire. Replicates the retired hand mapper exactly.
+    func wireRow() -> ExplorationSummaryRow {
+        ExplorationSummaryRow(
+            uuid: uuid, version: version, promptUuid: promptUuid,
+            status: status, overview: overview,
+            createdAt: createdAt, updatedAt: updatedAt)
+    }
+}
+
+extension ExplorationKeyFileRecord {
+    /// db → wire. Replicates the retired hand mapper exactly.
+    func wireRow() -> ExplorationKeyFileRow {
+        ExplorationKeyFileRow(
+            uuid: uuid, version: version,
+            explorationSummaryUuid: explorationSummaryUuid, filePath: filePath)
+    }
+}
+
+extension ExplorationFindingRecord {
+    /// db → wire. Replicates the retired hand mapper exactly.
+    ///
+    /// findingRating narrows Int64 (the column type) to the wire's Int. The
+    /// old `row["finding_rating"]` subscript inferred Int straight from the
+    /// target type; this makes the conversion explicit and non-truncating.
+    func wireRow() -> ExplorationFindingRow {
+        ExplorationFindingRow(
+            uuid: uuid, version: version,
+            explorationSummaryUuid: explorationSummaryUuid,
+            kind: kind, title: title, body: body, agentName: agentName,
+            findingRating: findingRating.map(Int.init))
+    }
+}

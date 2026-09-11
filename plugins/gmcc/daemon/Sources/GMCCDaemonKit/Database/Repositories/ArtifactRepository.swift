@@ -50,39 +50,16 @@ struct ArtifactRepository: RepositoryContext {
     }
 
     func fetchRow(uuid: String) throws -> ArtifactRow? {
-        guard let row = try Row.fetchOne(
-            db,
-            sql: """
-                SELECT uuid, prompt_uuid, file_path, note, created_at
-                FROM prompt_artifact WHERE uuid = ?
-                """,
-            arguments: [uuid]
-        ) else { return nil }
-        return ArtifactRow(
-            uuid: row["uuid"],
-            promptUuid: row["prompt_uuid"],
-            filePath: row["file_path"],
-            note: row["note"],
-            createdAt: row["created_at"]
-        )
+        try PromptArtifactRecord.fetch(db, uuid: uuid)?.wireRow()
     }
 
     func fetchRows(promptUuid: String) throws -> [ArtifactRow] {
-        try Row.fetchAll(
+        // ORDER BY ... , id is unchanged: `id` is still a column, it is just
+        // no longer a Record property.
+        try PromptArtifactRecord.fetchAll(
             db,
-            sql: """
-                SELECT uuid, prompt_uuid, file_path, note, created_at
-                FROM prompt_artifact WHERE prompt_uuid = ? ORDER BY created_at, id
-                """,
-            arguments: [promptUuid]
-        ).map { row in
-            ArtifactRow(
-                uuid: row["uuid"],
-                promptUuid: row["prompt_uuid"],
-                filePath: row["file_path"],
-                note: row["note"],
-                createdAt: row["created_at"]
-            )
-        }
+            where: "prompt_uuid = ?", arguments: [promptUuid],
+            orderBy: "created_at, id"
+        ).map { $0.wireRow() }
     }
 }

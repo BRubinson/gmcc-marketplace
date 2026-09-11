@@ -248,43 +248,17 @@ struct ExplorationRepository: RepositoryContext {
     private func fetchSummary(
         where condition: String, key: String
     ) throws -> ExplorationSummaryRow? {
-        guard let row = try Row.fetchOne(
-            db,
-            sql: """
-                SELECT uuid, version, prompt_uuid, status, overview, created_at, updated_at
-                FROM exploration_summary WHERE \(condition)
-                """,
-            arguments: [key]
-        ) else { return nil }
-        return ExplorationSummaryRow(
-            uuid: row["uuid"],
-            version: row["version"],
-            promptUuid: row["prompt_uuid"],
-            status: row["status"],
-            overview: row["overview"],
-            createdAt: row["created_at"],
-            updatedAt: row["updated_at"]
-        )
+        try ExplorationSummaryRecord.fetchAll(
+            db, where: condition, arguments: [key]
+        ).first?.wireRow()
     }
 
     private func fetchKeyFiles(
         where condition: String, arguments: StatementArguments
     ) throws -> [ExplorationKeyFileRow] {
-        try Row.fetchAll(
-            db,
-            sql: """
-                SELECT uuid, version, exploration_summary_uuid, file_path
-                FROM exploration_key_file WHERE \(condition) ORDER BY file_path
-                """,
-            arguments: arguments
-        ).map { row in
-            ExplorationKeyFileRow(
-                uuid: row["uuid"],
-                version: row["version"],
-                explorationSummaryUuid: row["exploration_summary_uuid"],
-                filePath: row["file_path"]
-            )
-        }
+        try ExplorationKeyFileRecord.fetchAll(
+            db, where: condition, arguments: arguments, orderBy: "file_path"
+        ).map { $0.wireRow() }
     }
 
     /// Explicit ordering: unranked (NULL) rows sort FIRST — the resume
@@ -292,26 +266,9 @@ struct ExplorationRepository: RepositoryContext {
     private func fetchFindings(
         where condition: String, arguments: StatementArguments
     ) throws -> [ExplorationFindingRow] {
-        try Row.fetchAll(
-            db,
-            sql: """
-                SELECT uuid, version, exploration_summary_uuid, kind, title, body,
-                       agent_name, finding_rating
-                FROM exploration_finding WHERE \(condition)
-                ORDER BY finding_rating IS NOT NULL, finding_rating, id
-                """,
-            arguments: arguments
-        ).map { row in
-            ExplorationFindingRow(
-                uuid: row["uuid"],
-                version: row["version"],
-                explorationSummaryUuid: row["exploration_summary_uuid"],
-                kind: row["kind"],
-                title: row["title"],
-                body: row["body"],
-                agentName: row["agent_name"],
-                findingRating: row["finding_rating"]
-            )
-        }
+        try ExplorationFindingRecord.fetchAll(
+            db, where: condition, arguments: arguments,
+            orderBy: "finding_rating IS NOT NULL, finding_rating, id"
+        ).map { $0.wireRow() }
     }
 }

@@ -255,30 +255,6 @@ struct PromptRepository: RepositoryContext {
     // MARK: - Shared fetch helper
 
     func fetchRow(uuid: String) throws -> PromptRow? {
-        guard let row = try Row.fetchOne(
-            db,
-            sql: """
-                SELECT uuid, version, session_uuid, seq, code, name, backstory, goal, detail,
-                       command, status, ckfs_relative_storage_path, created_at, updated_at
-                FROM prompt WHERE uuid = ?
-                """,
-            arguments: [uuid]
-        ) else { return nil }
-        return PromptRow(
-            uuid: row["uuid"],
-            version: row["version"],
-            sessionUuid: row["session_uuid"],
-            seq: row["seq"],
-            code: row["code"],
-            name: row["name"],
-            backstory: row["backstory"],
-            goal: row["goal"],
-            detail: row["detail"],
-            command: row["command"],
-            status: row["status"],
-            ckfsRelativeStoragePath: row["ckfs_relative_storage_path"],
-            createdAt: row["created_at"],
-            updatedAt: row["updated_at"]
-        )
+        try PromptRecord.fetch(db, uuid: uuid)?.wireRow()
     }
 }

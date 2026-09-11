@@ -65,3 +65,59 @@ struct PromptQualifiedDiagramRecord: BaseRecordFields {
     var renderFingerprint: String
     var qualification: String
 }
+
+extension PromptArtifactRecord {
+    /// db → wire. Replicates the retired hand mapper exactly.
+    func wireRow() -> ArtifactRow {
+        ArtifactRow(
+            uuid: uuid,
+            promptUuid: promptUuid,
+            filePath: filePath,
+            note: note,
+            createdAt: createdAt)
+    }
+}
+
+extension PromptRecord {
+    /// db → wire. Replicates the retired hand mapper exactly.
+    ///
+    /// PromptRow IS field-for-field identical to this record, so the prompt
+    /// row assembly the original plan filed under "stays hand-assembled" was
+    /// a clean 1:1 all along. What genuinely stays hand-assembled is
+    /// PromptGetResponse and PromptStub (the latter folds four grouped report
+    /// aggregations over computed columns).
+    func wireRow() -> PromptRow {
+        PromptRow(
+            uuid: uuid,
+            version: version,
+            sessionUuid: sessionUuid,
+            seq: seq,
+            code: code,
+            name: name,
+            backstory: backstory,
+            goal: goal,
+            detail: detail,
+            command: command,
+            status: status,
+            ckfsRelativeStoragePath: ckfsRelativeStoragePath,
+            createdAt: createdAt,
+            updatedAt: updatedAt)
+    }
+}
+
+extension PromptQualifiedDiagramRecord {
+    /// db → wire. Replicates the retired hand mapper exactly.
+    func wireRow() -> PromptQualifiedDiagramRow {
+        PromptQualifiedDiagramRow(
+            uuid: uuid,
+            promptUuid: promptUuid,
+            diagramUuid: diagramUuid,
+            renderedPath: renderedPath,
+            renderedRevision: renderedRevision,
+            renderFingerprint: renderFingerprint,
+            qualification: qualification,
+            version: version,
+            createdAt: createdAt,
+            updatedAt: updatedAt)
+    }
+}

@@ -37,3 +37,35 @@ struct ClarificationRecord: BaseRecordFields {
     var answerSource: String?
     var status: String
 }
+
+extension ClarificationSummaryRecord {
+    /// db → wire. Replicates the retired hand mapper exactly.
+    func wireRow() -> ClarificationSummaryRow {
+        ClarificationSummaryRow(
+            uuid: uuid,
+            version: version,
+            promptUuid: promptUuid,
+            status: status,
+            backstoryNote: backstoryNote,
+            refinedGoal: refinedGoal,
+            refinedDetail: refinedDetail,
+            createdAt: createdAt,
+            updatedAt: updatedAt)
+    }
+}
+
+extension ClarificationRecord {
+    /// db → wire. Replicates the retired hand mapper exactly.
+    func wireRow() -> ClarificationRow {
+        ClarificationRow(
+            uuid: uuid,
+            version: version,
+            clarificationSummaryUuid: clarificationSummaryUuid,
+            seq: seq,
+            category: category,
+            question: question,
+            answer: answer,
+            answerSource: answerSource,
+            status: status)
+    }
+}

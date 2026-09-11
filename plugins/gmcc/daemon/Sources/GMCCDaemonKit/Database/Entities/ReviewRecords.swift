@@ -39,3 +39,28 @@ struct ReviewFindingRecord: BaseRecordFields {
     var findingRating: Int64?
     var status: String
 }
+
+extension ReviewSummaryRecord {
+    /// db → wire. Replicates the retired hand mapper exactly.
+    func wireRow() -> ReviewSummaryRow {
+        ReviewSummaryRow(
+            uuid: uuid, version: version, promptUuid: promptUuid,
+            status: status, verdict: verdict, overview: overview,
+            createdAt: createdAt, updatedAt: updatedAt)
+    }
+}
+
+extension ReviewFindingRecord {
+    /// db → wire. Replicates the retired hand mapper exactly.
+    ///
+    /// lineStart/lineEnd/findingRating narrow Int64 (the column type) to the
+    /// wire's Int, explicitly and non-truncating.
+    func wireRow() -> ReviewFindingRow {
+        ReviewFindingRow(
+            uuid: uuid, version: version, reviewSummaryUuid: reviewSummaryUuid,
+            kind: kind, title: title, body: body, filePath: filePath,
+            lineStart: lineStart.map(Int.init), lineEnd: lineEnd.map(Int.init),
+            agentName: agentName, findingRating: findingRating.map(Int.init),
+            status: status)
+    }
+}

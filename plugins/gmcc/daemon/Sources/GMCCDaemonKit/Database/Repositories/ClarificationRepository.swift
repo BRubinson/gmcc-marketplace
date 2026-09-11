@@ -273,26 +273,9 @@ struct ClarificationRepository: RepositoryContext {
     private func fetchSummary(
         where condition: String, key: String
     ) throws -> ClarificationSummaryRow? {
-        guard let row = try Row.fetchOne(
-            db,
-            sql: """
-                SELECT uuid, version, prompt_uuid, status, backstory_note,
-                       refined_goal, refined_detail, created_at, updated_at
-                FROM clarification_summary WHERE \(condition)
-                """,
-            arguments: [key]
-        ) else { return nil }
-        return ClarificationSummaryRow(
-            uuid: row["uuid"],
-            version: row["version"],
-            promptUuid: row["prompt_uuid"],
-            status: row["status"],
-            backstoryNote: row["backstory_note"],
-            refinedGoal: row["refined_goal"],
-            refinedDetail: row["refined_detail"],
-            createdAt: row["created_at"],
-            updatedAt: row["updated_at"]
-        )
+        try ClarificationSummaryRecord.fetchAll(
+            db, where: condition, arguments: [key]
+        ).first?.wireRow()
     }
 
     private func fetchRow(uuid: String) throws -> ClarificationRow? {
@@ -306,26 +289,8 @@ struct ClarificationRepository: RepositoryContext {
     private func fetchRows(
         where condition: String, key: String
     ) throws -> [ClarificationRow] {
-        try Row.fetchAll(
-            db,
-            sql: """
-                SELECT uuid, version, clarification_summary_uuid, seq, category,
-                       question, answer, answer_source, status
-                FROM clarification WHERE \(condition) ORDER BY seq
-                """,
-            arguments: [key]
-        ).map { row in
-            ClarificationRow(
-                uuid: row["uuid"],
-                version: row["version"],
-                clarificationSummaryUuid: row["clarification_summary_uuid"],
-                seq: row["seq"],
-                category: row["category"],
-                question: row["question"],
-                answer: row["answer"],
-                answerSource: row["answer_source"],
-                status: row["status"]
-            )
-        }
+        try ClarificationRecord.fetchAll(
+            db, where: condition, arguments: [key], orderBy: "seq"
+        ).map { $0.wireRow() }
     }
 }
