@@ -8,6 +8,14 @@
 import Foundation
 import GRDB
 
+/// The eight diagram element subtype tables share one shape: a row keyed to
+/// its parent element. This lets fetchDiagramTree hydrate all eight through a
+/// single generic helper instead of eight copies, and lets the helper derive
+/// its own table name rather than taking it as a string.
+protocol DiagramSubtypeRecord: BaseRecordFields {
+    var elementUuid: String { get }
+}
+
 /// Read-side mirror of the `diagram` table. Columns map via convertFromSnakeCase.
 struct DiagramRecord: BaseRecordFields {
     static let databaseTableName = "diagram"
@@ -50,7 +58,7 @@ struct DiagramElementRecord: BaseRecordFields {
 }
 
 /// Read-side mirror of the `diagram_connector` table. Columns map via convertFromSnakeCase.
-struct DiagramConnectorRecord: BaseRecordFields {
+struct DiagramConnectorRecord: DiagramSubtypeRecord {
     static let databaseTableName = "diagram_connector"
     var uuid: String
     var version: Int64
@@ -68,7 +76,7 @@ struct DiagramConnectorRecord: BaseRecordFields {
 }
 
 /// Read-side mirror of the `diagram_uml_node` table. Columns map via convertFromSnakeCase.
-struct DiagramUmlNodeRecord: BaseRecordFields {
+struct DiagramUmlNodeRecord: DiagramSubtypeRecord {
     static let databaseTableName = "diagram_uml_node"
     var uuid: String
     var version: Int64
@@ -111,4 +119,32 @@ struct DiagramStrokeVertexRecord: BaseRecordFields {
     var x: Double
     var y: Double
     var pressure: Double?
+}
+
+extension DiagramRecord {
+    /// db → wire, with the derived instance injected.
+    ///
+    /// `instanceUuid` is NOT a diagram column — m0021 dropped it when INSTANCE
+    /// stopped being an ownership tier — so DiagramRepository.diagramSelect
+    /// derives it through a LEFT JOIN onto session. That makes diagramSelect a
+    /// PROJECTION join rather than a filter-only one: this record decodes the
+    /// `d.*` half and the joined column arrives here as a labelled, undefaulted
+    /// parameter.
+    ///
+    /// `visibility` is passed explicitly rather than relying on DiagramRow's
+    /// "PRIVATE" init default. It also retires a hasColumn("visibility")
+    /// fallback at the call site, which has been dead since m0024 made the
+    /// column NOT NULL DEFAULT 'PRIVATE' and every reader started selecting d.*
+    /// — the guard could only ever take its true branch.
+    func wireRow(instanceUuid: String?) -> DiagramRow {
+        DiagramRow(
+            uuid: uuid, version: version, tier: tier,
+            projectUuid: projectUuid, instanceUuid: instanceUuid,
+            sessionUuid: sessionUuid, promptUuid: promptUuid,
+            code: code, name: name, description: description,
+            gmccDiagramPath: gmccDiagramPath,
+            dopeScopeCode: dopeScopeCode, revision: revision,
+            visibility: visibility,
+            createdAt: createdAt, updatedAt: updatedAt)
+    }
 }

@@ -9,7 +9,7 @@ import Foundation
 import GRDB
 
 /// Read-side mirror of the `diagram_drawing_layer` table. Columns map via convertFromSnakeCase.
-struct DiagramDrawingLayerRecord: BaseRecordFields {
+struct DiagramDrawingLayerRecord: DiagramSubtypeRecord {
     static let databaseTableName = "diagram_drawing_layer"
     var uuid: String
     var version: Int64
@@ -22,7 +22,7 @@ struct DiagramDrawingLayerRecord: BaseRecordFields {
 }
 
 /// Read-side mirror of the `diagram_drawing_shape` table. Columns map via convertFromSnakeCase.
-struct DiagramDrawingShapeRecord: BaseRecordFields {
+struct DiagramDrawingShapeRecord: DiagramSubtypeRecord {
     static let databaseTableName = "diagram_drawing_shape"
     var uuid: String
     var version: Int64
@@ -37,7 +37,7 @@ struct DiagramDrawingShapeRecord: BaseRecordFields {
 }
 
 /// Read-side mirror of the `diagram_drawing_stroke` table. Columns map via convertFromSnakeCase.
-struct DiagramDrawingStrokeRecord: BaseRecordFields {
+struct DiagramDrawingStrokeRecord: DiagramSubtypeRecord {
     static let databaseTableName = "diagram_drawing_stroke"
     var uuid: String
     var version: Int64
@@ -52,7 +52,7 @@ struct DiagramDrawingStrokeRecord: BaseRecordFields {
 }
 
 /// Read-side mirror of the `diagram_drawing_text` table. Columns map via convertFromSnakeCase.
-struct DiagramDrawingTextRecord: BaseRecordFields {
+struct DiagramDrawingTextRecord: DiagramSubtypeRecord {
     static let databaseTableName = "diagram_drawing_text"
     var uuid: String
     var version: Int64

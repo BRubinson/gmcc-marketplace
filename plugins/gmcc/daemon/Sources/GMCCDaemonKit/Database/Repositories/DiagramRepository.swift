@@ -75,17 +75,13 @@ struct DiagramRepository: RepositoryContext {
           FROM diagram d LEFT JOIN session s ON s.uuid = d.session_uuid
         """
 
-    static func diagramRow(_ row: Row) -> DiagramRow {
-        DiagramRow(
-            uuid: row["uuid"], version: row["version"], tier: row["tier"],
-            projectUuid: row["project_uuid"], instanceUuid: row["instance_uuid"],
-            sessionUuid: row["session_uuid"], promptUuid: row["prompt_uuid"],
-            code: row["code"], name: row["name"], description: row["description"],
-            gmccDiagramPath: row["gmcc_diagram_path"],
-            dopeScopeCode: row["dope_scope_code"], revision: row["revision"],
-            visibility: row.hasColumn("visibility")
-                ? row["visibility"] : DiagramVisibility.private.rawValue,
-            createdAt: row["created_at"], updatedAt: row["updated_at"])
+    /// diagramSelect is a PROJECTION join, so the fetch stays on Row: the
+    /// record decodes the `d.*` half and the derived `instance_uuid` rides
+    /// alongside it. Throws now, because Record decode does -- previously a
+    /// drifted row would have taken down the process through Row's try!
+    /// subscripts.
+    static func diagramRow(_ row: Row) throws -> DiagramRow {
+        try DiagramRecord(row: row).wireRow(instanceUuid: row["instance_uuid"])
     }
 
 
@@ -252,7 +248,7 @@ struct DiagramRepository: RepositoryContext {
             \(Self.diagramSelect)
              WHERE d.tier = ? AND d.\(owner.ownerColumn) = ? AND d.code = ?
             """, arguments: [owner.tier.rawValue, owner.ownerUuid, req.code]) {
-            return DiagramResponse(diagram: Self.diagramRow(existing), created: false)
+            return DiagramResponse(diagram: try Self.diagramRow(existing), created: false)
         }
         let uuid = try core.insertBase(db, table: "diagram", extra: [
             "project_uuid": owner.projectUuid,
@@ -296,7 +292,7 @@ struct DiagramRepository: RepositoryContext {
         }
         sql += " ORDER BY d.code"
         let rows = try Row.fetchAll(db, sql: sql, arguments: StatementArguments(args))
-        return DiagramListResponse(diagrams: rows.map(Self.diagramRow))
+        return DiagramListResponse(diagrams: try rows.map(Self.diagramRow))
     }
 
     // MARK: - Get (uuid or owner+code; no cross-tier ladder)
@@ -368,152 +364,173 @@ struct DiagramRepository: RepositoryContext {
     // screenshots deterministic)
 
     func fetchDiagramTree(diagram: DiagramRow) throws -> DiagramTree {
-        let elementRows = try Row.fetchAll(db, sql: """
-            SELECT * FROM diagram_element WHERE diagram_uuid = ?
-            ORDER BY element_z, sort_order, code
-            """, arguments: [diagram.uuid])
+        let elementRows = try DiagramElementRecord.fetchAll(
+            db, where: "diagram_uuid = ?", arguments: [diagram.uuid],
+            orderBy: "element_z, sort_order, code")
 
-        func subtypeRows(_ table: String) throws -> [String: Row] {
-            let rows = try Row.fetchAll(db, sql: """
-                SELECT t.* FROM \(table) t
+        // Filter-only join: every projected column comes from the subtype
+        // table, the join only narrows to this diagram. The record supplies
+        // its own table name, so the eight call sites lose their string
+        // literals as well as their subscripts.
+        func subtypeRecords<R: DiagramSubtypeRecord>(_: R.Type) throws -> [String: R] {
+            let rows = try R.fetchAll(db, sql: """
+                SELECT t.* FROM \(R.databaseTableName) t
                 JOIN diagram_element e ON e.uuid = t.element_uuid
                 WHERE e.diagram_uuid = ?
                 """, arguments: [diagram.uuid])
-            return Dictionary(uniqueKeysWithValues: rows.map { ($0["element_uuid"], $0) })
+            return Dictionary(uniqueKeysWithValues: rows.map { ($0.elementUuid, $0) })
         }
-        let layers = try subtypeRows("diagram_drawing_layer")
-        let strokes = try subtypeRows("diagram_drawing_stroke")
-        let shapes = try subtypeRows("diagram_drawing_shape")
-        let scopes = try subtypeRows("diagram_dope_scope_persistence_layer")
-        let entities = try subtypeRows("diagram_dope_entity")
-        let texts = try subtypeRows("diagram_drawing_text")
-        let connectors = try subtypeRows("diagram_connector")
-        let umlNodes = try subtypeRows("diagram_uml_node")
+        let layers = try subtypeRecords(DiagramDrawingLayerRecord.self)
+        let strokes = try subtypeRecords(DiagramDrawingStrokeRecord.self)
+        let shapes = try subtypeRecords(DiagramDrawingShapeRecord.self)
+        let scopes = try subtypeRecords(DiagramDopeScopePersistenceLayerRecord.self)
+        let entities = try subtypeRecords(DiagramDopeEntityRecord.self)
+        let texts = try subtypeRecords(DiagramDrawingTextRecord.self)
+        let connectors = try subtypeRecords(DiagramConnectorRecord.self)
+        let umlNodes = try subtypeRecords(DiagramUmlNodeRecord.self)
 
-        func vertexRows(_ table: String, _ parentColumn: String) throws -> [String: [DiagramVertex]] {
-            let rows = try Row.fetchAll(db, sql: """
-                SELECT v.* FROM \(table) v
-                JOIN diagram_element e ON e.uuid = v.\(parentColumn)
+        // The vertex fetch CANNOT stay generic. diagram_stroke_vertex has a
+        // `pressure` column and diagram_shape_vertex does not, which the old
+        // shared helper papered over with a row.hasColumn("pressure") guard --
+        // i.e. the distinction was decided by the result set. Under records it
+        // is decided by the schema, which means two concrete functions.
+        func strokeVertices() throws -> [String: [DiagramVertex]] {
+            let rows = try DiagramStrokeVertexRecord.fetchAll(db, sql: """
+                SELECT v.* FROM diagram_stroke_vertex v
+                JOIN diagram_element e ON e.uuid = v.stroke_element_uuid
                 WHERE e.diagram_uuid = ? ORDER BY v.seq
                 """, arguments: [diagram.uuid])
             var grouped = [String: [DiagramVertex]]()
             for row in rows {
-                let vertex = DiagramVertex(
-                    x: row["x"], y: row["y"],
-                    pressure: row.hasColumn("pressure") ? row["pressure"] : nil)
-                grouped[row[parentColumn], default: []].append(vertex)
+                grouped[row.strokeElementUuid, default: []].append(
+                    DiagramVertex(x: row.x, y: row.y, pressure: row.pressure))
             }
             return grouped
         }
-        let strokeVertices = try vertexRows("diagram_stroke_vertex", "stroke_element_uuid")
-        let shapeVertices = try vertexRows("diagram_shape_vertex", "shape_element_uuid")
+        func shapeVertices() throws -> [String: [DiagramVertex]] {
+            let rows = try DiagramShapeVertexRecord.fetchAll(db, sql: """
+                SELECT v.* FROM diagram_shape_vertex v
+                JOIN diagram_element e ON e.uuid = v.shape_element_uuid
+                WHERE e.diagram_uuid = ? ORDER BY v.seq
+                """, arguments: [diagram.uuid])
+            var grouped = [String: [DiagramVertex]]()
+            for row in rows {
+                grouped[row.shapeElementUuid, default: []].append(
+                    // No pressure column on this table -- previously the
+                    // hasColumn guard's nil branch.
+                    DiagramVertex(x: row.x, y: row.y, pressure: nil))
+            }
+            return grouped
+        }
+        let strokeVertexRows = try strokeVertices()
+        let shapeVertexRows = try shapeVertices()
 
-        func payload(for row: Row) throws -> DiagramElementPayload {
-            let uuid: String = row["uuid"]
-            guard let type = DiagramElementType(rawValue: row["element_type"]) else {
+        func payload(for row: DiagramElementRecord) throws -> DiagramElementPayload {
+            let uuid = row.uuid
+            guard let type = DiagramElementType(rawValue: row.elementType) else {
                 throw StoreError.corruptState(
                     entity: "diagram_element",
-                    detail: "unknown element_type '\(row["element_type"] as String)'")
+                    detail: "unknown element_type '\(row.elementType)'")
             }
             switch type {
             case .drawingLayer:
                 guard let sub = layers[uuid] else { break }
                 return .drawingLayer(DrawingLayerPayload(
-                    opacity: sub["opacity"],
-                    visible: (sub["visible"] as Int64) != 0,
-                    locked: (sub["locked"] as Int64) != 0))
+                    opacity: sub.opacity,
+                    visible: sub.visible,
+                    locked: sub.locked))
             case .drawingStroke:
                 guard let sub = strokes[uuid] else { break }
                 // Read precedence, per the storage-strategy axis: the packed
                 // blob when present, else the vertex rows. The write path
-                // never leaves both populated.
+                // never leaves both populated. The old hasColumn("packed_vertices")
+                // guard is gone -- the column is always decoded now, so the
+                // question is purely whether it is NULL.
                 let packed: [DiagramVertex]?
-                if sub.hasColumn("packed_vertices"),
-                   let blob = sub["packed_vertices"] as Data?,
-                   let count = sub["vertex_count"] as Int? {
-                    packed = try DiagramStrokeCodec.unpack(blob, count: count)
+                if let blob = sub.packedVertices, let count = sub.vertexCount {
+                    packed = try DiagramStrokeCodec.unpack(blob, count: Int(count))
                 } else {
                     packed = nil
                 }
                 return .drawingStroke(DrawingStrokePayload(
-                    tool: DiagramStrokeTool(rawValue: sub["tool"]) ?? .pencil,
-                    strokeColor: sub["stroke_color"], strokeWidth: sub["stroke_width"],
-                    vertices: packed ?? strokeVertices[uuid] ?? []))
+                    tool: DiagramStrokeTool(rawValue: sub.tool) ?? .pencil,
+                    strokeColor: sub.strokeColor, strokeWidth: sub.strokeWidth,
+                    vertices: packed ?? strokeVertexRows[uuid] ?? []))
             case .drawingShape:
                 guard let sub = shapes[uuid] else { break }
-                guard let kind = DiagramShapeKind(rawValue: sub["shape_kind"]) else {
+                guard let kind = DiagramShapeKind(rawValue: sub.shapeKind) else {
                     throw StoreError.corruptState(
                         entity: "diagram_drawing_shape",
-                        detail: "unknown shape_kind '\(sub["shape_kind"] as String)'")
+                        detail: "unknown shape_kind '\(sub.shapeKind)'")
                 }
                 return .drawingShape(DrawingShapePayload(
-                    shapeKind: kind, strokeColor: sub["stroke_color"],
-                    strokeWidth: sub["stroke_width"], fillColor: sub["fill_color"],
-                    cornerRadius: sub["corner_radius"],
-                    vertices: shapeVertices[uuid] ?? []))
+                    shapeKind: kind, strokeColor: sub.strokeColor,
+                    strokeWidth: sub.strokeWidth, fillColor: sub.fillColor,
+                    cornerRadius: sub.cornerRadius,
+                    vertices: shapeVertexRows[uuid] ?? []))
             case .drawingText:
                 guard let sub = texts[uuid] else { break }
                 return .drawingText(DrawingTextPayload(
-                    markdown: sub["markdown"], width: sub["width"], height: sub["height"],
-                    fontSize: sub["font_size"], textColor: sub["text_color"],
-                    backgroundColor: sub["background_color"]))
+                    markdown: sub.markdown, width: sub.width, height: sub.height,
+                    fontSize: sub.fontSize, textColor: sub.textColor,
+                    backgroundColor: sub.backgroundColor))
             case .connector:
                 guard let sub = connectors[uuid] else { break }
                 return .connector(ConnectorPayload(
-                    targetElementUuid: sub["target_element_uuid"],
-                    strokeColor: sub["stroke_color"], strokeWidth: sub["stroke_width"],
+                    targetElementUuid: sub.targetElementUuid,
+                    strokeColor: sub.strokeColor, strokeWidth: sub.strokeWidth,
                     lineStyle: DiagramConnectorLineStyle(
-                        rawValue: sub["line_style"]) ?? .solid,
-                    headKind: DiagramConnectorHead(rawValue: sub["head_kind"]) ?? .arrow,
+                        rawValue: sub.lineStyle) ?? .solid,
+                    headKind: DiagramConnectorHead(rawValue: sub.headKind) ?? .arrow,
                     routingKind: DiagramConnectorRouting(
-                        rawValue: sub["routing_kind"]) ?? .orthogonalStep,
-                    tailKind: DiagramConnectorHead(rawValue: sub["tail_kind"]) ?? .none,
-                    label: sub["label"]))
+                        rawValue: sub.routingKind) ?? .orthogonalStep,
+                    tailKind: DiagramConnectorHead(rawValue: sub.tailKind) ?? .none,
+                    label: sub.label))
             case .umlNode:
                 guard let sub = umlNodes[uuid] else { break }
-                guard let kind = DiagramNodeKind(rawValue: sub["node_kind"]) else {
+                guard let kind = DiagramNodeKind(rawValue: sub.nodeKind) else {
                     throw StoreError.corruptState(
                         entity: "diagram_uml_node",
-                        detail: "unknown node_kind '\(sub["node_kind"] as String)'")
+                        detail: "unknown node_kind '\(sub.nodeKind)'")
                 }
                 return .umlNode(UmlNodePayload(
-                    nodeKind: kind, width: sub["width"], height: sub["height"],
-                    markdown: sub["markdown"], fontSize: sub["font_size"],
-                    textColor: sub["text_color"], strokeColor: sub["stroke_color"],
-                    strokeWidth: sub["stroke_width"], fillColor: sub["fill_color"]))
+                    nodeKind: kind, width: sub.width, height: sub.height,
+                    markdown: sub.markdown, fontSize: sub.fontSize,
+                    textColor: sub.textColor, strokeColor: sub.strokeColor,
+                    strokeWidth: sub.strokeWidth, fillColor: sub.fillColor))
             case .dopeScopePersistenceLayer:
                 guard let sub = scopes[uuid] else { break }
-                return .dopeScopePersistenceLayer(DopeScopePersistenceLayerPayload(dopeScopeCode: sub["dope_scope_code"]))
+                return .dopeScopePersistenceLayer(DopeScopePersistenceLayerPayload(dopeScopeCode: sub.dopeScopeCode))
             case .dopeEntity:
                 guard let sub = entities[uuid] else { break }
-                return .dopeEntity(DopeEntityPayload(entityCode: sub["entity_code"]))
+                return .dopeEntity(DopeEntityPayload(entityCode: sub.entityCode))
             }
             throw StoreError.corruptState(
                 entity: "diagram_element", detail: "element \(uuid) has no subtype row")
         }
 
-        var childrenByParent = [String: [Row]]()
-        var topLevel: [Row] = []
+        var childrenByParent = [String: [DiagramElementRecord]]()
+        var topLevel: [DiagramElementRecord] = []
         for row in elementRows {
-            if let parent: String = row["parent_element_uuid"] {
+            if let parent = row.parentElementUuid {
                 childrenByParent[parent, default: []].append(row)
             } else {
                 topLevel.append(row)
             }
         }
 
-        func node(_ row: Row) throws -> DiagramElementNode {
+        func node(_ row: DiagramElementRecord) throws -> DiagramElementNode {
             DiagramElementNode(
                 identity: DopeNodeIdentity(
-                    uuid: row["uuid"], version: row["version"],
-                    createdAt: row["created_at"], updatedAt: row["updated_at"]),
+                    uuid: row.uuid, version: row.version,
+                    createdAt: row.createdAt, updatedAt: row.updatedAt),
                 base: DiagramElementBase(
-                    code: row["code"], name: row["name"], description: row["description"],
-                    sortOrder: row["sort_order"], centerX: row["center_x"],
-                    centerY: row["center_y"], elementZ: row["element_z"],
-                    scale: row["scale"]),
+                    code: row.code, name: row.name, description: row.description,
+                    sortOrder: Int(row.sortOrder), centerX: row.centerX,
+                    centerY: row.centerY, elementZ: row.elementZ,
+                    scale: row.scale),
                 payload: try payload(for: row),
-                children: try (childrenByParent[row["uuid"]] ?? []).map(node))
+                children: try (childrenByParent[row.uuid] ?? []).map(node))
         }
 
         return DiagramTree(

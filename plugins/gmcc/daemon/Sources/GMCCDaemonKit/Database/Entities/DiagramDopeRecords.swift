@@ -9,7 +9,7 @@ import Foundation
 import GRDB
 
 /// Read-side mirror of the `diagram_dope_entity` table. Columns map via convertFromSnakeCase.
-struct DiagramDopeEntityRecord: BaseRecordFields {
+struct DiagramDopeEntityRecord: DiagramSubtypeRecord {
     static let databaseTableName = "diagram_dope_entity"
     var uuid: String
     var version: Int64
@@ -20,7 +20,7 @@ struct DiagramDopeEntityRecord: BaseRecordFields {
 }
 
 /// Read-side mirror of the `diagram_dope_scope_persistence_layer` table. Columns map via convertFromSnakeCase.
-struct DiagramDopeScopePersistenceLayerRecord: BaseRecordFields {
+struct DiagramDopeScopePersistenceLayerRecord: DiagramSubtypeRecord {
     static let databaseTableName = "diagram_dope_scope_persistence_layer"
     var uuid: String
     var version: Int64

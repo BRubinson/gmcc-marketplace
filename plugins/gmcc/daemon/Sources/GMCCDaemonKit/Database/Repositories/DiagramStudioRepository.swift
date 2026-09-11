@@ -56,7 +56,7 @@ struct DiagramStudioRepository: RepositoryContext {
                  LIMIT \(limit)
                 """, arguments: StatementArguments(args))
         }
-        return DiagramSearchResponse(diagrams: rows.map(DiagramRepository.diagramRow))
+        return DiagramSearchResponse(diagrams: try rows.map(DiagramRepository.diagramRow))
     }
 
     func diagramDelete(_ req: DiagramDeleteRequest) throws -> DiagramDeleteResponse {
