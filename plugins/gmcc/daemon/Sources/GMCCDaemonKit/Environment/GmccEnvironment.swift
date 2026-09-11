@@ -30,26 +30,46 @@ public enum GmccEnvironment {
             .appendingPathComponent("gmcc_ckfs", isDirectory: true)
     }
 
-    /// The full CLAUDE_ENV_FILE line set — KEY=VALUE, one per line, no shell
-    /// interpolation (the env file does no expansion, so PATH ships as a
-    /// fully-resolved literal).
+    /// The full CLAUDE_ENV_FILE line set — one `export KEY='VALUE'` per line.
+    ///
+    /// CLAUDE_ENV_FILE is a **shell script** Claude Code runs as a preamble
+    /// before every Bash command, so the shape is load-bearing twice over:
+    ///
+    /// - `export`, because a bare assignment sets a shell variable that no
+    ///   child process inherits. Without it `getenv("GMCC_ROOT")` is empty in
+    ///   every gm/daemon/script invocation the session makes — the sandbox
+    ///   split-brain this file exists to prevent.
+    /// - single quotes, because an unquoted value stops at the first space.
+    ///   A PATH carrying a component like `/Applications/VMware Fusion.app/…`
+    ///   truncates the assignment, so PATH is never set at all and the
+    ///   remainder runs as a command — one shell error on every tool call.
+    ///
+    /// Values ship as fully-resolved literals; single quoting means no
+    /// expansion happens, so a `$PATH` reference would never resolve.
     ///
     /// - `dbCkfsRoot`: pathsGet().ckfsRoot when the daemon answered — emitting
     ///   the DB value makes the env/db match invariant true by construction.
     public static func emit(
         pluginRoot: String, inheritedPath: String, dbCkfsRoot: String? = nil
     ) -> [String] {
-        var lines = ["GMCC_BOOTED=1", "GMCC_PLUGIN_ROOT=\(pluginRoot)"]
+        var pairs = [("GMCC_BOOTED", "1"), ("GMCC_PLUGIN_ROOT", pluginRoot)]
         // GMCC_ROOT is a passthrough, not a computation: the SessionStart hook
         // parsed it from .gmcc_sandbox and Paths.root already resolved against
         // it. Emitting it is the split-brain fix — without this line the
         // session believes it is sandboxed while in-session gm drives prod.
         if let root = ProcessInfo.processInfo.environment["GMCC_ROOT"], !root.isEmpty {
-            lines.append("GMCC_ROOT=\(root)")
+            pairs.append(("GMCC_ROOT", root))
         }
-        lines.append("GMCC_CKFS_ROOT=\(dbCkfsRoot ?? fallbackCkfsRoot.path)")
-        lines.append("PATH=\(pathValue(current: inheritedPath))")
-        return lines
+        pairs.append(("GMCC_CKFS_ROOT", dbCkfsRoot ?? fallbackCkfsRoot.path))
+        pairs.append(("PATH", pathValue(current: inheritedPath)))
+        return pairs.map { "export \($0.0)=\(shellQuote($0.1))" }
+    }
+
+    /// POSIX single-quote escaping: wrap in `'`, and close/escape/reopen for
+    /// every embedded `'`. Safe for every byte a path can hold except a
+    /// newline, which no env value here can contain.
+    public static func shellQuote(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: #"'\''"#) + "'"
     }
 
     /// This runtime's bin first, deduped: prepend `Paths.bin` and drop any

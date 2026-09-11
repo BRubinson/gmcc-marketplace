@@ -4,6 +4,8 @@ import GRDB
 // PROMPT_DIAGRAM_QUALIFY / _GET / _LIST — a prompt's standing reading of a
 // rendered diagram (m0022). No status machine and no findings: the row IS the
 // report, and the newest reading is the only one worth keeping.
+// Bodies live in PromptDiagramRepository; these wrappers own the transaction
+// (and the pre-transaction payload validation).
 
 extension Store {
     public func promptDiagramQualify(
@@ -26,165 +28,24 @@ extension Store {
         }
 
         return try dbQueue.write { db in
-            try self.requireQualificationTargets(
-                db, promptUuid: req.promptUuid, diagramUuid: req.diagramUuid)
-
-            let extra: [String: (any DatabaseValueConvertible)?] = [
-                "prompt_uuid": req.promptUuid,
-                "diagram_uuid": req.diagramUuid,
-                "rendered_path": req.renderedPath,
-                "rendered_revision": req.renderedRevision,
-                "render_fingerprint": req.renderFingerprint,
-                "qualification": qualification,
-            ]
-            let uuid: String
-            // UNIQUE(prompt_uuid, diagram_uuid): re-qualifying REPLACES the
-            // reading in place, keeping the row uuid stable so anything
-            // pointing at it still points at it.
-            if let existing = try String.fetchOne(
-                db,
-                sql: """
-                    SELECT uuid FROM prompt_qualified_diagram
-                    WHERE prompt_uuid = ? AND diagram_uuid = ?
-                    """,
-                arguments: [req.promptUuid, req.diagramUuid]
-            ) {
-                try db.execute(
-                    sql: """
-                        UPDATE prompt_qualified_diagram
-                        SET rendered_path = ?, rendered_revision = ?,
-                            render_fingerprint = ?, qualification = ?,
-                            version = version + 1, updated_at = ?
-                        WHERE uuid = ?
-                        """,
-                    arguments: [req.renderedPath, req.renderedRevision,
-                                req.renderFingerprint, qualification,
-                                Store.isoNow(), existing])
-                uuid = existing
-            } else {
-                uuid = try self.insertBase(
-                    db, table: "prompt_qualified_diagram", extra: extra)
-            }
-
-            try self.appendEvent(
-                db, kind: .promptDiagramQualified, subjectUuid: uuid,
-                payload: Store.jsonPayload([
-                    "prompt_uuid": req.promptUuid,
-                    "diagram_uuid": req.diagramUuid,
-                ]))
-
-            guard let row = try self.fetchQualifiedDiagramRow(db, uuid: uuid) else {
-                throw StoreError.notFound(entity: "prompt_qualified_diagram", key: uuid)
-            }
-            return row
+            try PromptDiagramRepository(db: db, store: self)
+                .qualify(req, qualification: qualification)
         }
     }
 
     public func promptDiagramGet(
         _ req: PromptDiagramGetRequest
     ) throws -> PromptQualifiedDiagramRow {
-        try dbQueue.read { db in
-            try self.requireQualificationTargets(
-                db, promptUuid: req.promptUuid, diagramUuid: req.diagramUuid)
-
-            let rows = try self.fetchQualifiedDiagramRows(
-                db, promptUuid: req.promptUuid, diagramUuid: req.diagramUuid)
-            guard let first = rows.first else {
-                // The prompt is real and nothing is recorded against it — the
-                // caller's next move is to render, read and qualify, not to
-                // doubt the uuid. Same discrimination the summary families make.
-                throw StoreError.summaryAbsent(
-                    entity: "prompt_qualified_diagram", promptUuid: req.promptUuid)
-            }
-            guard rows.count == 1 else {
-                throw StoreError.badRequest(
-                    detail: "prompt has \(rows.count) qualified diagrams — "
-                          + "name one with a diagram uuid, or list them")
-            }
-            return first
-        }
+        try dbQueue.read { db in try PromptDiagramRepository(db: db, store: self).get(req) }
     }
 
     public func promptDiagramList(
         _ req: PromptDiagramListRequest
     ) throws -> PromptDiagramListResponse {
-        try dbQueue.read { db in
-            guard try Row.fetchOne(
-                db, sql: "SELECT 1 FROM prompt WHERE uuid = ?", arguments: [req.promptUuid]
-            ) != nil else {
-                throw StoreError.notFound(entity: "prompt", key: req.promptUuid)
-            }
-            // Empty is a normal answer here (the prompt has attached no
-            // diagrams yet), so list never raises where get would.
-            return PromptDiagramListResponse(
-                qualifications: try self.fetchQualifiedDiagramRows(
-                    db, promptUuid: req.promptUuid, diagramUuid: nil))
-        }
+        try dbQueue.read { db in try PromptDiagramRepository(db: db, store: self).list(req) }
     }
 
-    // MARK: - Shared helpers
+    // MARK: - Cross-domain helper forwards
 
-    /// Existence first, in the same transaction as the write. Without it an
-    /// unknown uuid surfaces as a raw FK failure, which tells the caller
-    /// nothing about WHICH end was wrong.
-    private func requireQualificationTargets(
-        _ db: Database, promptUuid: String, diagramUuid: String?
-    ) throws {
-        guard try Row.fetchOne(
-            db, sql: "SELECT 1 FROM prompt WHERE uuid = ?", arguments: [promptUuid]
-        ) != nil else {
-            throw StoreError.notFound(entity: "prompt", key: promptUuid)
-        }
-        guard let diagramUuid else { return }
-        guard try Row.fetchOne(
-            db, sql: "SELECT 1 FROM diagram WHERE uuid = ?", arguments: [diagramUuid]
-        ) != nil else {
-            throw StoreError.notFound(entity: "diagram", key: diagramUuid)
-        }
-    }
 
-    func fetchQualifiedDiagramRow(
-        _ db: Database, uuid: String
-    ) throws -> PromptQualifiedDiagramRow? {
-        try Row.fetchOne(
-            db,
-            sql: "\(Store.qualifiedDiagramSelect) WHERE uuid = ?",
-            arguments: [uuid]
-        ).map(Store.qualifiedDiagramRow)
-    }
-
-    func fetchQualifiedDiagramRows(
-        _ db: Database, promptUuid: String, diagramUuid: String?
-    ) throws -> [PromptQualifiedDiagramRow] {
-        var sql = "\(Store.qualifiedDiagramSelect) WHERE prompt_uuid = ?"
-        var arguments: [any DatabaseValueConvertible] = [promptUuid]
-        if let diagramUuid {
-            sql += " AND diagram_uuid = ?"
-            arguments.append(diagramUuid)
-        }
-        sql += " ORDER BY created_at, id"
-        return try Row.fetchAll(db, sql: sql, arguments: StatementArguments(arguments))
-            .map(Store.qualifiedDiagramRow)
-    }
-
-    private static let qualifiedDiagramSelect = """
-        SELECT uuid, prompt_uuid, diagram_uuid, rendered_path, rendered_revision,
-               render_fingerprint, qualification, version, created_at, updated_at, id
-        FROM prompt_qualified_diagram
-        """
-
-    private static func qualifiedDiagramRow(_ row: Row) -> PromptQualifiedDiagramRow {
-        PromptQualifiedDiagramRow(
-            uuid: row["uuid"],
-            promptUuid: row["prompt_uuid"],
-            diagramUuid: row["diagram_uuid"],
-            renderedPath: row["rendered_path"],
-            renderedRevision: row["rendered_revision"],
-            renderFingerprint: row["render_fingerprint"],
-            qualification: row["qualification"],
-            version: row["version"],
-            createdAt: row["created_at"],
-            updatedAt: row["updated_at"]
-        )
-    }
 }

@@ -141,7 +141,9 @@ struct Context: ParsableCommand {
     }
 
     /// The sole owner of the SessionStart env contract. stdout carries
-    /// KEY=VALUE lines (append-safe to $CLAUDE_ENV_FILE), stderr carries
+    /// `export KEY='VALUE'` lines (append-safe to $CLAUDE_ENV_FILE, which
+    /// Claude Code runs as a shell preamble before every Bash command — so
+    /// the export and the quoting are both load-bearing), stderr carries
     /// consistency warnings, and the exit code is ALWAYS 0 — a SessionStart
     /// hook that fails hard is worse than a degraded session. Emission is
     /// daemon-free; the db is consulted best-effort for the ckfs root (so the

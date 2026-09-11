@@ -28,10 +28,16 @@ public enum WireCodec {
 
     /// For `gm ... --json` output: same key contract as the wire, pretty and
     /// deterministically ordered for terminal reading and doc greps.
+    ///
+    /// `.withoutEscapingSlashes` is display-only and terminal-facing — gm's
+    /// output is dense with paths, and `\/Users\/…` is both unreadable over a
+    /// shoulder and pure noise in an agent's context. It never reaches the
+    /// wire: `encoder` above is the only coder NDJSON touches, and this one
+    /// has exactly one caller (gm's printJSON).
     public static let prettyEncoder: JSONEncoder = {
         let encoder = JSONEncoder()
         encoder.keyEncodingStrategy = .convertToSnakeCase
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         return encoder
     }()
 }

@@ -25,7 +25,7 @@ struct Cheatsheet: ParsableCommand {
       gm config set --key ckfs_root|kbite_root|kbite_open_root|kbite_digested_root --value V
     CONTEXT / BROWSE / SEARCH
       gm context ensure [--no-dope-sync]   (also provisions the ckfs artifact home and runs the dope files -> db boot sync)
-      gm context env --plugin-root P [--no-check]   (SessionStart env contract owner: stdout = KEY=VALUE lines for CLAUDE_ENV_FILE, stderr = warnings, ALWAYS exit 0)
+      gm context env --plugin-root P [--no-check]   (SessionStart env contract owner: stdout = export KEY='VALUE' lines for CLAUDE_ENV_FILE, stderr = warnings, ALWAYS exit 0)
       gm context get
       gm project list
       gm project update --project-uuid U --expected-version V [--primary-project-branch B]   (the only project-level mutation; primary_project_branch is BASE_DOPED_BRANCH, default 'main')

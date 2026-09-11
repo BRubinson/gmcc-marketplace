@@ -1,6 +1,10 @@
 import Foundation
 import GRDB
 
+// VOCABULARY: "Repo" in this file means the USER'S GIT REPO (the {instance_root}/.gmcc tree),
+// NOT the repository pattern — data access lives in DopeRepository. Filesystem work never
+// enters a db transaction (the four-phase contract below).
+
 /// The three whole-tree repo verbs, each a four-phase orchestration:
 ///
 ///   1. `dbQueue.read`  — resolve scope, instance root, tree, revision;

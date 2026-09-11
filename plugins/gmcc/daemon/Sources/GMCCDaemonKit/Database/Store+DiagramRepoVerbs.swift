@@ -1,6 +1,10 @@
 import Foundation
 import GRDB
 
+// VOCABULARY: "Repo" in this file means the USER'S GIT REPO (the {instance_root}/.gmcc tree),
+// NOT the repository pattern — data access lives in DiagramRepository. Filesystem work never
+// enters a db transaction (the four-phase contract below).
+
 /// PUBLIC-diagram serialization — the dope repo verbs' twins, four-phase
 /// orchestration and all (db read / pure projection / fs with no db lock /
 /// db audit or ingest write). The gate is the SAME gate: only a SESSION can
@@ -37,12 +41,12 @@ extension Store {
             }
             let root = try self.instanceRoot(db, sessionUuid: req.sessionUuid)
             let rows = try Row.fetchAll(db, sql: """
-                \(Self.diagramSelect)
+                \(DiagramRepository.diagramSelect)
                  WHERE d.tier = ? AND d.session_uuid = ? AND d.visibility = ?
                  ORDER BY d.code
                 """, arguments: [DiagramTier.session.rawValue, req.sessionUuid,
                                  DiagramVisibility.public.rawValue])
-            let projected = try rows.map(Self.diagramRow).map { diagram in
+            let projected = try rows.map(DiagramRepository.diagramRow).map { diagram in
                 Projected(
                     code: diagram.code, revision: diagram.revision,
                     // Phase 2 inline — the projection is pure.
@@ -191,10 +195,10 @@ extension Store {
             for document in documents {
               do {
                 let existing = try Row.fetchOne(db, sql: """
-                    \(Self.diagramSelect)
+                    \(DiagramRepository.diagramSelect)
                      WHERE d.tier = ? AND d.session_uuid = ? AND d.code = ?
                     """, arguments: [DiagramTier.session.rawValue, req.sessionUuid,
-                                     document.code]).map(Self.diagramRow)
+                                     document.code]).map(DiagramRepository.diagramRow)
                 if let diagram = existing {
                     guard diagram.visibility == DiagramVisibility.public.rawValue else {
                         skipped.append(document.code)
