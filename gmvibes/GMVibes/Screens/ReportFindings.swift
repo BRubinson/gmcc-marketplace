@@ -2,9 +2,11 @@ import SwiftUI
 import GMCCDaemonKit
 
 /// Shared primitives for the two v9 report read surfaces (ExplorationPane,
-/// ReviewPane) and both badge placements (PromptLifecycleBar, phaseCard
-/// headers) — one vocabulary for ratings, kinds, resolutions, and counts
-/// instead of four private copies of the partition logic.
+/// ReviewPane) and the phaseCard header badges — one vocabulary for ratings,
+/// kinds, resolutions, and counts instead of four private copies of the
+/// partition logic. (The lifecycle bar was the second badge placement until
+/// it was deleted for the workflow strip; the stub-based builders below
+/// survive for any cold-start caller that needs them.)
 
 enum FindingRatings {
     /// The daemon's consumption threshold and tombstone sentinel.
@@ -151,7 +153,7 @@ struct ResolutionBadge: View {
     }
 }
 
-// MARK: - Count badges (lifecycle bar + phaseCard headers)
+// MARK: - Count badges (phaseCard headers)
 
 struct ReportBadgeItem: Identifiable {
     let id: String

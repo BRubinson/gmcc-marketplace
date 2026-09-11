@@ -1848,23 +1848,63 @@ public struct ClarifyGetRequest: Codable, Hashable, Sendable {
     }
 }
 
+/// The care package's read-time dope drift report — the same shape
+/// BriefingStaleness carries, computed by the same
+/// `DopeRepository.scopeStaleness`. Computed at read, never stored.
+public struct CarePackageStaleness: Codable, Hashable, Sendable {
+    public let stampedRevision: Int64?
+    public let currentRevision: Int64?
+    public let drifted: Bool
+    public let ghostDotPaths: [String]
+
+    public init(
+        stampedRevision: Int64?,
+        currentRevision: Int64?,
+        drifted: Bool,
+        ghostDotPaths: [String]
+    ) {
+        self.stampedRevision = stampedRevision
+        self.currentRevision = currentRevision
+        self.drifted = drifted
+        self.ghostDotPaths = ghostDotPaths
+    }
+}
+
+/// Shape shared by BriefingStaleness and CarePackageStaleness so clients render
+/// ONE badge. An additive protocol on existing Codable types — the JSON is
+/// byte-identical, so this is NOT a wire change.
+public protocol DopeScopeStalenessReporting {
+    var stampedRevision: Int64? { get }
+    var currentRevision: Int64? { get }
+    var drifted: Bool { get }
+    var ghostDotPaths: [String] { get }
+}
+
+extension BriefingStaleness: DopeScopeStalenessReporting {}
+extension CarePackageStaleness: DopeScopeStalenessReporting {}
+
 public struct ClarifyGetResponse: Codable, Hashable, Sendable {
     public let summary: ClarificationSummaryRow
     public let questions: [ClarificationQuestionRow]
     public let notes: [ClarificationNoteRow]
     /// nil until package-open (bot-variant flows never create one).
     public let carePackage: CarePackageRow?
+    /// ADDITIVE OPTIONAL (no wire bump — decodes as nil on a stale peer).
+    /// INVARIANT: non-nil IFF `carePackage` is non-nil.
+    public let carePackageStaleness: CarePackageStaleness?
 
     public init(
         summary: ClarificationSummaryRow,
         questions: [ClarificationQuestionRow],
         notes: [ClarificationNoteRow],
-        carePackage: CarePackageRow?
+        carePackage: CarePackageRow?,
+        carePackageStaleness: CarePackageStaleness? = nil
     ) {
         self.summary = summary
         self.questions = questions
         self.notes = notes
         self.carePackage = carePackage
+        self.carePackageStaleness = carePackageStaleness
     }
 }
 

@@ -298,12 +298,29 @@ struct ClarificationRepository: RepositoryContext {
             throw StoreError.summaryAbsent(
                 entity: "clarification", promptUuid: req.promptUuid)
         }
+        let package = try fetchPackage(bySummary: summary.uuid)
         return ClarifyGetResponse(
             summary: summary,
             questions: try fetchQuestions(summaryUuid: summary.uuid),
             notes: try fetchNotes(summaryUuid: summary.uuid),
-            carePackage: try fetchPackage(bySummary: summary.uuid))
+            carePackage: package,
+            // INVARIANT: non-nil IFF carePackage is non-nil.
+            carePackageStaleness: try package.map { pkg in
+                let s = try dope.scopeStaleness(
+                    scopeUuid: pkg.dopeScopeUuid,
+                    stampedRevision: pkg.dopeScopeRevision,
+                    dotPaths: pkg.dopeRefs.map(\.dopeCode))
+                return CarePackageStaleness(
+                    stampedRevision: s.stamped,
+                    currentRevision: s.current,
+                    drifted: s.drifted,
+                    ghostDotPaths: s.ghosts)
+            })
     }
+
+    // DELIBERATELY NOT DONE: no `staleness` on CarePackageResponse
+    // (CARE_PACKAGE_GET). The CLI has no consumer today; it is a one-line
+    // follow-up if `gm clarify package-get` ever wants a drift line.
 
     // MARK: - Care package verbs
 

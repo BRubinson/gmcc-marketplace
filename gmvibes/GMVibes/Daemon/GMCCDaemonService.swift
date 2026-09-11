@@ -206,6 +206,44 @@ actor GMCCDaemonService {
         return try await perform { try $0.archGet(ArchGetRequest(promptUuid: uuid)) }
     }
 
+    // MARK: - Clarification answering (m0025, the app's ONLY report write)
+
+    /// CLARIFY_ANSWER — the one report-subsystem write the app is permitted.
+    /// Write-wrapper shape copied from `setPromptStatus`: rebuild the request
+    /// with normalized uuids, pass `expectedVersion` straight through (it
+    /// targets the QUESTION row, never the summary), unwrap the row.
+    ///
+    /// Callers must always send BOTH axes — `answer()` DELETEs every
+    /// `user_clarification_answer` row and rewrites `answer_text` wholesale on
+    /// each call, so omitting the axis the user didn't touch destroys it.
+    func clarifyAnswer(_ request: ClarifyAnswerRequest) async throws -> ClarificationQuestionRow {
+        let req = ClarifyAnswerRequest(
+            questionUuid: Self.normalized(request.questionUuid),
+            expectedVersion: request.expectedVersion,
+            answerText: request.answerText,
+            selectedOptionUuids: request.selectedOptionUuids.map { $0.map(Self.normalized) },
+            skip: request.skip
+        )
+        return try await perform { try $0.clarifyAnswer(req).question }
+    }
+
+    // MARK: - Bot workflow (m0025, read-only)
+
+    /// BOT_NEXT — the app's read onto the workflow machine. Treated honestly
+    /// as a write (it stamps `last_served_phase` and emits WORKFLOW_CHANGE),
+    /// but it is the ONLY bot verb wrapped here: botStart / botResume /
+    /// botSetBaseline stay unwrapped because the app must not drive the
+    /// machine. No `botGet` wrapper either — BOT_NEXT always.
+    ///
+    /// NEVER passes `clientKey`. `BotWorkflowRepository.resolve()` treats a
+    /// clientKey as a CLAIM on the workflow, and the app must not steal a live
+    /// terminal session's claim. `promptUuid` is `resolve()`'s FIRST branch, so
+    /// clientKey is never even consulted on this path.
+    func botNext(promptUuid: String) async throws -> BotNextResponse {
+        let uuid = Self.normalized(promptUuid)
+        return try await perform { try $0.botNext(BotNextRequest(promptUuid: uuid)) }
+    }
+
     // MARK: - Exploration / review (v9, read-only)
 
     /// Partitioned by default: `full: false` ⇒ the daemon's [0,99] window plus

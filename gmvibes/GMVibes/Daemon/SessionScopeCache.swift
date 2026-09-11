@@ -119,6 +119,18 @@ final class SessionScope {
         return fresh
     }
 
+    /// Memoized per prompt uuid by delegation: the prompt's `PromptPhaseStore`
+    /// OWNS the model, so this is the SAME instance CLARIFY_GET calls `adopt`
+    /// on — one source of truth for every question's version cell, and no
+    /// second registry to keep in sync.
+    ///
+    /// Reached through the scope so per-question drafts and version cells
+    /// survive pane navigation within a session: a half-typed answer must not
+    /// evaporate because the user glanced at the architecture tab.
+    func answers(forPrompt promptUuid: String) -> ClarificationAnswerModel {
+        phases(forPrompt: promptUuid).answers
+    }
+
     /// ONE dope store per scope (not per prompt): DOPE_GET's SESSION_BASE
     /// fallback means the session tab and a prompt's card often render the
     /// SAME tree — every surface on this session shares this store, one

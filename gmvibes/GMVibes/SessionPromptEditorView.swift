@@ -310,7 +310,6 @@ private struct PromptEditorPane: View {
     /// peer pane's write from our own echo).
     @State private var localWatermark: Int64 = 0
     @State private var saveTask: Task<Void, Never>?
-    @State private var selectedTier: BotTier?
     @State private var copiedField: Field?
     @FocusState private var focus: Field?
     // Find-in-page over content; Memories tab state.
@@ -510,7 +509,10 @@ private struct PromptEditorPane: View {
                     Label("Memories", systemImage: "folder")
                 }
                 .help("Memory file explorer — \u{2318}-click to open as a full page")
-                tierCluster
+                // Three copy buttons + the inline default-tier picker. The
+                // highlight is the PERSISTED default now, not this pane's
+                // last click — so it reads the same in every window.
+                BotLauncherCluster(seq: Int(stub.seq))
             }
         }
         // Seed once per prompt identity (the pane is recreated per uuid via
@@ -616,7 +618,13 @@ private struct PromptEditorPane: View {
                 }
                 ScrollView {
                     VStack(spacing: 16) {
-                        PromptLifecycleBar(stub: stub, phases: phases, store: store)
+                        // SIBLINGS, never nested: the strip has no say in
+                        // whether the header renders, so a strip that draws
+                        // nothing (no workflow row, an unrecognised variant,
+                        // a failed BOT_NEXT) still leaves a working
+                        // lifecycle control behind.
+                        PromptStatusHeader(stub: stub, phases: phases, store: store)
+                        WorkflowStrip(phase: phases.workflow)
                         saveIssueBanner
                         if !editable {
                             // The initial prompt is read-only once past draft;
@@ -649,7 +657,10 @@ private struct PromptEditorPane: View {
                                   expanded: $clarifyExpanded,
                                   accessory: { EmptyView() }) {
                             if phasesApply {
-                                ClarificationPane(phase: phases.clarification)
+                                // `phases` rides along ONLY so the question
+                                // cards reach `phases.answers` — the pane's
+                                // data still comes from the phase value.
+                                ClarificationPane(phase: phases.clarification, phases: phases)
                             } else {
                                 notStarted("Clarification begins when the prompt leaves Draft.")
                             }
@@ -1192,33 +1203,10 @@ private struct PromptEditorPane: View {
         }
     }
 
-    // A connected cluster of bot-fidelity tier buttons (1/2/3-person icons).
-    // Each button copies that tier's resume command (`/{command} {seq}`) to the
-    // clipboard and becomes the highlighted "last-clicked" tier.
-    private var tierCluster: some View {
-        ControlGroup {
-            ForEach(BotTier.allCases) { tier in
-                let isSelected = selectedTier == tier
-                Button { copyResume(tier) } label: {
-                    Label(tier.command, systemImage: tierSymbol(tier, selected: isSelected))
-                }
-                .tint(isSelected ? .accentColor : nil)
-                .help("Copy \(tier.command(for: Int(stub.seq))) to the clipboard")
-            }
-        } label: {
-            Label("Resume Command", systemImage: "person.fill")
-        }
-    }
-
-    private func tierSymbol(_ tier: BotTier, selected: Bool) -> String {
-        selected ? tier.symbol : tier.symbol.replacingOccurrences(of: ".fill", with: "")
-    }
-
-    private func copyResume(_ tier: BotTier) {
-        // Bot commands resolve prompts by their daemon-allocated per-session seq.
-        Clipboard.copy(tier.command(for: Int(stub.seq)))
-        selectedTier = tier
-    }
+    // The bot-tier launcher moved out to BotLauncherCluster, which owns the
+    // copy buttons AND the persisted default (BotLauncherPreference). The
+    // per-window `@State selectedTier` it replaces meant nothing across
+    // windows and died with the pane.
 }
 
 /// Per-prompt undo/redo registry for the session screen. A plain box — NOT

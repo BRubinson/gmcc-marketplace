@@ -316,74 +316,20 @@ struct BriefingRepository: RepositoryContext {
             ownerPrompt: nil, ownerSession: session.uuid, step: step)
     }
 
+    /// Forwards to the owner of dope_persistence*. The body (and the private
+    /// `dopeDotPathExists` it used to carry) moved VERBATIM to
+    /// `DopeRepository.scopeStaleness` / `.dotPathExists` so agent_briefing and
+    /// care_package cannot drift apart — this output stays byte-identical.
     private func computeStaleness(briefing: AgentBriefingRow) throws -> BriefingStaleness {
-        var currentRevision: Int64?
-        if let scopeUuid = briefing.dopeScopeUuid {
-            currentRevision = try Int64.fetchOne(
-                db, sql: "SELECT revision FROM dope_scope WHERE uuid = ?", arguments: [scopeUuid])
-        }
-        let drifted: Bool = {
-            guard let stamped = briefing.dopeScopeRevision, let current = currentRevision else {
-                return false
-            }
-            return stamped != current
-        }()
-
-        var ghosts: [String] = []
-        if let scopeUuid = briefing.dopeScopeUuid {
-            for ref in briefing.dopeRefs
-            where try !dopeDotPathExists(scopeUuid: scopeUuid, path: ref.dopeCode) {
-                ghosts.append(ref.dopeCode)
-            }
-        }
-        return BriefingStaleness(
+        let s = try dope.scopeStaleness(
+            scopeUuid: briefing.dopeScopeUuid,
             stampedRevision: briefing.dopeScopeRevision,
-            currentRevision: currentRevision,
-            drifted: drifted,
-            ghostDotPaths: ghosts)
-    }
-
-    /// Dot-path existence check for ghost reporting. Forms accepted:
-    /// domain · domain.entity · domain.entity.property ·
-    /// domain.enums.enum_code · domain.enums.enum_code.option_code.
-    /// Anything unparseable is simply a ghost — never an error.
-    private func dopeDotPathExists(scopeUuid: String, path: String) throws -> Bool {
-        let segs = path.split(separator: ".").map(String.init)
-        guard !segs.isEmpty, segs.count <= 4 else { return false }
-        guard let persistenceUuid = try String.fetchOne(
-            db,
-            sql: "SELECT uuid FROM dope_persistence WHERE dope_scope_uuid = ? AND code = ?",
-            arguments: [scopeUuid, segs[0]]
-        ) else { return false }
-        if segs.count == 1 { return true }
-
-        if segs[1] == "enums" {
-            guard segs.count >= 3 else { return false }
-            guard let enumUuid = try String.fetchOne(
-                db,
-                sql: "SELECT uuid FROM dope_persistence_enum WHERE dope_persistence_uuid = ? AND code = ?",
-                arguments: [persistenceUuid, segs[2]]
-            ) else { return false }
-            if segs.count == 3 { return true }
-            return try Row.fetchOne(
-                db,
-                sql: "SELECT 1 FROM dope_persistence_enum_option WHERE dope_persistence_enum_uuid = ? AND code = ?",
-                arguments: [enumUuid, segs[3]]
-            ) != nil
-        }
-
-        guard let entityUuid = try String.fetchOne(
-            db,
-            sql: "SELECT uuid FROM dope_persistence_entity WHERE dope_persistence_uuid = ? AND code = ?",
-            arguments: [persistenceUuid, segs[1]]
-        ) else { return false }
-        if segs.count == 2 { return true }
-        guard segs.count == 3 else { return false }
-        return try Row.fetchOne(
-            db,
-            sql: "SELECT 1 FROM dope_persistence_entity_property WHERE dope_persistence_entity_uuid = ? AND code = ?",
-            arguments: [entityUuid, segs[2]]
-        ) != nil
+            dotPaths: briefing.dopeRefs.map(\.dopeCode))
+        return BriefingStaleness(
+            stampedRevision: s.stamped,
+            currentRevision: s.current,
+            drifted: s.drifted,
+            ghostDotPaths: s.ghosts)
     }
 
     // MARK: - Fetch helpers

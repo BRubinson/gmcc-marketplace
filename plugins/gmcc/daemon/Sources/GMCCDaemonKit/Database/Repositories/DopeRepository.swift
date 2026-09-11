@@ -160,6 +160,82 @@ struct DopeRepository: RepositoryContext {
         }
     }
 
+    // MARK: - Read-time staleness (shared by agent_briefing and care_package)
+
+    /// The read-time drift report BOTH agent_briefing and care_package need.
+    /// Compare a stamped scope revision against the live one, re-resolve every
+    /// dot-path. Warn, never block. Computed, never stored.
+    ///
+    /// `drifted` deliberately keeps the guard-both-sides semantics this moved
+    /// out of BriefingRepository: a MISSING number on either side is not
+    /// evidence of drift (an unstamped ref set, or a scope row that no longer
+    /// exists, both report `false`). Loosening that to a bare `!=` would flip
+    /// the badge on for every never-stamped briefing.
+    func scopeStaleness(
+        scopeUuid: String?, stampedRevision: Int64?, dotPaths: [String]
+    ) throws -> (stamped: Int64?, current: Int64?, drifted: Bool, ghosts: [String]) {
+        // No scope -> no drift, no ghosts.
+        guard let scopeUuid else { return (stampedRevision, nil, false, []) }
+        let current = try Int64.fetchOne(
+            db, sql: "SELECT revision FROM dope_scope WHERE uuid = ?", arguments: [scopeUuid])
+        let drifted: Bool = {
+            guard let stamped = stampedRevision, let current else { return false }
+            return stamped != current
+        }()
+        var ghosts: [String] = []
+        for path in dotPaths where try !dotPathExists(scopeUuid: scopeUuid, path: path) {
+            ghosts.append(path)
+        }
+        return (stampedRevision, current, drifted, ghosts)
+    }
+
+    /// Dot-path existence check for ghost reporting. Forms accepted:
+    /// domain · domain.entity · domain.entity.property ·
+    /// domain.enums.enum_code · domain.enums.enum_code.option_code.
+    /// Anything unparseable is simply a ghost — never an error.
+    ///
+    /// MOVED VERBATIM from BriefingRepository (was `private func
+    /// dopeDotPathExists`): dope_persistence* is THIS repository's table set,
+    /// and RepositoryContext's own doc comment prescribes naming the owner.
+    func dotPathExists(scopeUuid: String, path: String) throws -> Bool {
+        let segs = path.split(separator: ".").map(String.init)
+        guard !segs.isEmpty, segs.count <= 4 else { return false }
+        guard let persistenceUuid = try String.fetchOne(
+            db,
+            sql: "SELECT uuid FROM dope_persistence WHERE dope_scope_uuid = ? AND code = ?",
+            arguments: [scopeUuid, segs[0]]
+        ) else { return false }
+        if segs.count == 1 { return true }
+
+        if segs[1] == "enums" {
+            guard segs.count >= 3 else { return false }
+            guard let enumUuid = try String.fetchOne(
+                db,
+                sql: "SELECT uuid FROM dope_persistence_enum WHERE dope_persistence_uuid = ? AND code = ?",
+                arguments: [persistenceUuid, segs[2]]
+            ) else { return false }
+            if segs.count == 3 { return true }
+            return try Row.fetchOne(
+                db,
+                sql: "SELECT 1 FROM dope_persistence_enum_option WHERE dope_persistence_enum_uuid = ? AND code = ?",
+                arguments: [enumUuid, segs[3]]
+            ) != nil
+        }
+
+        guard let entityUuid = try String.fetchOne(
+            db,
+            sql: "SELECT uuid FROM dope_persistence_entity WHERE dope_persistence_uuid = ? AND code = ?",
+            arguments: [persistenceUuid, segs[1]]
+        ) else { return false }
+        if segs.count == 2 { return true }
+        guard segs.count == 3 else { return false }
+        return try Row.fetchOne(
+            db,
+            sql: "SELECT 1 FROM dope_persistence_entity_property WHERE dope_persistence_entity_uuid = ? AND code = ?",
+            arguments: [entityUuid, segs[2]]
+        ) != nil
+    }
+
     // MARK: - Init
 
     func dopeInit(_ req: DopeInitRequest) throws -> DopeScopeResponse {

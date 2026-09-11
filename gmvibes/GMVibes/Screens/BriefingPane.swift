@@ -6,8 +6,10 @@ import GMCCDaemonKit
 /// per row, keyed by `briefing_for_step` (registry-extensible — whatever LIST
 /// returns is rendered, never a hardcoded step set). Staleness is the
 /// daemon's read-time computation; it renders as a subtle amber badge with
-/// expandable ghost-path detail — warn, never block. All briefing writes
-/// stay bot/CLI-side.
+/// expandable ghost-path detail — warn, never block. That badge and the
+/// dot-path chip flow now live in `DesignSystem/DopeStalenessBadge.swift`,
+/// shared verbatim with the care package. All briefing writes stay
+/// bot/CLI-side.
 struct BriefingPane: View {
     let phase: PromptPhaseStore.Phase<[PromptPhaseStore.BriefingItem]>
 
@@ -54,7 +56,7 @@ struct BriefingPane: View {
                 Text(stepTitle(briefing.briefingForStep))
                     .font(.subheadline.weight(.semibold))
                 statusChip(briefing.status)
-                stalenessBadge(item.staleness)
+                DopeStalenessBadge(staleness: item.staleness)
                 Spacer()
             }
 
@@ -63,7 +65,7 @@ struct BriefingPane: View {
             let dopePaths = briefing.dopeRefs.map(\.dopeCode)
             if !dopePaths.isEmpty {
                 sectionHeader("Dope Refs")
-                chipFlow(dopePaths, ghosts: Set(item.staleness.ghostDotPaths))
+                dopeChipFlow(paths: dopePaths, ghosts: Set(item.staleness.ghostDotPaths))
             }
 
             if !briefing.kbiteRefs.isEmpty {
@@ -88,57 +90,6 @@ struct BriefingPane: View {
                         .font(.caption.monospaced())
                         .foregroundStyle(.secondary)
                 }
-            }
-        }
-    }
-
-    // MARK: Staleness (warn, never block)
-
-    @ViewBuilder
-    private func stalenessBadge(_ staleness: BriefingStaleness) -> some View {
-        let ghosts = staleness.ghostDotPaths
-        if staleness.drifted || !ghosts.isEmpty {
-            DisclosureGroup {
-                VStack(alignment: .leading, spacing: 4) {
-                    if let stamped = staleness.stampedRevision,
-                       let current = staleness.currentRevision, staleness.drifted {
-                        Text("Dope scope moved: composed at r\(stamped), now r\(current).")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    ForEach(ghosts, id: \.self) { path in
-                        Text(path)
-                            .font(.caption.monospaced())
-                            .strikethrough()
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .padding(.top, 2)
-            } label: {
-                Label(ghosts.isEmpty ? "dope drifted" : "dope drifted · \(ghosts.count) ghost\(ghosts.count == 1 ? "" : "s")",
-                      systemImage: "exclamationmark.triangle")
-                    .font(.caption2.weight(.medium))
-                    .padding(.horizontal, 7).padding(.vertical, 2)
-                    .background(.orange.opacity(0.18), in: .capsule)
-                    .foregroundStyle(.orange)
-            }
-            .disclosureGroupStyle(.automatic)
-        }
-    }
-
-    // MARK: Refs
-
-    private func chipFlow(_ paths: [String], ghosts: Set<String>) -> some View {
-        // Simple wrapping-free flow: dot-paths are short and few; a vertical
-        // list keeps them selectable and legible without a layout dependency.
-        VStack(alignment: .leading, spacing: 3) {
-            ForEach(paths, id: \.self) { path in
-                Text(path)
-                    .font(.caption.monospaced())
-                    .strikethrough(ghosts.contains(path))
-                    .foregroundStyle(ghosts.contains(path) ? .secondary : .primary)
-                    .padding(.horizontal, 7).padding(.vertical, 2)
-                    .background(.quaternary.opacity(0.4), in: .capsule)
             }
         }
     }
