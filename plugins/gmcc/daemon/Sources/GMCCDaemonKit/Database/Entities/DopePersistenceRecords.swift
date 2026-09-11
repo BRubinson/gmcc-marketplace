@@ -11,7 +11,6 @@ import GRDB
 /// Read-side mirror of the `dope_persistence` table. Columns map via convertFromSnakeCase.
 struct DopePersistenceRecord: BaseRecordFields {
     static let databaseTableName = "dope_persistence"
-    var id: Int64
     var uuid: String
     var version: Int64
     var createdAt: String
@@ -28,7 +27,6 @@ struct DopePersistenceRecord: BaseRecordFields {
 /// Read-side mirror of the `dope_persistence_entity` table. Columns map via convertFromSnakeCase.
 struct DopePersistenceEntityRecord: BaseRecordFields {
     static let databaseTableName = "dope_persistence_entity"
-    var id: Int64
     var uuid: String
     var version: Int64
     var createdAt: String
@@ -47,7 +45,6 @@ struct DopePersistenceEntityRecord: BaseRecordFields {
 /// Read-side mirror of the `dope_persistence_entity_property` table. Columns map via convertFromSnakeCase.
 struct DopePersistenceEntityPropertyRecord: BaseRecordFields {
     static let databaseTableName = "dope_persistence_entity_property"
-    var id: Int64
     var uuid: String
     var version: Int64
     var createdAt: String
@@ -58,9 +55,9 @@ struct DopePersistenceEntityPropertyRecord: BaseRecordFields {
     var description: String
     var sortOrder: Int64
     var dataType: String
-    var nullable: Int64
-    var isUnique: Int64
-    var autoIncrement: Int64?
+    var nullable: Bool
+    var isUnique: Bool
+    var autoIncrement: Bool?
     var textCharLimit: Int64?
     var dopePersistenceEnumUuid: String?
     var relationshipTargetUuid: String?
@@ -71,7 +68,6 @@ struct DopePersistenceEntityPropertyRecord: BaseRecordFields {
 /// Read-side mirror of the `dope_persistence_enum` table. Columns map via convertFromSnakeCase.
 struct DopePersistenceEnumRecord: BaseRecordFields {
     static let databaseTableName = "dope_persistence_enum"
-    var id: Int64
     var uuid: String
     var version: Int64
     var createdAt: String
@@ -88,7 +84,6 @@ struct DopePersistenceEnumRecord: BaseRecordFields {
 /// Read-side mirror of the `dope_persistence_enum_option` table. Columns map via convertFromSnakeCase.
 struct DopePersistenceEnumOptionRecord: BaseRecordFields {
     static let databaseTableName = "dope_persistence_enum_option"
-    var id: Int64
     var uuid: String
     var version: Int64
     var createdAt: String

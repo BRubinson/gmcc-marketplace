@@ -11,7 +11,6 @@ import GRDB
 /// Read-side mirror of the `instance` table. Columns map via convertFromSnakeCase.
 struct InstanceRecord: BaseRecordFields {
     static let databaseTableName = "instance"
-    var id: Int64
     var uuid: String
     var version: Int64
     var createdAt: String

@@ -11,7 +11,6 @@ import GRDB
 /// Read-side mirror of the `dope_element_provenance` table. Columns map via convertFromSnakeCase.
 struct DopeElementProvenanceRecord: BaseRecordFields {
     static let databaseTableName = "dope_element_provenance"
-    var id: Int64
     var uuid: String
     var version: Int64
     var createdAt: String
@@ -20,5 +19,5 @@ struct DopeElementProvenanceRecord: BaseRecordFields {
     var dotPath: String
     var elementKind: String
     var syncedContentHash: String?
-    var locallyModified: Int64
+    var locallyModified: Bool
 }

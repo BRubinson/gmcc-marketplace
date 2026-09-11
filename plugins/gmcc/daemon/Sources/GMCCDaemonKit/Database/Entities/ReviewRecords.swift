@@ -11,7 +11,6 @@ import GRDB
 /// Read-side mirror of the `review_summary` table. Columns map via convertFromSnakeCase.
 struct ReviewSummaryRecord: BaseRecordFields {
     static let databaseTableName = "review_summary"
-    var id: Int64
     var uuid: String
     var version: Int64
     var createdAt: String
@@ -25,7 +24,6 @@ struct ReviewSummaryRecord: BaseRecordFields {
 /// Read-side mirror of the `review_finding` table. Columns map via convertFromSnakeCase.
 struct ReviewFindingRecord: BaseRecordFields {
     static let databaseTableName = "review_finding"
-    var id: Int64
     var uuid: String
     var version: Int64
     var createdAt: String

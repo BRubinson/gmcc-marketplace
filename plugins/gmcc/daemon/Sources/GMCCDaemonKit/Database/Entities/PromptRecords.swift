@@ -11,7 +11,6 @@ import GRDB
 /// Read-side mirror of the `prompt` table. Columns map via convertFromSnakeCase.
 struct PromptRecord: BaseRecordFields {
     static let databaseTableName = "prompt"
-    var id: Int64
     var uuid: String
     var version: Int64
     var createdAt: String
@@ -31,7 +30,6 @@ struct PromptRecord: BaseRecordFields {
 /// Read-side mirror of the `prompt_activation` table. Columns map via convertFromSnakeCase.
 struct PromptActivationRecord: BaseRecordFields {
     static let databaseTableName = "prompt_activation"
-    var id: Int64
     var uuid: String
     var version: Int64
     var createdAt: String
@@ -44,7 +42,6 @@ struct PromptActivationRecord: BaseRecordFields {
 /// Read-side mirror of the `prompt_artifact` table. Columns map via convertFromSnakeCase.
 struct PromptArtifactRecord: BaseRecordFields {
     static let databaseTableName = "prompt_artifact"
-    var id: Int64
     var uuid: String
     var version: Int64
     var createdAt: String
@@ -57,7 +54,6 @@ struct PromptArtifactRecord: BaseRecordFields {
 /// Read-side mirror of the `prompt_qualified_diagram` table. Columns map via convertFromSnakeCase.
 struct PromptQualifiedDiagramRecord: BaseRecordFields {
     static let databaseTableName = "prompt_qualified_diagram"
-    var id: Int64
     var uuid: String
     var version: Int64
     var createdAt: String

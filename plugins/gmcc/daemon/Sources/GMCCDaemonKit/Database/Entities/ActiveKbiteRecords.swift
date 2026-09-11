@@ -11,7 +11,6 @@ import GRDB
 /// Read-side mirror of the `project_active_kbite` table. Columns map via convertFromSnakeCase.
 struct ProjectActiveKbiteRecord: BaseRecordFields {
     static let databaseTableName = "project_active_kbite"
-    var id: Int64
     var uuid: String
     var version: Int64
     var createdAt: String
@@ -23,7 +22,6 @@ struct ProjectActiveKbiteRecord: BaseRecordFields {
 /// Read-side mirror of the `instance_active_kbite` table. Columns map via convertFromSnakeCase.
 struct InstanceActiveKbiteRecord: BaseRecordFields {
     static let databaseTableName = "instance_active_kbite"
-    var id: Int64
     var uuid: String
     var version: Int64
     var createdAt: String
@@ -35,7 +33,6 @@ struct InstanceActiveKbiteRecord: BaseRecordFields {
 /// Read-side mirror of the `session_active_kbite` table. Columns map via convertFromSnakeCase.
 struct SessionActiveKbiteRecord: BaseRecordFields {
     static let databaseTableName = "session_active_kbite"
-    var id: Int64
     var uuid: String
     var version: Int64
     var createdAt: String
@@ -47,7 +44,6 @@ struct SessionActiveKbiteRecord: BaseRecordFields {
 /// Read-side mirror of the `prompt_active_kbite` table. Columns map via convertFromSnakeCase.
 struct PromptActiveKbiteRecord: BaseRecordFields {
     static let databaseTableName = "prompt_active_kbite"
-    var id: Int64
     var uuid: String
     var version: Int64
     var createdAt: String

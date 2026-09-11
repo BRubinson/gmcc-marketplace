@@ -11,7 +11,6 @@ import GRDB
 /// Read-side mirror of the `project` table. Columns map via convertFromSnakeCase.
 struct ProjectRecord: BaseRecordFields {
     static let databaseTableName = "project"
-    var id: Int64
     var uuid: String
     var version: Int64
     var createdAt: String

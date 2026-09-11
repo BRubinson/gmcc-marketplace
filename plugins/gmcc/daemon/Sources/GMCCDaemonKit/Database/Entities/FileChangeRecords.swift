@@ -11,7 +11,6 @@ import GRDB
 /// Read-side mirror of the `file_change` table. Columns map via convertFromSnakeCase.
 struct FileChangeRecord: BaseRecordFields {
     static let databaseTableName = "file_change"
-    var id: Int64
     var uuid: String
     var version: Int64
     var createdAt: String
@@ -25,7 +24,6 @@ struct FileChangeRecord: BaseRecordFields {
 /// Read-side mirror of the `file_change_range` table. Columns map via convertFromSnakeCase.
 struct FileChangeRangeRecord: BaseRecordFields {
     static let databaseTableName = "file_change_range"
-    var id: Int64
     var uuid: String
     var version: Int64
     var createdAt: String

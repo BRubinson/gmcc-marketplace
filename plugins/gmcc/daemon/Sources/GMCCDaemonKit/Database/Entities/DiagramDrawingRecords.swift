@@ -11,21 +11,19 @@ import GRDB
 /// Read-side mirror of the `diagram_drawing_layer` table. Columns map via convertFromSnakeCase.
 struct DiagramDrawingLayerRecord: BaseRecordFields {
     static let databaseTableName = "diagram_drawing_layer"
-    var id: Int64
     var uuid: String
     var version: Int64
     var createdAt: String
     var updatedAt: String
     var elementUuid: String
     var opacity: Double
-    var visible: Int64
-    var locked: Int64
+    var visible: Bool
+    var locked: Bool
 }
 
 /// Read-side mirror of the `diagram_drawing_shape` table. Columns map via convertFromSnakeCase.
 struct DiagramDrawingShapeRecord: BaseRecordFields {
     static let databaseTableName = "diagram_drawing_shape"
-    var id: Int64
     var uuid: String
     var version: Int64
     var createdAt: String
@@ -41,7 +39,6 @@ struct DiagramDrawingShapeRecord: BaseRecordFields {
 /// Read-side mirror of the `diagram_drawing_stroke` table. Columns map via convertFromSnakeCase.
 struct DiagramDrawingStrokeRecord: BaseRecordFields {
     static let databaseTableName = "diagram_drawing_stroke"
-    var id: Int64
     var uuid: String
     var version: Int64
     var createdAt: String
@@ -57,7 +54,6 @@ struct DiagramDrawingStrokeRecord: BaseRecordFields {
 /// Read-side mirror of the `diagram_drawing_text` table. Columns map via convertFromSnakeCase.
 struct DiagramDrawingTextRecord: BaseRecordFields {
     static let databaseTableName = "diagram_drawing_text"
-    var id: Int64
     var uuid: String
     var version: Int64
     var createdAt: String

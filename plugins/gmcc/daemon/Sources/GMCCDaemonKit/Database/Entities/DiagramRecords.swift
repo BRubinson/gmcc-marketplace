@@ -11,7 +11,6 @@ import GRDB
 /// Read-side mirror of the `diagram` table. Columns map via convertFromSnakeCase.
 struct DiagramRecord: BaseRecordFields {
     static let databaseTableName = "diagram"
-    var id: Int64
     var uuid: String
     var version: Int64
     var createdAt: String
@@ -33,7 +32,6 @@ struct DiagramRecord: BaseRecordFields {
 /// Read-side mirror of the `diagram_element` table. Columns map via convertFromSnakeCase.
 struct DiagramElementRecord: BaseRecordFields {
     static let databaseTableName = "diagram_element"
-    var id: Int64
     var uuid: String
     var version: Int64
     var createdAt: String
@@ -54,7 +52,6 @@ struct DiagramElementRecord: BaseRecordFields {
 /// Read-side mirror of the `diagram_connector` table. Columns map via convertFromSnakeCase.
 struct DiagramConnectorRecord: BaseRecordFields {
     static let databaseTableName = "diagram_connector"
-    var id: Int64
     var uuid: String
     var version: Int64
     var createdAt: String
@@ -73,7 +70,6 @@ struct DiagramConnectorRecord: BaseRecordFields {
 /// Read-side mirror of the `diagram_uml_node` table. Columns map via convertFromSnakeCase.
 struct DiagramUmlNodeRecord: BaseRecordFields {
     static let databaseTableName = "diagram_uml_node"
-    var id: Int64
     var uuid: String
     var version: Int64
     var createdAt: String
@@ -93,7 +89,6 @@ struct DiagramUmlNodeRecord: BaseRecordFields {
 /// Read-side mirror of the `diagram_shape_vertex` table. Columns map via convertFromSnakeCase.
 struct DiagramShapeVertexRecord: BaseRecordFields {
     static let databaseTableName = "diagram_shape_vertex"
-    var id: Int64
     var uuid: String
     var version: Int64
     var createdAt: String
@@ -107,7 +102,6 @@ struct DiagramShapeVertexRecord: BaseRecordFields {
 /// Read-side mirror of the `diagram_stroke_vertex` table. Columns map via convertFromSnakeCase.
 struct DiagramStrokeVertexRecord: BaseRecordFields {
     static let databaseTableName = "diagram_stroke_vertex"
-    var id: Int64
     var uuid: String
     var version: Int64
     var createdAt: String

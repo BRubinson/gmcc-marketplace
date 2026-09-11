@@ -11,7 +11,6 @@ import GRDB
 /// Read-side mirror of the `agent_briefing` table. Columns map via convertFromSnakeCase.
 struct AgentBriefingRecord: BaseRecordFields {
     static let databaseTableName = "agent_briefing"
-    var id: Int64
     var uuid: String
     var version: Int64
     var createdAt: String

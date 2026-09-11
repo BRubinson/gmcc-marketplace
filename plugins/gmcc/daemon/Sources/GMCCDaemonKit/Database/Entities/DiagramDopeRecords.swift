@@ -11,7 +11,6 @@ import GRDB
 /// Read-side mirror of the `diagram_dope_entity` table. Columns map via convertFromSnakeCase.
 struct DiagramDopeEntityRecord: BaseRecordFields {
     static let databaseTableName = "diagram_dope_entity"
-    var id: Int64
     var uuid: String
     var version: Int64
     var createdAt: String
@@ -23,7 +22,6 @@ struct DiagramDopeEntityRecord: BaseRecordFields {
 /// Read-side mirror of the `diagram_dope_scope_persistence_layer` table. Columns map via convertFromSnakeCase.
 struct DiagramDopeScopePersistenceLayerRecord: BaseRecordFields {
     static let databaseTableName = "diagram_dope_scope_persistence_layer"
-    var id: Int64
     var uuid: String
     var version: Int64
     var createdAt: String

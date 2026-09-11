@@ -11,7 +11,6 @@ import GRDB
 /// Read-side mirror of the `clarification_summary` table. Columns map via convertFromSnakeCase.
 struct ClarificationSummaryRecord: BaseRecordFields {
     static let databaseTableName = "clarification_summary"
-    var id: Int64
     var uuid: String
     var version: Int64
     var createdAt: String
@@ -26,7 +25,6 @@ struct ClarificationSummaryRecord: BaseRecordFields {
 /// Read-side mirror of the `clarification` table. Columns map via convertFromSnakeCase.
 struct ClarificationRecord: BaseRecordFields {
     static let databaseTableName = "clarification"
-    var id: Int64
     var uuid: String
     var version: Int64
     var createdAt: String

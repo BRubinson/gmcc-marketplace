@@ -11,7 +11,6 @@ import GRDB
 /// Read-side mirror of the `session` table. Columns map via convertFromSnakeCase.
 struct SessionRecord: BaseRecordFields {
     static let databaseTableName = "session"
-    var id: Int64
     var uuid: String
     var version: Int64
     var createdAt: String
@@ -28,12 +27,11 @@ struct SessionRecord: BaseRecordFields {
 /// Read-side mirror of the `session_file` table. Columns map via convertFromSnakeCase.
 struct SessionFileRecord: BaseRecordFields {
     static let databaseTableName = "session_file"
-    var id: Int64
     var uuid: String
     var version: Int64
     var createdAt: String
     var updatedAt: String
     var sessionUuid: String
     var relativePath: String
-    var active: Int64
+    var active: Bool
 }

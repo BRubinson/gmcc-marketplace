@@ -11,7 +11,6 @@ import GRDB
 /// Read-side mirror of the `architecture_summary` table. Columns map via convertFromSnakeCase.
 struct ArchitectureSummaryRecord: BaseRecordFields {
     static let databaseTableName = "architecture_summary"
-    var id: Int64
     var uuid: String
     var version: Int64
     var createdAt: String
@@ -24,7 +23,6 @@ struct ArchitectureSummaryRecord: BaseRecordFields {
 /// Read-side mirror of the `architecture_general_change` table. Columns map via convertFromSnakeCase.
 struct ArchitectureGeneralChangeRecord: BaseRecordFields {
     static let databaseTableName = "architecture_general_change"
-    var id: Int64
     var uuid: String
     var version: Int64
     var createdAt: String
@@ -41,7 +39,6 @@ struct ArchitectureGeneralChangeRecord: BaseRecordFields {
 /// Read-side mirror of the `architecture_persistence_change` table. Columns map via convertFromSnakeCase.
 struct ArchitecturePersistenceChangeRecord: BaseRecordFields {
     static let databaseTableName = "architecture_persistence_change"
-    var id: Int64
     var uuid: String
     var version: Int64
     var createdAt: String
@@ -56,7 +53,6 @@ struct ArchitecturePersistenceChangeRecord: BaseRecordFields {
 /// Read-side mirror of the `architecture_persistence_field_change` table. Columns map via convertFromSnakeCase.
 struct ArchitecturePersistenceFieldChangeRecord: BaseRecordFields {
     static let databaseTableName = "architecture_persistence_field_change"
-    var id: Int64
     var uuid: String
     var version: Int64
     var createdAt: String
@@ -67,8 +63,8 @@ struct ArchitecturePersistenceFieldChangeRecord: BaseRecordFields {
     var changeReason: String
     var changePurpose: String
     var dataType: String
-    var nullable: Int64
-    var isForeignKey: Int64
+    var nullable: Bool
+    var isForeignKey: Bool
     var fkTarget: String?
-    var isIndexed: Int64
+    var isIndexed: Bool
 }

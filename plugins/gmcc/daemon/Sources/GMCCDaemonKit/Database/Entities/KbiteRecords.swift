@@ -11,7 +11,6 @@ import GRDB
 /// Read-side mirror of the `kbite` table. Columns map via convertFromSnakeCase.
 struct KbiteRecord: BaseRecordFields {
     static let databaseTableName = "kbite"
-    var id: Int64
     var uuid: String
     var version: Int64
     var createdAt: String
@@ -22,7 +21,6 @@ struct KbiteRecord: BaseRecordFields {
 /// Read-side mirror of the `keyword` table. Columns map via convertFromSnakeCase.
 struct KeywordRecord: BaseRecordFields {
     static let databaseTableName = "keyword"
-    var id: Int64
     var uuid: String
     var version: Int64
     var createdAt: String
@@ -33,7 +31,6 @@ struct KeywordRecord: BaseRecordFields {
 /// Read-side mirror of the `kbite_keyword_junction` table. Columns map via convertFromSnakeCase.
 struct KbiteKeywordJunctionRecord: BaseRecordFields {
     static let databaseTableName = "kbite_keyword_junction"
-    var id: Int64
     var uuid: String
     var version: Int64
     var createdAt: String

@@ -11,7 +11,6 @@ import GRDB
 /// Read-side mirror of the `exploration_summary` table. Columns map via convertFromSnakeCase.
 struct ExplorationSummaryRecord: BaseRecordFields {
     static let databaseTableName = "exploration_summary"
-    var id: Int64
     var uuid: String
     var version: Int64
     var createdAt: String
@@ -24,7 +23,6 @@ struct ExplorationSummaryRecord: BaseRecordFields {
 /// Read-side mirror of the `exploration_finding` table. Columns map via convertFromSnakeCase.
 struct ExplorationFindingRecord: BaseRecordFields {
     static let databaseTableName = "exploration_finding"
-    var id: Int64
     var uuid: String
     var version: Int64
     var createdAt: String
@@ -40,7 +38,6 @@ struct ExplorationFindingRecord: BaseRecordFields {
 /// Read-side mirror of the `exploration_key_file` table. Columns map via convertFromSnakeCase.
 struct ExplorationKeyFileRecord: BaseRecordFields {
     static let databaseTableName = "exploration_key_file"
-    var id: Int64
     var uuid: String
     var version: Int64
     var createdAt: String

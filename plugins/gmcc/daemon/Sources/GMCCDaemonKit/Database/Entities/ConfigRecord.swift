@@ -11,7 +11,6 @@ import GRDB
 /// Read-side mirror of the `daemon_config` table. Columns map via convertFromSnakeCase.
 struct DaemonConfigRecord: BaseRecordFields {
     static let databaseTableName = "daemon_config"
-    var id: Int64
     var uuid: String
     var version: Int64
     var createdAt: String

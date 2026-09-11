@@ -11,7 +11,6 @@ import GRDB
 /// Read-side mirror of the `dope_cog` table. Columns map via convertFromSnakeCase.
 struct DopeCogRecord: BaseRecordFields {
     static let databaseTableName = "dope_cog"
-    var id: Int64
     var uuid: String
     var version: Int64
     var createdAt: String
@@ -28,7 +27,6 @@ struct DopeCogRecord: BaseRecordFields {
 /// Read-side mirror of the `dope_cog_element` table. Columns map via convertFromSnakeCase.
 struct DopeCogElementRecord: BaseRecordFields {
     static let databaseTableName = "dope_cog_element"
-    var id: Int64
     var uuid: String
     var version: Int64
     var createdAt: String
@@ -47,7 +45,6 @@ struct DopeCogElementRecord: BaseRecordFields {
 /// Read-side mirror of the `dope_cog_hull` table. Columns map via convertFromSnakeCase.
 struct DopeCogHullRecord: BaseRecordFields {
     static let databaseTableName = "dope_cog_hull"
-    var id: Int64
     var uuid: String
     var version: Int64
     var createdAt: String
@@ -59,7 +56,6 @@ struct DopeCogHullRecord: BaseRecordFields {
 /// Read-side mirror of the `dope_cog_persistence_owner` table. Columns map via convertFromSnakeCase.
 struct DopeCogPersistenceOwnerRecord: BaseRecordFields {
     static let databaseTableName = "dope_cog_persistence_owner"
-    var id: Int64
     var uuid: String
     var version: Int64
     var createdAt: String
