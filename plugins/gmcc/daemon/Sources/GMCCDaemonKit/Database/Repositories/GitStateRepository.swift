@@ -40,7 +40,7 @@ struct GitStateRepository: RepositoryContext {
         var stub: SessionStub?
         if let code = currentCode {
             // Same column list + last_activity_at shape as SESSION_LIST.
-            if let row = try Row.fetchOne(db, sql: """
+            if let row = try SessionStubRecord.fetchOne(db, sql: """
                 SELECT s.uuid, s.version, s.instance_uuid, s.code, s.name,
                        s.ckfs_relative_storage_path, s.created_at, s.updated_at,
                        MAX(
@@ -53,7 +53,7 @@ struct GitStateRepository: RepositoryContext {
                 FROM session s
                 WHERE s.instance_uuid = ? AND s.code = ?
                 """, arguments: [req.instanceUuid, code]) {
-                stub = Store.sessionStub(from: row)
+                stub = row.wireStub()
             }
         }
         return InstanceCurrentSessionResponse(

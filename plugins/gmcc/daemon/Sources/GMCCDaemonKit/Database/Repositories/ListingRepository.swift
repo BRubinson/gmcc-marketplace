@@ -60,7 +60,7 @@ struct ListingRepository: RepositoryContext {
             arguments = [instanceUuid]
         }
         sql += " ORDER BY s.code"
-        let rows = try Row.fetchAll(db, sql: sql, arguments: arguments)
-        return SessionListResponse(sessions: rows.map { Store.sessionStub(from: $0) })
+        let rows = try SessionStubRecord.fetchAll(db, sql: sql, arguments: arguments)
+        return SessionListResponse(sessions: rows.map { $0.wireStub() })
     }
 }

@@ -52,3 +52,44 @@ extension SessionRecord {
             activations: activations)
     }
 }
+
+/// PROJECTION record: a typed decoder for a result-set shape rather than a
+/// table mirror, so it is deliberately NOT enrolled in RecordSchemaTests
+/// (which maps live TABLES, and stays at exactly 57 entries).
+///
+/// `lastActivityAt` is a correlated MAX() across session.updated_at,
+/// prompt.updated_at and file_change.created_at — not a column anywhere.
+/// That is exactly why SessionRecord.wireRow() cannot synthesize it, and why
+/// this shape was previously the one hand mapper with no repository owner
+/// (it served both ListingRepository.listSessions and
+/// GitStateRepository.instanceCurrentSession from a static on Store).
+///
+/// The MAX is lexicographic, which is only correct because isoNow() emits
+/// seconds-precision ISO-8601 Z for every writer.
+struct SessionStubRecord: SnakeCaseDecoded {
+    var uuid: String
+    var version: Int64
+    var instanceUuid: String
+    var code: String
+    var name: String
+    var ckfsRelativeStoragePath: String
+    var createdAt: String
+    var updatedAt: String
+    var lastActivityAt: String
+}
+
+extension SessionStubRecord {
+    /// db → wire. Replicates the retired hand mapper exactly.
+    func wireStub() -> SessionStub {
+        SessionStub(
+            uuid: uuid,
+            version: version,
+            instanceUuid: instanceUuid,
+            code: code,
+            name: name,
+            ckfsRelativeStoragePath: ckfsRelativeStoragePath,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+            lastActivityAt: lastActivityAt)
+    }
+}

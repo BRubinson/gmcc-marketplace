@@ -90,33 +90,20 @@ struct KbiteResourceRepository: RepositoryContext {
             updatedAt: kbiteRow["updated_at"]
         )
         var resources: [KbiteResourceRow] = []
-        for row in try Row.fetchAll(db, sql: """
-            SELECT uuid, kbite_uuid, resource_name, resource_summary, resource_type, resource_trust
-            FROM kbite_resource WHERE kbite_uuid = ? ORDER BY resource_name
-            """, arguments: [kbite.uuid]) {
-            let resourceUuid: String = row["uuid"]
-            let stubs = try Row.fetchAll(db, sql: """
+        for row in try KbiteResourceRecord.fetchAll(
+            db, where: "kbite_uuid = ?", arguments: [kbite.uuid],
+            orderBy: "resource_name"
+        ) {
+            // DELIBERATELY not a SELECT * over kbite_resource_file: the
+            // computed has_content keeps ~115 MB of resource_file_content out
+            // of this read. See KbiteResourceFileStubRecord.
+            let stubs = try KbiteResourceFileStubRecord.fetchAll(db, sql: """
                 SELECT uuid, resource_file_name, resource_file_summary,
                        resource_file_content IS NOT NULL AS has_content
                 FROM kbite_resource_file WHERE kbite_resource_uuid = ?
                 ORDER BY resource_file_name
-                """, arguments: [resourceUuid]).map { fileRow in
-                KbiteResourceFileStub(
-                    uuid: fileRow["uuid"],
-                    resourceFileName: fileRow["resource_file_name"],
-                    resourceFileSummary: fileRow["resource_file_summary"],
-                    hasContent: fileRow["has_content"]
-                )
-            }
-            resources.append(KbiteResourceRow(
-                uuid: resourceUuid,
-                kbiteUuid: row["kbite_uuid"],
-                resourceName: row["resource_name"],
-                resourceSummary: row["resource_summary"],
-                resourceType: row["resource_type"],
-                resourceTrust: row["resource_trust"],
-                files: stubs
-            ))
+                """, arguments: [row.uuid]).map { $0.wireStub() }
+            resources.append(row.wireRow(files: stubs))
         }
         let keywords = try String.fetchAll(db, sql: """
             SELECT kw.keyword FROM keyword kw

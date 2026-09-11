@@ -45,3 +45,48 @@ struct ResourceFileKeywordJunctionRecord: BaseRecordFields {
     var fileUuid: String
     var keywordUuid: String
 }
+
+/// PROJECTION record: a typed decoder for a result-set shape rather than a
+/// table mirror. Not enrolled in RecordSchemaTests, which maps live TABLES.
+///
+/// This exists specifically so the kbite stub read stays narrow. Its query
+/// projects `resource_file_content IS NOT NULL AS has_content` — a computed
+/// column — precisely to avoid touching resource_file_content, which is
+/// ~115 MB across ~12k rows and by far the largest thing in the schema.
+/// KbiteResourceFileRecord declares that column as String?, so a naive
+/// SELECT * conversion would DECODE FINE and regress silently into a
+/// multi-megabyte read holding the single-writer queue. Modelling the
+/// projection instead makes that mistake unexpressible rather than merely
+/// documented.
+struct KbiteResourceFileStubRecord: SnakeCaseDecoded {
+    var uuid: String
+    var resourceFileName: String
+    var resourceFileSummary: String
+    var hasContent: Bool
+}
+
+extension KbiteResourceFileStubRecord {
+    /// db → wire. Replicates the retired hand mapper exactly.
+    func wireStub() -> KbiteResourceFileStub {
+        KbiteResourceFileStub(
+            uuid: uuid,
+            resourceFileName: resourceFileName,
+            resourceFileSummary: resourceFileSummary,
+            hasContent: hasContent)
+    }
+}
+
+extension KbiteResourceRecord {
+    /// db → wire, with the file stubs injected (a second, deliberately
+    /// content-free query). resourceTrust narrows Int64 to the wire's Int.
+    func wireRow(files: [KbiteResourceFileStub]) -> KbiteResourceRow {
+        KbiteResourceRow(
+            uuid: uuid,
+            kbiteUuid: kbiteUuid,
+            resourceName: resourceName,
+            resourceSummary: resourceSummary,
+            resourceType: resourceType,
+            resourceTrust: Int(resourceTrust),
+            files: files)
+    }
+}

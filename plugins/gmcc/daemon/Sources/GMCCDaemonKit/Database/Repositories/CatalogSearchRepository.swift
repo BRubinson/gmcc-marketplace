@@ -55,9 +55,9 @@ struct CatalogSearchRepository: RepositoryContext {
         sessionConditions.append("(\(sessionMatch) OR \(instanceSubtreeMatch))")
         sessionSql += " WHERE " + sessionConditions.joined(separator: " AND ")
         sessionSql += " LIMIT \(limit)"
-        let sessions = try Row.fetchAll(
+        let sessions = try SessionStubRecord.fetchAll(
             db, sql: sessionSql, arguments: StatementArguments(sessionArguments)
-        ).map { Store.sessionStub(from: $0) }
+        ).map { $0.wireStub() }
 
         // Instances: the parent closure of every returned session, plus
         // instances that matched directly (kept even when they contribute no
