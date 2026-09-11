@@ -23,15 +23,17 @@ struct DopeProvenanceRepository: RepositoryContext {
 
     /// Load the stored base for one scope.
     func provenance(scopeUuid: String) throws -> [String: DopeMerge.Base] {
-        let rows = try Row.fetchAll(db, sql: """
-            SELECT dot_path, synced_content_hash, locally_modified
-              FROM dope_element_provenance WHERE dope_scope_uuid = ?
-            """, arguments: [scopeUuid])
+        // Widens a 3-column list to SELECT *: the Record needs the BaseEntity
+        // columns. locallyModified is decoded as Bool by GRDB (!= 0), which
+        // unifies this site's old `== 1` with the three sibling `!= 0` sites --
+        // a no-op on every producible value (the write path stores only 0 or 1).
+        let rows = try DopeElementProvenanceRecord.fetchAll(
+            db, where: "dope_scope_uuid = ?", arguments: [scopeUuid])
         var out = [String: DopeMerge.Base]()
         for row in rows {
-            out[row["dot_path"]] = DopeMerge.Base(
-                syncedContentHash: row["synced_content_hash"],
-                locallyModified: (row["locally_modified"] as Int64) == 1)
+            out[row.dotPath] = DopeMerge.Base(
+                syncedContentHash: row.syncedContentHash,
+                locallyModified: row.locallyModified)
         }
         return out
     }

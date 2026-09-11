@@ -327,102 +327,42 @@ struct ArchitectureRepository: RepositoryContext {
     private func fetchSummary(
         where condition: String, key: String
     ) throws -> ArchitectureSummaryRow? {
-        guard let row = try Row.fetchOne(
-            db,
-            sql: """
-                SELECT uuid, version, prompt_uuid, body, status, created_at, updated_at
-                FROM architecture_summary WHERE \(condition)
-                """,
-            arguments: [key]
-        ) else { return nil }
-        return ArchitectureSummaryRow(
-            uuid: row["uuid"],
-            version: row["version"],
-            promptUuid: row["prompt_uuid"],
-            body: row["body"],
-            status: row["status"],
-            createdAt: row["created_at"],
-            updatedAt: row["updated_at"]
-        )
+        try ArchitectureSummaryRecord.fetchAll(
+            db, where: condition, arguments: [key]
+        ).first?.wireRow()
     }
 
     private func fetchPersistenceChanges(
         summaryUuid: String, touched: [String: UnplannedChangeRow]
     ) throws -> [ArchPersistenceChangeRow] {
-        try Row.fetchAll(
-            db,
-            sql: """
-                SELECT uuid, seq, class_name, file_path, reason_brief
-                FROM architecture_persistence_change
-                WHERE architecture_summary_uuid = ? ORDER BY seq
-                """,
-            arguments: [summaryUuid]
-        ).map { row in
-            let uuid: String = row["uuid"]
-            let path: String = row["file_path"]
-            return ArchPersistenceChangeRow(
-                uuid: uuid,
-                seq: row["seq"],
-                className: row["class_name"],
-                filePath: path,
-                reasonBrief: row["reason_brief"],
-                fields: try fetchFieldChanges(changeUuid: uuid),
-                implementation: implementationState(for: path, touched: touched)
-            )
+        try ArchitecturePersistenceChangeRecord.fetchAll(
+            db, where: "architecture_summary_uuid = ?", arguments: [summaryUuid],
+            orderBy: "seq"
+        ).map { record in
+            record.wireRow(
+                fields: try fetchFieldChanges(changeUuid: record.uuid),
+                implementation: implementationState(for: record.filePath, touched: touched))
         }
     }
 
     private func fetchFieldChanges(
         changeUuid: String
     ) throws -> [ArchPersistenceFieldChangeRow] {
-        try Row.fetchAll(
-            db,
-            sql: """
-                SELECT uuid, seq, field_name, change_reason, change_purpose, data_type,
-                       nullable, is_foreign_key, fk_target, is_indexed
-                FROM architecture_persistence_field_change
-                WHERE persistence_change_uuid = ? ORDER BY seq
-                """,
-            arguments: [changeUuid]
-        ).map { row in
-            ArchPersistenceFieldChangeRow(
-                uuid: row["uuid"],
-                seq: row["seq"],
-                fieldName: row["field_name"],
-                changeReason: row["change_reason"],
-                changePurpose: row["change_purpose"],
-                dataType: row["data_type"],
-                nullable: (row["nullable"] as Int64) != 0,
-                isForeignKey: (row["is_foreign_key"] as Int64) != 0,
-                fkTarget: row["fk_target"],
-                isIndexed: (row["is_indexed"] as Int64) != 0
-            )
-        }
+        try ArchitecturePersistenceFieldChangeRecord.fetchAll(
+            db, where: "persistence_change_uuid = ?", arguments: [changeUuid],
+            orderBy: "seq"
+        ).map { $0.wireRow() }
     }
 
     private func fetchGeneralChanges(
         summaryUuid: String, touched: [String: UnplannedChangeRow]
     ) throws -> [ArchGeneralChangeRow] {
-        try Row.fetchAll(
-            db,
-            sql: """
-                SELECT uuid, seq, file_path, class_name, reason_brief, change_depth, change_code
-                FROM architecture_general_change
-                WHERE architecture_summary_uuid = ? ORDER BY seq
-                """,
-            arguments: [summaryUuid]
-        ).map { row in
-            let path: String = row["file_path"]
-            return ArchGeneralChangeRow(
-                uuid: row["uuid"],
-                seq: row["seq"],
-                filePath: path,
-                className: row["class_name"],
-                reasonBrief: row["reason_brief"],
-                changeDepth: row["change_depth"],
-                changeCode: row["change_code"],
-                implementation: implementationState(for: path, touched: touched)
-            )
+        try ArchitectureGeneralChangeRecord.fetchAll(
+            db, where: "architecture_summary_uuid = ?", arguments: [summaryUuid],
+            orderBy: "seq"
+        ).map { record in
+            record.wireRow(
+                implementation: implementationState(for: record.filePath, touched: touched))
         }
     }
 }

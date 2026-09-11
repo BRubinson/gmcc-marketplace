@@ -68,3 +68,56 @@ struct ArchitecturePersistenceFieldChangeRecord: BaseRecordFields {
     var fkTarget: String?
     var isIndexed: Bool
 }
+
+extension ArchitectureSummaryRecord {
+    /// db → wire. Replicates the retired hand mapper exactly.
+    func wireRow() -> ArchitectureSummaryRow {
+        ArchitectureSummaryRow(
+            uuid: uuid, version: version, promptUuid: promptUuid,
+            body: body, status: status,
+            createdAt: createdAt, updatedAt: updatedAt)
+    }
+}
+
+extension ArchitecturePersistenceFieldChangeRecord {
+    /// db → wire. Replicates the retired hand mapper exactly.
+    ///
+    /// nullable / isForeignKey / isIndexed are decoded as Bool by GRDB, so the
+    /// three `(row[...] as Int64) != 0` casts this retires now happen once in
+    /// the decoder instead of once per field here.
+    func wireRow() -> ArchPersistenceFieldChangeRow {
+        ArchPersistenceFieldChangeRow(
+            uuid: uuid, seq: seq, fieldName: fieldName,
+            changeReason: changeReason, changePurpose: changePurpose,
+            dataType: dataType, nullable: nullable, isForeignKey: isForeignKey,
+            fkTarget: fkTarget, isIndexed: isIndexed)
+    }
+}
+
+extension ArchitecturePersistenceChangeRecord {
+    /// db → wire, with the children and the comparison state injected.
+    ///
+    /// Parameterized because neither comes from this table: `fields` is a
+    /// second query, and `implementation` is computed against the file-change
+    /// trail. Both are labelled and un-defaulted on purpose — a default here
+    /// would let a caller silently drop them.
+    func wireRow(
+        fields: [ArchPersistenceFieldChangeRow],
+        implementation: ChangeImplementationState
+    ) -> ArchPersistenceChangeRow {
+        ArchPersistenceChangeRow(
+            uuid: uuid, seq: seq, className: className, filePath: filePath,
+            reasonBrief: reasonBrief, fields: fields, implementation: implementation)
+    }
+}
+
+extension ArchitectureGeneralChangeRecord {
+    /// db → wire, with the comparison state injected. See the sibling above
+    /// for why `implementation` is a labelled, un-defaulted parameter.
+    func wireRow(implementation: ChangeImplementationState) -> ArchGeneralChangeRow {
+        ArchGeneralChangeRow(
+            uuid: uuid, seq: seq, filePath: filePath, className: className,
+            reasonBrief: reasonBrief, changeDepth: changeDepth,
+            changeCode: changeCode, implementation: implementation)
+    }
+}

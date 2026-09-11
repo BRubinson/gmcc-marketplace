@@ -121,3 +121,12 @@ extension PromptQualifiedDiagramRecord {
             updatedAt: updatedAt)
     }
 }
+
+extension PromptActivationRecord {
+    /// db → wire. Replicates the retired hand mapper exactly.
+    func wireRow() -> PromptActivationRow {
+        PromptActivationRow(
+            uuid: uuid, sessionUuid: sessionUuid, promptUuid: promptUuid,
+            clientKey: clientKey, createdAt: createdAt)
+    }
+}

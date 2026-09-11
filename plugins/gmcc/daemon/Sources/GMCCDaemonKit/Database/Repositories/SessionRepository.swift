@@ -87,25 +87,8 @@ struct SessionRepository: RepositoryContext {
     // MARK: - Shared fetch helpers
 
     func fetchRow(uuid: String) throws -> SessionRow? {
-        guard let row = try Row.fetchOne(
-            db,
-            sql: """
-                SELECT uuid, version, code, name, backstory, goal, created_at, updated_at
-                FROM session WHERE uuid = ?
-                """,
-            arguments: [uuid]
-        ) else { return nil }
-        return SessionRow(
-            uuid: row["uuid"],
-            version: row["version"],
-            code: row["code"],
-            name: row["name"],
-            backstory: row["backstory"],
-            goal: row["goal"],
-            createdAt: row["created_at"],
-            updatedAt: row["updated_at"],
-            activations: try fetchActivations(sessionUuid: uuid)
-        )
+        try SessionRecord.fetch(db, uuid: uuid)?
+            .wireRow(activations: try fetchActivations(sessionUuid: uuid))
     }
 
     // MARK: - Activation registry (v21)
@@ -145,22 +128,10 @@ struct SessionRepository: RepositoryContext {
     }
 
     func fetchActivations(sessionUuid: String) throws -> [PromptActivationRow] {
-        try Row.fetchAll(
-            db,
-            sql: """
-                SELECT uuid, session_uuid, prompt_uuid, client_key, created_at
-                FROM prompt_activation WHERE session_uuid = ? ORDER BY created_at
-                """,
-            arguments: [sessionUuid]
-        ).map { row in
-            PromptActivationRow(
-                uuid: row["uuid"],
-                sessionUuid: row["session_uuid"],
-                promptUuid: row["prompt_uuid"],
-                clientKey: row["client_key"],
-                createdAt: row["created_at"]
-            )
-        }
+        try PromptActivationRecord.fetchAll(
+            db, where: "session_uuid = ?", arguments: [sessionUuid],
+            orderBy: "created_at"
+        ).map { $0.wireRow() }
     }
 
     /// The attribution ladder shared by file-change auto-attribution and the
