@@ -9,18 +9,51 @@ import GRDB
 ///
 /// Domain methods live in per-family extensions (Store+Context, Store+Session,
 /// Store+Prompt, Store+Artifact, Store+FileChange, Store+Event, Store+Backup);
-/// this file holds the core: primitives, event sink, and maintenance.
+/// this file holds lifecycle, health and maintenance, plus the forward layer
+/// onto StoreCore.
+///
+/// Store's five responsibilities after the StoreCore extraction — the fifth is
+/// the one that surprises people:
+///   1. Own `dbQueue` and the transaction boundary (every public verb).
+///   2. Own `core`, migrations, lifecycle, health reads, WAL checkpoint.
+///   3. Host the cross-family helper forwards. 15 of them are named directly
+///      by tests, so this layer is permanent — but under the (db, core) swap
+///      it is no longer on the repository-to-repository call path.
+///   4. Host the two hand mappers that cannot convert: `Store.dopeScopeRow`
+///      (test-pinned as a non-throwing function value) and `Store.sessionStub`
+///      (computed last_activity_at).
+///   5. Host ~624 lines of four-phase verb orchestration (Store+DopeRepoVerbs,
+///      Store+DiagramRepoVerbs): db read → pure projection → filesystem work
+///      with NO lock held → db write. A repository by construction holds an
+///      open `Database`, so this genuinely cannot move into one.
+///
+/// Consequently this refactor does NOT make Store small. The deliverable is
+/// the dependency direction — repositories stop holding a Store — not the line
+/// count.
 public final class Store: @unchecked Sendable {
     let dbQueue: DatabaseQueue
 
     public let dbPath: String
 
-    /// Post-commit event fan-out. appendEvent registers each event via GRDB's
-    /// afterNextTransaction(onCommit:), so the sink fires only for committed
-    /// transactions (a rolled-back write can never leak a phantom event) and
-    /// never while the db lock is held. The server registers this once and
-    /// broadcasts every kind to subscribers.
-    public var eventSink: ((PersistedEvent) -> Void)?
+    /// The shared write core. `let`, never `var`: a recreated core would
+    /// silently drop an already-registered event sink, and the daemon would go
+    /// mute while still looking healthy. Held strongly so the retain graph
+    /// Server → Store → core keeps the post-commit closure alive for exactly
+    /// the lifetime it had when appendEvent lived here.
+    let core = StoreCore()
+
+    /// Post-commit event fan-out. See StoreCore.eventSink for the contract.
+    ///
+    /// This MUST stay a real get/set forward. Server assigns it AFTER Store
+    /// construction, so a stored property copied into the core at init would
+    /// accept the assignment and quietly discard it — every SUBSCRIBE client,
+    /// GMVibes live refresh and watcher rebuild would go dead with the suite
+    /// still green. EventSinkTests.testSinkIsReassignableAndClearable exists
+    /// for exactly this.
+    public var eventSink: ((PersistedEvent) -> Void)? {
+        get { core.eventSink }
+        set { core.eventSink = newValue }
+    }
 
     public init(path: String) throws {
         var config = Configuration()
@@ -39,123 +72,16 @@ public final class Store: @unchecked Sendable {
         try Migrations.migrator.migrate(dbQueue)
     }
 
-    // MARK: - Base-field helpers
+    // MARK: - StoreCore forwards
+    //
+    // Bodies live on StoreCore; these exist because callers name them here.
+    // The instance forwards are NOT optional dressing: KbiteExportImportTests
+    // calls `store.insertBase(db, table:extra:)` directly, so it must remain an
+    // instance method with this exact signature, defaulted parameters and
+    // @discardableResult included. The statics keep ~100 internal `Store.X`
+    // references, 45 test call sites and the gm CLI compiling unchanged —
+    // rewriting those to `StoreCore.` would be churn with no structural payoff.
 
-    /// Sole timestamp source: seconds-precision ISO-8601 Z. EVENT_LIST time
-    /// filters compare lexicographically, which is correct only while every
-    /// writer emits exactly this format.
-    // ISO8601DateFormatter is documented thread-safe; the annotation only
-    // silences Swift 6's conservative Sendable check.
-    nonisolated(unsafe) private static let isoFormatter = ISO8601DateFormatter()
-
-    public static func isoNow() -> String {
-        isoFormatter.string(from: Date())
-    }
-
-    static func newUuid() -> String {
-        UUID().uuidString.lowercased()
-    }
-
-    /// Advance a session's recency WITHOUT bumping its version — deliberately
-    /// not updateBase. Prompt/file-change writes advancing updated_at must
-    /// never invalidate a session version an editor is holding (spurious
-    /// VERSION_CONFLICTs in the GMVibes session editor). The one place
-    /// updated_at and version are not in lockstep.
-    func touchSession(_ db: Database, uuid: String) throws {
-        try db.execute(
-            sql: "UPDATE session SET updated_at = ? WHERE uuid = ?",
-            arguments: [Store.isoNow(), uuid])
-    }
-
-    /// The comparison feature's join key contract: architecture change rows
-    /// and file_change rows meet on this string, so both write paths run
-    /// through this one normalizer. Purely lexical — NEVER touches the
-    /// filesystem (live instance roots include paths that no longer exist,
-    /// and architecture rows name files that don't exist yet).
-    ///
-    /// Relative paths are anchored by definition and pass through cleaned; an
-    /// absolute path inside the instance root is stripped to repo-relative;
-    /// an absolute path outside it is rejected (honest failure over a
-    /// silently zero-match join).
-    static func normalizeRepoRelativePath(_ raw: String, repoRoot: String) throws -> String {
-        var path = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !path.isEmpty else {
-            throw StoreError.badRequest(detail: "file path is empty")
-        }
-        guard !path.contains("\0"), !path.contains("\n") else {
-            throw StoreError.badRequest(detail: "file path contains control characters")
-        }
-        if path.hasPrefix("~/") {
-            path = NSHomeDirectory() + String(path.dropFirst(1))
-        }
-        if path.hasPrefix("/") {
-            var root = repoRoot
-            while root.hasSuffix("/") { root = String(root.dropLast()) }
-            guard root.count > 1, path == root || path.hasPrefix(root + "/") else {
-                throw StoreError.badRequest(
-                    detail: "path is not inside the instance root (\(repoRoot)): \(raw)")
-            }
-            path = String(path.dropFirst(root.count))
-            if path.hasPrefix("/") { path = String(path.dropFirst()) }
-        }
-        while path.hasPrefix("./") { path = String(path.dropFirst(2)) }
-        while path.contains("//") { path = path.replacingOccurrences(of: "//", with: "/") }
-        let segments = path.split(separator: "/")
-        guard !segments.contains("..") else {
-            throw StoreError.badRequest(detail: "path escapes the repo root: \(raw)")
-        }
-        guard !path.isEmpty, path != "/" else {
-            throw StoreError.badRequest(detail: "path resolves to the repo root: \(raw)")
-        }
-        return path
-    }
-
-    /// The storage-path analogue of GitHead.sessionCode: forward-only, lossy,
-    /// NEVER un-slugged. Applied when deriving a prompt's ckfs folder segment
-    /// so names with spaces/slashes can't produce paths the MemoryWatcher's
-    /// exact-match resolution would miss. Case is preserved (lowercasing
-    /// would change more than needed). Existing rows are never rewritten.
-    static func slugStorageSegment(_ raw: String) -> String {
-        var slug = ""
-        for ch in raw {
-            if ch.isASCII, ch.isLetter || ch.isNumber || ch == "." || ch == "_" || ch == "-" {
-                slug.append(ch)
-            } else if !slug.hasSuffix("_") {
-                slug.append("_")
-            }
-        }
-        while slug.contains("__") { slug = slug.replacingOccurrences(of: "__", with: "_") }
-        // ASCII-only by construction, so 80 characters == 80 bytes (the ckfs
-        // folder-name budget). Cap BEFORE trimming so truncation can't leave
-        // a trailing separator.
-        if slug.count > 80 { slug = String(slug.prefix(80)) }
-        while let first = slug.first, first == "_" || first == "." { slug.removeFirst() }
-        while let last = slug.last, last == "_" || last == "." { slug.removeLast() }
-        return slug.isEmpty ? "prompt" : slug
-    }
-
-    /// Shared cap for narrative report text (exploration/review overview and
-    /// finding bodies) — the same 2 MB budget as architecture change_code.
-    static let maxNarrativeBytes = 2 * 1024 * 1024
-
-    /// The consumption threshold of the 0–999 finding-rating scale: GETs
-    /// return full rows under it (plus every unranked row) and stubs at or
-    /// above it.
-    static let findingReadThreshold = 100
-
-    /// daemon_event.payload is documented as JSON — always build it with a
-    /// real serializer so embedded quotes/backslashes in values (file paths!)
-    /// can't produce malformed rows.
-    public static func jsonPayload(_ object: [String: Any]) -> String? {
-        guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else {
-            return nil
-        }
-        return String(data: data, encoding: .utf8)
-    }
-
-    /// Insert a row with the five BaseEntity columns plus `extra` columns.
-    /// Returns the row's uuid (freshly generated unless `uuid` is supplied —
-    /// callers pass a ckfs uuid to keep db ↔ ckfs joins trivial).
     @discardableResult
     func insertBase(
         _ db: Database,
@@ -164,21 +90,9 @@ public final class Store: @unchecked Sendable {
         now: String? = nil,
         extra: [String: (any DatabaseValueConvertible)?]
     ) throws -> String {
-        let rowUuid = uuid ?? Store.newUuid()
-        let now = now ?? Store.isoNow()
-        let columns = ["uuid", "version", "created_at", "updated_at"] + extra.keys.sorted()
-        let values: [(any DatabaseValueConvertible)?] =
-            [rowUuid, 0, now, now] + extra.keys.sorted().map { extra[$0] ?? nil }
-        let placeholders = Array(repeating: "?", count: columns.count).joined(separator: ", ")
-        let sql = "INSERT INTO \(table) (\(columns.joined(separator: ", "))) VALUES (\(placeholders))"
-        try db.execute(sql: sql, arguments: StatementArguments(values))
-        return rowUuid
+        try core.insertBase(db, table: table, uuid: uuid, now: now, extra: extra)
     }
 
-    /// Guarded update — THE optimistic-concurrency primitive. Bumps version
-    /// and updated_at; matches only when the caller's expected version is
-    /// current. Zero rows changed is discriminated (same transaction) into
-    /// NOT_FOUND vs VERSION_CONFLICT.
     func updateBase(
         _ db: Database,
         table: String,
@@ -186,48 +100,18 @@ public final class Store: @unchecked Sendable {
         expectedVersion: Int64,
         set: [String: (any DatabaseValueConvertible)?]
     ) throws {
-        let keys = set.keys.sorted()
-        let assignments = (keys.map { "\($0) = ?" } + ["version = version + 1", "updated_at = ?"])
-            .joined(separator: ", ")
-        let sql = "UPDATE \(table) SET \(assignments) WHERE uuid = ? AND version = ?"
-        let values: [(any DatabaseValueConvertible)?] =
-            keys.map { set[$0] ?? nil } + [Store.isoNow(), uuid, expectedVersion]
-        try db.execute(sql: sql, arguments: StatementArguments(values))
-        guard db.changesCount == 0 else { return }
-        guard let actual = try Int64.fetchOne(
-            db, sql: "SELECT version FROM \(table) WHERE uuid = ?", arguments: [uuid]
-        ) else {
-            throw StoreError.notFound(entity: table, key: uuid)
-        }
-        throw StoreError.versionConflict(entity: table, uuid: uuid, expected: expectedVersion, actual: actual)
+        try core.updateBase(db, table: table, uuid: uuid, expectedVersion: expectedVersion, set: set)
     }
 
-    /// Guarded delete — the DELETE twin of updateBase, with the same
-    /// zero-rows discrimination into NOT_FOUND vs VERSION_CONFLICT. Nothing
-    /// in the schema deleted a versioned row before dope's granular verbs.
-    /// FK CASCADEs report no count here; callers wanting cascade accounting
-    /// COUNT before deleting, in the same transaction.
     func deleteBase(
         _ db: Database,
         table: String,
         uuid: String,
         expectedVersion: Int64
     ) throws {
-        try db.execute(
-            sql: "DELETE FROM \(table) WHERE uuid = ? AND version = ?",
-            arguments: [uuid, expectedVersion])
-        guard db.changesCount == 0 else { return }
-        guard let actual = try Int64.fetchOne(
-            db, sql: "SELECT version FROM \(table) WHERE uuid = ?", arguments: [uuid]
-        ) else {
-            throw StoreError.notFound(entity: table, key: uuid)
-        }
-        throw StoreError.versionConflict(entity: table, uuid: uuid, expected: expectedVersion, actual: actual)
+        try core.deleteBase(db, table: table, uuid: uuid, expectedVersion: expectedVersion)
     }
 
-    /// Append a daemon_event row and stage it for the post-commit sink.
-    /// Append-only: version stays 0 and updated_at == created_at, so
-    /// insertBase's defaults are exactly right.
     @discardableResult
     func appendEvent(
         _ db: Database,
@@ -235,27 +119,32 @@ public final class Store: @unchecked Sendable {
         subjectUuid: String? = nil,
         payload: String? = nil
     ) throws -> String {
-        // One timestamp for both the row and the sink copy, so the live
-        // broadcast and a later replay of the same event id never differ.
-        let createdAt = Store.isoNow()
-        let uuid = try insertBase(db, table: "daemon_event", now: createdAt, extra: [
-            "kind": kind.rawValue,
-            "subject_uuid": subjectUuid,
-            "payload": payload,
-        ])
-        let event = PersistedEvent(
-            id: db.lastInsertedRowID,
-            kind: kind.rawValue,
-            subjectUuid: subjectUuid,
-            payload: payload,
-            createdAt: createdAt
-        )
-        db.afterNextTransaction(
-            onCommit: { [weak self] _ in self?.eventSink?(event) },
-            onRollback: { _ in }
-        )
-        return uuid
+        try core.appendEvent(db, kind: kind, subjectUuid: subjectUuid, payload: payload)
     }
+
+    func touchSession(_ db: Database, uuid: String) throws {
+        try core.touchSession(db, uuid: uuid)
+    }
+
+    public static func isoNow() -> String { StoreCore.isoNow() }
+
+    static func newUuid() -> String { StoreCore.newUuid() }
+
+    public static func jsonPayload(_ object: [String: Any]) -> String? {
+        StoreCore.jsonPayload(object)
+    }
+
+    static func slugStorageSegment(_ raw: String) -> String {
+        StoreCore.slugStorageSegment(raw)
+    }
+
+    static func normalizeRepoRelativePath(_ raw: String, repoRoot: String) throws -> String {
+        try StoreCore.normalizeRepoRelativePath(raw, repoRoot: repoRoot)
+    }
+
+    static let maxNarrativeBytes = StoreCore.maxNarrativeBytes
+
+    static let findingReadThreshold = StoreCore.findingReadThreshold
 
     // MARK: - Lifecycle events
 
