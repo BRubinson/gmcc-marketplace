@@ -192,11 +192,13 @@ absent backing row fails the gate.
    Never split, infer, or author these fields. Then
    `mkdir -p prompts/{seq}_{name}/memory/`.
 2. **clarifying** — enter with `gm prompt set-status ... --status
-   clarifying` (locks content; the daemon creates the summary). Then the
-   m0025 split machine: `gm clarify question-add` (+ option rows) and
-   `note-add`; `gm clarify seal`; user answers via `gm clarify answer`
-   (--select / --answer); optional care package; `gm clarify finalize` is
-   a PURE GATE — nothing ever writes prompt content past draft (STAY TRUE).
+   clarifying` (a gate verb with no pen tool — the primary's door, not an
+   agent write path; it locks content and the daemon creates the summary).
+   The clarifier then pens `mcp__plugin_gmcc_pen__clarify_question_add`
+   (+ option rows) and `mcp__plugin_gmcc_pen__clarify_note_add`; `gm
+   clarify seal`; user answers via `gm clarify answer` (--select /
+   --answer); optional care package; `gm clarify finalize` is a PURE GATE
+   — nothing ever writes prompt content past draft (STAY TRUE).
 3. **architecting → implementing → reviewing → done** — `gm arch`
    authoring (persistence rows first) → propose/approve → implement
    (file changes always `--prompt-uuid`) → optional review → done,
@@ -207,11 +209,13 @@ artifact pointers) plus the persisted `memory/` files.
 
 ## File Change Tracking
 
-After each Edit/Write to a tracked file, bot workflows record:
+After each Edit/Write to a tracked file, bot workflows record through the
+pen — `file_change_add` is the write path for anything spawned:
 
-```bash
-gm file-change add --path <repo-relative> --kind edit|create|delete|rename \
-  [--range start:end]... [--content "<note>"] --prompt-uuid <U>
+```
+mcp__plugin_gmcc_pen__file_change_add
+  path: <repo-relative>   kind: edit|create|delete|rename
+  [ranges: start:end ...] [content: "<note>"] prompt_uuid: <U>
 ```
 
 Run from inside the repo — git context is auto-detected. `--content`

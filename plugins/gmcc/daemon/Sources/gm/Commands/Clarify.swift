@@ -45,7 +45,7 @@ struct Clarify: ParsableCommand {
         @Option(name: .long) var question: String
         @Option(name: .long, help: "Repeatable pre-authored option, in order.")
         var option: [String] = []
-        @Option(name: .long, help: "Authoring persona (e.g. the-ques).") var agentName: String?
+        @Option(name: .long, help: "Authoring agent (e.g. clarifier).") var agentName: String?
         @Option(name: .long, help: "Self-reported agent id for dedup/tracking.") var agentId: String?
 
         func run() throws {

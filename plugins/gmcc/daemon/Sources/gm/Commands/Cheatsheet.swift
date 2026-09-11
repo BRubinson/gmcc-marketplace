@@ -4,9 +4,9 @@ import GMCCDaemonKit
 // gm cheatsheet — a compact, full-surface reference compiled into the binary
 // so it can never drift from installed capabilities. Pure client-side: no
 // daemon socket, works with the daemon down. gmcc_session_startup.sh prints it into
-// SessionStart hook stdout; subagent tiers paste it into worker prompts.
-// CheatsheetTests walks the GM command tree and refuses to ship a verb
-// without a sheet line.
+// SessionStart hook stdout; the SubagentStart hook injects the compact core
+// into spawned agents. CheatsheetTests walks the GM command tree and refuses
+// to ship a verb without a sheet line.
 struct Cheatsheet: ParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Compact full-surface gm reference: one signature line per verb + invariants. Printed into context at SessionStart.")
@@ -15,7 +15,7 @@ struct Cheatsheet: ParsableCommand {
     GM CHEATSHEET (wire v\(GMCCWireProtocol.version)) — exact signatures. Every command also accepts --json (raw wire response; the form skills/bots should parse).
     CORE
       gm setup [--launchd] [--install-path [--path-dir DIR]]   (--install-path puts the call-time gm resolver shim on your PATH; both flags prod-only, refused under GMCC_ROOT)
-      gm doctor   (host-wiring findings: env-vs-db roots, PATH shim, retired zshrc block, daemon health, session dope drift; exit 1 = findings)
+      gm doctor   (host-wiring findings: env-vs-db roots, PATH shim, stray zshrc env block, daemon health, session dope drift; exit 1 = findings)
       gm status
       gm ping
       gm daemon start · gm daemon stop · gm daemon restart · gm daemon status
@@ -44,16 +44,17 @@ struct Cheatsheet: ParsableCommand {
       gm prompt update-content --prompt-uuid U --expected-version V [--backstory B] [--goal G] [--detail D | --detail-file P]   (draft-only; CONTENT_LOCKED after)
       gm prompt set-status --prompt-uuid U --expected-version V --status clarifying|architecting|implementing|reviewing|done
       gm prompt start --prompt-uuid U --variant bot|rpi|team   (enter the workflow machine from draft: creates the active bot_workflow row + claims the activation; task deliberately has NO row)
-      gm prompt resume --prompt-uuid U [--variant V]   (fetch-or-create the workflow row; phase recomputed — resume IS first-run; --variant only when the prompt predates the machine)
-    BOT (the daemon-held workflow machine, m0025: phase DERIVED from db evidence every next; set-status stays the only prompt door; zero-uuid = caller's active workflow -> activation prompt -> session's single workflow; every verb keeps --prompt-uuid)
+      gm prompt resume --prompt-uuid U [--variant V]   (fetch-or-create the workflow row; phase recomputed from db evidence, so resume and first run are one path)
+    BOT (the daemon-held workflow machine: phase DERIVED from db evidence every next; set-status is the only prompt door; zero-uuid = caller's active workflow -> activation prompt -> session's single workflow; every verb takes --prompt-uuid)
       gm bot next [--prompt-uuid U]   (current phase + compiled-in instructions + uuid bundle + gate blockers)
       gm bot get [--prompt-uuid U]   (the raw workflow row)
       gm bot status [--prompt-uuid U]   (row + derived phase + blockers)
       gm bot current_prompt [--prompt-uuid U]   (the workflow prompt's row — agents read the prompt with zero uuid plumbing)
       gm bot briefing [--prompt-uuid U] [--step S]   (the workflow prompt's briefing — a thin wrapper over the briefing family's get)
       gm bot summary --agent-type T [--agent-id A] [--prompt-uuid U]   (fetch-or-open the caller's per-agent exploration summary — identity is self-reported)
-      gm bot reconcile [--prompt-uuid U] [--dry-run]   (completeness channel: tree-diff against the workflow's baseline snapshot — records only PROMPT-ERA hook-invisible writes with real delete/rename kinds, then advances the baseline; pre-existing dirt is excluded; run at phase gates)
-    CLARIFY (summary: building → answering → complete; reopen: complete → answering. m0025 split: user questions + option/selection children, internal notes, care package. FINALIZE IS A PURE GATE — nothing ever writes prompt content past draft)
+      gm bot reconcile [--prompt-uuid U] [--dry-run]   (completeness channel: tree-diff against the workflow's baseline snapshot — records only PROMPT-ERA hook-invisible writes with real delete/rename kinds, then advances the baseline; pre-existing dirt is excluded; the operator-facing form, run at phase gates)
+      gm bot sweep [--prompt-uuid U] [--agent-id I] [--agent-name A]   (the same engine under a hook-safe skin, called from Stop/SubagentStop: --json returns {recorded, phase, blockers[]} so one invocation both records the turn's delta and feeds the status line; ambiguous workflow ownership is REFUSED, never guessed)
+    CLARIFY (summary: building → answering → complete; reopen: complete → answering. The family carries user questions + option/selection children, internal notes, and the care package. FINALIZE IS A PURE GATE — nothing ever writes prompt content past draft)
       gm clarify open --prompt-uuid U
       gm clarify question-add --summary-uuid S --question Q [--option TEXT]... [--agent-name A] [--agent-id I]   (building only; options are ordered child rows)
       gm clarify note-add --summary-uuid S (--body B | --body-file P) [--confused-entity-uuid U --confused-entity-type exploration_finding|briefing|question|other] [--weight 0-999] [--question-uuid Q] [--agent-name A] [--agent-id I]   (any state; weight polarity 0=critical)
@@ -78,9 +79,9 @@ struct Cheatsheet: ParsableCommand {
       gm arch approve --summary-uuid S --expected-version V
       gm arch revise --summary-uuid S --expected-version V
       gm arch get --prompt-uuid U
-    EXPLORE (m0025: literal per-agent summaries keyed (prompt, agent_type); the synthesis-type row is the prompt-level seal; rating 0=critical … 999=ignore, read threshold 100)
+    EXPLORE (literal per-agent summaries keyed (prompt, agent_type); the synthesis-type row is the prompt-level seal; rating 0=critical … 999=ignore, read threshold 100)
       gm explore open --prompt-uuid U [--agent-type aggressive|conservative|pragmatic|alternative|general|synthesis] [--agent-id I]   (default general; idempotent per pair)
-      gm explore key-file-add --summary-uuid S --file-path P   (a finding of kind key_file since m0025; deduped per (summary, path))
+      gm explore key-file-add --summary-uuid S --file-path P   (recorded as a finding of kind key_file; deduped per (summary, path))
       gm explore finding-add --summary-uuid S --kind persistence_model|implementation_pattern|existing_functionality|scope_creep_risk|general_relevant_change|key_file|other --title T (--body B | --body-file P) [--file-path FP] --agent-name A [--agent-id I] [--rating 0-999]
       gm explore rank --prompt-uuid U --rating <finding-uuid>:<0-999> ...   (PROMPT-scoped atomic batch across every summary; re-run re-ranks; refused once the synthesis row is complete — reopen it first)
       gm explore complete --summary-uuid S --expected-version V (--overview TEXT | --overview-file PATH)   (per summary; agents seal their OWN row; completing the synthesis row is the prompt-level seal and refuses while anything is unranked)
@@ -94,9 +95,9 @@ struct Cheatsheet: ParsableCommand {
       gm review complete --summary-uuid S --expected-version V (--overview TEXT | --overview-file PATH) --verdict approved|approved_with_nits|changes_requested
       gm review reopen --summary-uuid S --expected-version V
       gm review get --prompt-uuid U [--full | --max-rating N | --rating-range A:B]   (mutually exclusive)
-    BRIEFING (v21 agent-briefing machine: building → ready only; open on an existing (owner, step) RESETS — a step's briefing is always its CURRENT briefing; staleness computed at every read, warns never blocks)
-      gm briefing open (--prompt-uuid U | --session-uuid U) --step initial   (exactly one owner; --session-uuid alone = /gm_task-owned; pre_architecture is RETIRED — the care package replaced it)
-      gm briefing complete --briefing-uuid B --expected-version V [--dope-ref DOT.PATH]... [--kbite-ref FILE_UUID]... [--file-change-ref UUID]... [--agent-id I]   (opinion-free ref set since m0025 — no body; refs become child rows; daemon stamps the dope scope revision itself and denormalizes kbite briefs)
+    BRIEFING (the agent-briefing machine: building → ready only; open on an existing (owner, step) RESETS — a step's briefing is always its CURRENT briefing; staleness computed at every read, warns never blocks)
+      gm briefing open (--prompt-uuid U | --session-uuid U) --step initial   (exactly one owner; --session-uuid alone = /gm_task-owned)
+      gm briefing complete --briefing-uuid B --expected-version V [--dope-ref DOT.PATH]... [--kbite-ref FILE_UUID]... [--file-change-ref UUID]... [--agent-id I]   (an opinion-free ref set, no body; refs become child rows; daemon stamps the dope scope revision itself and denormalizes kbite briefs)
       gm briefing get (--briefing-uuid B | --prompt-uuid U [--step S] | [--session-uuid U] --step S) [--wait [--timeout-seconds N]]   (row + staleness: revision drift + ghost dot-paths. The zero-uuid form `gm briefing get --step S` is DETERMINISTIC: session from cwd, instance from process ancestry, own activation claim -> single session claim -> task row; real owner, no rows -> SUMMARY_ABSENT. --wait polls until status==ready and the output IS the briefing — the primary's post-doper-spawn gate; exit 1 on timeout = treat the doper as dead)
       gm briefing list (--prompt-uuid U | --session-uuid U)   (empty is normal)
       gm briefing stub [--agent-type T]   (the SubagentStart hook's one call: compact plain-text stub ≤2KB with the exact pull command; empty + exit 0 when nothing applies)
@@ -104,7 +105,7 @@ struct Cheatsheet: ParsableCommand {
       gm dope init --session-uuid U --code C --name N [--prompt-uuid U] [--description D] [--clone-from-session-base]   (idempotent; PROMPT-typed iff --prompt-uuid)
       gm dope list [--session-uuid U] [--prompt-uuid U]   (session defaults to the current repo/branch session; SESSION_INSTANCE scopes, or ONLY that prompt's PROMPT scopes with --prompt-uuid — never a union; empty list is normal, unknown uuid is NOT_FOUND)
       gm dope get (--session-uuid U [--prompt-uuid U] | --project-uuid U) [--code C] [--resolved]   (SESSION_INSTANCE_ITEM preferred, SESSION_INSTANCE fallback; --project-uuid reads the project ladder instead — PROJECT_ITEM preferred, then the promoted BASE_PROJECT scope, which is what lets a PROJECT-tier diagram render real cards instead of ghosts; --code disambiguates; --resolved merges a masking overlay over its same-coded base one tier up and reports provenance + masked-away paths)
-      gm dope search prompt|session|project "<query>" [--session-uuid U] [--prompt-uuid U] [--project-uuid U] [--only-masks] [--limit N]   (FTS5 over scope/persistence/entity/property/enum/option/cog/cog-element; hits carry the dot-path; --only-masks post-filters on resolver provenance, resolving each overlay ONCE rather than per hit)
+      gm dope search prompt|session|project "<query>" [--session-uuid U] [--prompt-uuid U] [--project-uuid U] [--only-masks] [--limit N]   (FTS5 over scope/persistence/entity/property/enum/option/cog/cog-element; hits carry the dot-path; --only-masks post-filters on resolver provenance)
       gm dope promote --session-uuid U [--code C] [--dry-run]   (SESSION_INSTANCE -> BASE_PROJECT; primary-branch sessions only, gated on a promoted_from_* high-water so it never ping-pongs between instances or re-fires on an unchanged tree; also runs automatically at boot behind the dope sync)
       gm dope scope-update --uuid U --expected-version V [--code C] [--name N] [--description D]
       gm dope persistence-add · gm dope entity-add · gm dope enum-add · gm dope option-add --parent-uuid U --code C --name N [--description D] [--sort-order N] (entity also: [--entity-type MODEL|JUNCTION|BASE_COMPOSABLE] [--base-composable-uuid U]; entity/enum also: [--repo-representative-file P])
@@ -118,8 +119,8 @@ struct Cheatsheet: ParsableCommand {
       gm dope sync [--session-uuid U]   (files -> db reconcile of the session's SESSION_INSTANCE scope from {instance_root}/.gmcc: seeds a virgin scope, re-adopts when files are ahead, WARNS ONLY when the db is ahead; runs automatically at boot via gm context ensure — run manually after a mid-session branch change)
       gm dope merge-plan --scope-uuid U   (per-element plan of db vs files, judged against the stored merge base in dope_element_provenance; READ-ONLY -- never ingests, never writes files, never blocks. Decisions: takeTheirs / keepOurs / conflict / keepOursLocalAddition / deletedHere)
       gm dope resolve --scope-uuid U --take ours|theirs [--path <dot.path>]   (settle conflicts; omit --path for all. 'theirs' clears the dirty flag so the file wins next sync; 'ours' re-bases onto the file's current hash so the local edit is kept. Either way the conflict is gone on the next plan)
-    DIAGRAM (db-persisted canvases over dope; diagram.revision = whole-tree counter; exactly ONE owner flag picks the tier PROJECT|SESSION|PROMPT — INSTANCE was removed by m0021; batch-apply is THE interactive write — the element verbs are one-mutation batches over the same body. element_type carries NO db CHECK since m0021: validity is DiagramElementTypeSpec, so a new type is one registry entry + one subtype table, never a migration)
-      gm diagram init (--project-uuid U | --session-uuid U | --prompt-uuid U) --code C --name N [--description D] [--gmcc-diagram-path P] [--dope-scope-code C]   (idempotent per owner+code; gmcc_diagram_path is legal at EVERY tier since m0021 — it names the directory under the owner's CKFS storage that rendered images land in; dope-scope-code binds the WHOLE canvas to one scope and is restricted on write to the masking tiers PROJECT_ITEM/SESSION_INSTANCE_ITEM — a Swift guard, since a SQLite CHECK cannot reference another table; it coexists with the per-element bindings)
+    DIAGRAM (db-persisted canvases over dope; diagram.revision = whole-tree counter; exactly ONE owner flag picks the tier PROJECT|SESSION|PROMPT; batch-apply is THE interactive write — the element verbs are one-mutation batches over the same body. element_type carries NO db CHECK: validity is DiagramElementTypeSpec, so a new type is one registry entry + one subtype table, never a migration)
+      gm diagram init (--project-uuid U | --session-uuid U | --prompt-uuid U) --code C --name N [--description D] [--gmcc-diagram-path P] [--dope-scope-code C]   (idempotent per owner+code; gmcc_diagram_path is legal at EVERY tier — it names the directory under the owner's CKFS storage that rendered images land in; dope-scope-code binds the WHOLE canvas to one scope and is restricted on write to the masking tiers PROJECT_ITEM/SESSION_INSTANCE_ITEM — a Swift guard, since a SQLite CHECK cannot reference another table; it coexists with the per-element bindings)
       gm diagram list (--project-uuid U | --session-uuid U | --prompt-uuid U) [--visibility PRIVATE|PUBLIC]   (that tier's rows only, never a union; empty is normal, unknown owner NOT_FOUND)
       gm diagram get (--diagram-uuid U | one owner flag: --project-uuid|--session-uuid|--prompt-uuid [--code C])   (tree + dope binding resolutions + the owner's ckfs storage path; no cross-tier fallback; pair with gm dope get for bound trees; real owner with none -> SUMMARY_ABSENT)
       gm diagram update --diagram-uuid U --expected-version V [--code C] [--name N] [--description D] [--gmcc-diagram-path P | --clear-gmcc-diagram-path] [--promote-tier T --promote-owner-uuid O] [--visibility PRIVATE|PUBLIC]   (promotion re-derives the owner chain, same project always; PUBLIC is SESSION-tier only — demote to PRIVATE before promoting away)
@@ -131,8 +132,8 @@ struct Cheatsheet: ParsableCommand {
       gm diagram element-update --uuid U --expected-version V [--code C] [--name N] [--description D] [--sort-order N] [--center-x X] [--center-y Y] [--element-z Z] [--scale S] [--parent-element-uuid P] [--content JSON | --content-file P]   (a present content REPLACES the subtype row + vertex set wholesale)
       gm diagram element-delete --uuid U --expected-version V   (subtree CASCADE; no referrer guards in this family)
       gm diagram batch-apply --diagram-uuid U (--mutations JSON | --mutations-file P) [--expected-revision N]   (one txn/revision/event; strict order; clientRef parenting; all-or-nothing; expected-revision = whole-diagram CAS)
-      gm diagram from-dope --session-uuid U [--prompt-uuid U] [--code C] [--diagram-code C] [--mutations-out P] [--dry-run]   (dope tree -> one atomic regenerate batch; geometry shared with the renderer; replaces the retired python generator)
-    RENDER (bot ingestion: a diagram as an image an agent can read. Replaces the retired gm diagram screenshot)
+      gm diagram from-dope --session-uuid U [--prompt-uuid U] [--code C] [--diagram-code C] [--mutations-out P] [--dry-run]   (dope tree -> one atomic regenerate batch; geometry shared with the renderer)
+    RENDER (bot ingestion: a diagram as an image an agent can read)
       gm render (--diagram-uuid U | one owner flag: --project-uuid|--session-uuid|--prompt-uuid [--code C]) [--scheme light|dark] [--scale N] [--force] [--artifact --artifact-prompt-uuid U]   (client-side headless render, never the daemon; writes ONE mutable file per code to {ckfs_root}/{owner ckfs path}/{gmcc_diagram_path or 'diagrams'}/screenshots/{code}.png and prints the path. Staleness is a FINGERPRINT sidecar beside the PNG, not a timestamp: diagram.revision alone cannot see a bound dope tree changing under the render, so the key is diagram revision + every bound scope revision + scheme + scale + render algo version. Fresh renders re-render nothing; --force overrides. Zero db writes unless --artifact)
     COGS (Coordination Of General Systems; cog rows live in a dope scope and share its revision, tombstone and tier rules. element_type is registry-governed in Swift and carries NO db CHECK, so a new type is one registry entry + one subtype table, never a migration)
       gm cog add --scope-uuid U --code C --name N [--description D] [--sort-order N]
@@ -149,7 +150,7 @@ struct Cheatsheet: ParsableCommand {
     ARTIFACT / FILE-CHANGE
       gm artifact add --prompt-uuid U --file-path P [--note N]
       gm artifact list --prompt-uuid U
-      gm file-change add --path P [--kind edit|create|delete|rename] [--range start:end]... [--content TEXT] [--prompt-uuid U] [--auto-attribute] [--agent-id I] [--agent-name A] [--origin hook|manual|reconcile]   (--content requires exactly one --range; --auto-attribute resolves attribution via the activation registry — this Claude instance's claim first, then the session's single claim, else unattributed — the PostToolUse hook's flag; workflow_phase is stamped daemon-side from the active workflow, never passed)
+      gm file-change add --path P [--kind edit|create|delete|rename] [--range start:end]... [--content TEXT] [--prompt-uuid U] [--auto-attribute] [--agent-id I] [--agent-name A] [--origin hook|manual|reconcile|turn]   (--content requires exactly one --range; --auto-attribute resolves attribution via the activation registry — this Claude instance's claim first, then the session's single claim, else unattributed — the PostToolUse hook's flag; workflow_phase is stamped daemon-side from the active workflow, never passed)
       gm file-change list [--session-uuid U] [--prompt-uuid U] [--path P] [--limit N] [--all]
     KBITE
       gm kbite list [--scope project|instance|session|prompt] [--owner-uuid U] [--all]
@@ -169,6 +170,7 @@ struct Cheatsheet: ParsableCommand {
       gm sandbox status   (generation, instance code, daemon liveness; a metaless sandbox is partial — re-run refresh)
     OTHER
       gm cheatsheet [--full]   (default: the compact core; --full: this complete sheet)
+      gm verbs [--writes-only]   (the verb registry as data: every daemon verb's gm invocation, its pen tool where one exists, and who may call it; --writes-only is the deny set — the verbs an agent must not reach through gm. The PreToolUse write guard generates its deny reason from this, so the guard can never drift from the roster)
     INVARIANTS
       - Thread --expected-version on every mutation; on VERSION_CONFLICT re-run the matching get, take .version, retry.
       - gm prompt set-status is the ONLY door that moves a prompt; clarify/arch/explore/review/briefing verbs touch their summary only (set-status implementing claims a prompt_activation row for the calling Claude instance; done releases the prompt's claim — per-instance, never a session-wide pointer).
@@ -187,18 +189,25 @@ struct Cheatsheet: ParsableCommand {
       - status table_counts are point-in-time totals, not an event cursor — replay events via gm events --since-id.
     """
 
-    /// The compact core — what SessionStart injects (two-tier diet: sessions
-    /// carry ~5KB instead of the full sheet; the full sheet is one command
-    /// away). One index line per family, the INVARIANTS block verbatim, and
-    /// the pen verbs agents actually drive spelled out. CheatsheetTests holds
-    /// a size budget on this so the diet cannot silently regress.
+    /// The compact core — what SessionStart and SubagentStart inject (two-tier
+    /// diet: a session carries this instead of the full sheet, which is one
+    /// command away). One index line per family, the INVARIANTS block verbatim,
+    /// and the agent's orientation block. CheatsheetTests holds a size budget on
+    /// this so the diet cannot silently regress: it is the per-spawn context
+    /// cost, paid by every agent in every booted repo.
     static let coreText: String = {
         let invariants = text.range(of: "INVARIANTS").map { String(text[$0.lowerBound...]) } ?? ""
-        // Pen-verb signatures are EXTRACTED from the full sheet, never
-        // hand-copied — a copy drifts silently because the flag-parity test
-        // only walks the full text (review finding cdba3693). A missing
-        // prefix surfaces loudly as the sentinel below and fails the parity
-        // assertion in CheatsheetTests.
+        // The block carries READ signatures ONLY, and that is the whole point:
+        // an agent records through the pen's MCP tools, and the PreToolUse
+        // guard refuses every `gm` write verb from a spawned agent. Listing a
+        // write signature here would hand every agent, in every booted repo,
+        // the exact invocation the door is built to refuse — so the block is
+        // held to reads by `testAgentBlockNamesNoGmWriteVerb`.
+        //
+        // Signatures are EXTRACTED from the full sheet, never hand-copied — a
+        // copy drifts silently, because the flag-parity test only walks the
+        // full text. A missing prefix surfaces loudly as the sentinel below
+        // and fails the parity assertion in CheatsheetTests.
         func fullLine(_ prefix: String) -> String {
             for raw in text.split(separator: "\n") {
                 let line = raw.trimmingCharacters(in: .whitespaces)
@@ -206,27 +215,19 @@ struct Cheatsheet: ParsableCommand {
             }
             return "MISSING FULL-SHEET LINE: \(prefix)"
         }
-        let penVerbs = [
+        let readVerbs = [
             "gm bot next",
-            "gm bot summary",
-            "gm explore finding-add",
-            "gm review finding-add",
-            "gm clarify question-add",
-            "gm clarify note-add",
-            "gm arch option-add",
-            "gm briefing complete",
             "gm dope search",
             "gm kbite search",
             "gm kbite file-get",
-            "gm file-change add",
         ].map { "  " + fullLine($0) }.joined(separator: "\n")
         return """
         GM CHEATSHEET CORE (wire v\(GMCCWireProtocol.version)) — family index + invariants. FULL signatures: gm cheatsheet --full. Every command accepts --json.
-        FAMILIES (one line each; run gm cheatsheet --full for exact signatures)
+        FAMILIES (one index line each)
           CORE — setup · doctor · status · ping · daemon · backup · events · paths · config
           CONTEXT/BROWSE/SEARCH — context ensure/env/get · project list/update · instance list/current-session · session list/get/update/resolve · catalog search · search
           PROMPT — create · list [--with-reports] · get · update-content · set-status (the ONLY door that moves a prompt) · start · resume (the workflow machine doors)
-          BOT — next · get · status · current_prompt · briefing · summary · reconcile (phase derived from db evidence)
+          BOT — next · get · status · current_prompt · briefing · summary · reconcile · sweep (phase derived from db evidence)
           CLARIFY — open · question-add · note-add · seal · answer · reopen · finalize · get · package-open/add/complete/get
           ARCH — open · summarize · persist-add · field-add · general-add · option-add · decide · propose · approve · revise · get (persistence rows first, always)
           EXPLORE — open (per agent-type) · key-file-add · finding-add · rank (prompt-scoped) · complete (synthesis row = the seal) · reopen · get
@@ -236,11 +237,11 @@ struct Cheatsheet: ParsableCommand {
           DIAGRAM — init · list · get · update · element-add/update/delete · batch-apply · from-dope   RENDER — gm render
           COGS — add · update · delete · get · element-add/update/delete   PROMPT-DIAGRAM — qualify · get · list
           ARTIFACT — add · list   FILE-CHANGE — add · list   KBITE — list · add · remove · maw-open · digest · get · file-get · search · keyword-tag · export · import · delete
-          SANDBOX — refresh · status   OTHER — cheatsheet [--full]
-        AGENT PEN VERBS (exact signatures, extracted verbatim from the full sheet — what spawned agents drive)
+          SANDBOX — refresh · status   OTHER — cheatsheet [--full] · verbs
+        AGENT PEN — spawned agents record ONLY through the gmcc pen MCP tools (mcp__plugin_gmcc_pen__*, already in your tool list; `gm verbs` prints the gm→pen map). Every gm WRITE verb is refused at PreToolUse, so never reach for one from Bash. The gm READS below are safe, and are the only gm lines this sheet hands you (extracted verbatim from the full sheet).
           gm briefing get --step initial   (zero-uuid deterministic form: session from cwd, instance from process ancestry; uuid/prompt selectors also exist)
-        \(penVerbs)
-          (self-rate findings 0=critical … 999=ignore, read threshold 100; NEVER call rank/complete/reopen — those are the primary's)
+        \(readVerbs)
+          (self-rate findings 0=critical … 999=ignore, read threshold 100; complete YOUR OWN summary — that seal is yours; NEVER call rank or reopen — those are the primary's)
         \(invariants)
         """
     }()

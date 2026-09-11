@@ -44,12 +44,15 @@ gm bot next
 ## Variant contract (bot)
 
 - Haiku doper briefing, then YOU run exploration in context: open your
-  `general` summary (`gm explore open --agent-type general`), pen the
-  finding rows yourself, complete it, rank prompt-wide on your own
-  self-ratings (no reranker), open + complete the `synthesis` summary.
-- Clarification: author questions/notes yourself, seal, run the user
-  conversation (AskUserQuestion mirroring the option rows), answer rows,
-  finalize. NO care package — the clarified picture stays in your context.
+  `general` summary (`mcp__plugin_gmcc_pen__bot_summary --agent-type
+  general`), pen the finding rows yourself, complete it. The pen is loaded
+  for you too — `.mcp.json` sets `alwaysLoad`, so running the phase in the
+  primary's own context is no reason to reach for the CLI.
+- Clarification: you run the merged clarifier pass in context — rank
+  prompt-wide from your own self-ratings, open + complete the `synthesis`
+  summary, author the questions/notes, seal, run the user conversation
+  (AskUserQuestion mirroring the option rows), answer rows, finalize. NO
+  care package — the clarified picture stays in your context.
 - Architecture: design in context; persistence rows first (change kinds +
   dope refs); propose → user sign-off with the full persistence delta
   table → approve → set-status implementing.

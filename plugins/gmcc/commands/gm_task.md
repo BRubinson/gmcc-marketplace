@@ -19,8 +19,9 @@ The contract that distinguishes this command from `/gm_bot`:
 > No prompt row, no clarify/arch/explore/review summaries, no artifact
 > registrations. Editing the user's *repository* files is the task and is
 > expected — and those Edit/Write changes are auto-recorded by the plugin's
-> PostToolUse hook (`gm file-change add --auto-attribute`; unattributed when
-> no prompt is active). That hook bookkeeping is harness plumbing, not you
+> PostToolUse hook, whose own invocation is not an agent write path:
+> `gm file-change add --auto-attribute` (unattributed when no prompt is
+> active). That hook bookkeeping is harness plumbing, not you
 > reaching for gm mutations. The two sanctioned exceptions: the optional
 > doper briefing below, and an explicitly requested retroactive write-back
 > (final section).
@@ -113,8 +114,11 @@ Read / Edit / Write / Grep / Glob / Bash (and Task for subagents if a search
 genuinely warrants it).
 
 - Edit the user's repository files freely — that is the work. The
-  PostToolUse hook records those changes automatically; do not add manual
-  `gm file-change add` bookkeeping on top of it.
+  PostToolUse hook records those changes automatically. `/gm_task` has no
+  workflow row and spawns no pen-bearer, so the CLI named here is the
+  primary's own, not an agent write path — and here it is forbidden
+  anyway: do not add manual `gm file-change add` bookkeeping on top of
+  the hook.
 - **Do not** author gm entities (no prompt rows, no report summaries, no
   artifact registrations, nothing under `$GMCC_CKFS_ROOT`).
 - If the task balloons in scope and would benefit from the full clarify → plan →
@@ -138,9 +142,12 @@ Two write targets are supported.
 ### A. Record / attribute changed files
 
 Edit/Write-driven changes were already recorded automatically (unattributed).
+What follows is the primary's or the human's hand on the CLI and is
+not an agent write path — `/gm_task` spawns nothing that holds a pen.
 Manual `gm file-change add` is needed only for:
 
-- files changed through Bash (scripts, generators, `git mv`):
+- files changed through Bash (scripts, generators, `git mv`).
+  Again: not an agent write path.
   ```bash
   gm file-change add --path <repo-relative path> \
     --kind edit|create|delete|rename [--range start:end]... \

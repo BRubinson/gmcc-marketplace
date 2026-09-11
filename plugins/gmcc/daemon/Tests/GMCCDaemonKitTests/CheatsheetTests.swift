@@ -1,4 +1,5 @@
 import ArgumentParser
+import GMCCDaemonKit
 import XCTest
 
 @testable import gm
@@ -102,22 +103,29 @@ final class CheatsheetTests: XCTestCase {
         }
     }
 
+    /// The AGENT PEN block of the compact core, as trimmed lines. This is the
+    /// highest-traffic surface in the machine: SessionStart and every
+    /// SubagentStart inject it, in every booted repo.
+    private func agentBlockLines() throws -> [String] {
+        guard let blockStart = Cheatsheet.coreText.range(of: "AGENT PEN"),
+              let blockEnd = Cheatsheet.coreText.range(of: "INVARIANTS") else {
+            throw XCTSkip("core lost its AGENT PEN / INVARIANTS structure")
+        }
+        return Cheatsheet.coreText[blockStart.upperBound..<blockEnd.lowerBound]
+            .split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+    }
+
     /// Core/full parity: every `gm ...` signature line in the core's
-    /// AGENT PEN VERBS block must exist VERBATIM in the full sheet — the
-    /// block is extracted, not copied, and this is the guard that keeps it
-    /// that way (a failed extraction leaves a loud MISSING sentinel).
+    /// AGENT PEN block must exist VERBATIM in the full sheet — the block is
+    /// extracted, not copied, and this is the guard that keeps it that way
+    /// (a failed extraction leaves a loud MISSING sentinel).
     func testPenVerbBlockIsExtractedNotCopied() throws {
         XCTAssertFalse(
             Cheatsheet.coreText.contains("MISSING FULL-SHEET LINE"),
-            "a pen-verb prefix no longer matches any full-sheet line")
-        guard let blockStart = Cheatsheet.coreText.range(of: "AGENT PEN VERBS"),
-              let blockEnd = Cheatsheet.coreText.range(of: "INVARIANTS") else {
-            return XCTFail("core lost its AGENT PEN VERBS / INVARIANTS structure")
-        }
-        let block = Cheatsheet.coreText[blockStart.upperBound..<blockEnd.lowerBound]
+            "a core signature prefix no longer matches any full-sheet line")
         var checked = 0
-        for raw in block.split(separator: "\n") {
-            let line = raw.trimmingCharacters(in: .whitespaces)
+        for line in try agentBlockLines() {
             guard line.hasPrefix("gm ") else { continue }
             // The zero-uuid briefing-get line is the one deliberate
             // core-specific phrasing (the full sheet documents all selectors).
@@ -125,9 +133,34 @@ final class CheatsheetTests: XCTestCase {
             checked += 1
             XCTAssertTrue(
                 Cheatsheet.text.contains(line),
-                "core pen-verb line drifted from the full sheet:\n  \(line)")
+                "core signature line drifted from the full sheet:\n  \(line)")
         }
-        XCTAssertGreaterThan(checked, 5, "pen-verb block walk looks broken")
+        XCTAssertGreaterThan(checked, 3, "agent-block walk looks broken")
+    }
+
+    /// The door and the sheet must agree. The AGENT PEN block tells every
+    /// spawned agent to record through the pen; a `gm` WRITE signature printed
+    /// underneath that sentence teaches the one invocation the PreToolUse
+    /// guard is built to refuse. VerbRegistry is the single source for which
+    /// invocations those are (aliases included — `gm bot summary` IS a write),
+    /// so this cannot drift as the roster grows.
+    func testAgentBlockNamesNoGmWriteVerb() throws {
+        var writeInvocations: [String] = []
+        for spec in VerbRegistry.all {
+            switch spec.role {
+            case .primaryDoor, .record: writeInvocations += spec.gmInvocations
+            case .read: continue
+            }
+        }
+        XCTAssertGreaterThan(writeInvocations.count, 20, "registry walk looks broken")
+        for line in try agentBlockLines() {
+            for invocation in writeInvocations {
+                XCTAssertFalse(
+                    line.hasPrefix(invocation),
+                    "the AGENT PEN block hands agents `\(invocation)`, a gm write the guard refuses — "
+                        + "name the pen tool instead:\n  \(line)")
+            }
+        }
     }
 
     /// Long flag names a command accepts, read out of ArgumentParser's own

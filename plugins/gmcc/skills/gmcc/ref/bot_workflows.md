@@ -60,18 +60,23 @@ copy is retired. The clarified intent lives on the CARE PACKAGE.
    get; still building → re-open + re-spawn once; then proceed briefing-less
    with an explicit note. The old second briefing step is RETIRED — the
    care package replaced it.
-2. **explore** — per-agent summaries: `gm explore open --agent-type T` per
-   expected agent (bot/rpi: general; team: the four methodologies). Agents
-   hold the pen (finding/key-file rows + their OWN complete with their own
-   overview). Then ONE prompt-scoped rank (`gm explore rank --prompt-uuid`;
-   team delegates to `gmcc:finding-reranker`), and the primary opens +
-   completes the `synthesis` summary — that completion IS the prompt-level
-   seal and refuses while anything is unranked.
-3. **clarify_open** — `gm prompt set-status --status clarifying` (locks
-   content, creates the summary). Questions (`gm clarify question-add`, with
-   ordered `--option` rows) and internal notes (`gm clarify note-add`,
-   weight 0-999, 0 = critical) — team flows spawn `gmcc:ques` to pen the
-   suite. `gm clarify seal` when authored.
+2. **explore** — one summary per expected agent (bot/rpi: general; team: the
+   four methodologies), each agent opening its OWN row through the pen
+   (`bot_summary`) and sealing it with `explore_complete`. Findings and key
+   files are the agents'; findings stay UNRANKED here — calibration is
+   cross-agent and belongs to one reader. When every expected row is
+   complete: `gm prompt set-status --status clarifying` (the primary's door;
+   it locks content and creates the clarification summary), then the merged
+   `gmcc:clarifier` pass.
+3. **clarify_open** — the merged clarifier pass, one reader and one
+   sequence, all pen: `explore_get` the whole record, ONE atomic prompt-wide
+   `explore_rank`, then `bot_summary` with agent_type `synthesis` (the
+   clarifier OPENS that row itself) and `explore_complete` to seal it — that
+   seal is the prompt-level one, it refuses while anything is unranked, and
+   it is what moves the machine into this phase. The same pass authors the
+   suite: `clarify_question_add` (ordered options) and `clarify_note_add`
+   (weight 0-999, 0 = critical). The primary seals it with
+   `gm clarify seal`. In the bot variant the primary runs the pass itself.
 4. **clarify_user** — the PRIMARY asks (AskUserQuestion mirroring the option
    rows), records with `gm clarify answer --question-uuid (--select
    OPTION_UUID)... [--answer text] [--skip]`. At most 2 generative
@@ -83,9 +88,10 @@ copy is retired. The clarified intent lives on the CARE PACKAGE.
    clarified). The intent lives ONLY here. Then `gm clarify finalize` (a
    pure gate) and `gm prompt set-status --status architecting`.
 6. **arch_options** (team) — architects hold the OPTION pen: each writes
-   its proposal via `gm arch option-add`. Once any option exists, change
-   rows refuse until `gm arch decide` selects one (rejecting siblings,
-   recording the rationale).
+   its proposal via `mcp__plugin_gmcc_pen__arch_option_add`. Once any
+   option exists, change rows refuse until `gm arch decide` selects one
+   (rejecting siblings, recording the rationale) — decide is a gate verb
+   with no pen tool, the primary's door, not an agent write path.
 7. **architecture** — ONLY the selected option (or the solo design) expands
    into rows: persistence FIRST (`persist-add --change-kind
    add|modify|rename|delete --dope-ref <entity code>`; `field-add` with
@@ -101,8 +107,8 @@ copy is retired. The clarified intent lives on the CARE PACKAGE.
    script code never touches gm; agents inside the workflow hold the pen.
    `gm arch get` audits progress.
 10. **review** — `set-status reviewing`, `gm review open`, reviewer agents
-    pen finding rows, reranker calibrates, primary completes with the
-    verdict.
+    pen finding rows, the primary calibrates at its own door
+    (`gm review rank`) and completes with the verdict.
 11. **review_fix** — clarify fix intent with the user; `gm review resolve`
     per finding under 100 (works after complete by design).
 12. **done** — `set-status done` (releases the activation claim, closes the
@@ -111,12 +117,22 @@ copy is retired. The clarified intent lives on the CARE PACKAGE.
 ## Who holds the pen
 
 Spawned agents write their own rows via the **MCP pen tools**
-(`mcp__plugin_gmcc_pen__*` — the plugin's `pen` server; primary-only verbs
-are physically absent from that surface) with `gm` Bash fallbacks. The
-primary keeps: the synthesis seal, rank delegation, clarify conversation +
-finalize, arch decide/propose/approve, review complete/verdict, resolve.
-`gmcc:code-architect` pens OPTION rows in team flows (the m0025 inversion);
-its solo proposals stay chat-ephemeral.
+(`mcp__plugin_gmcc_pen__*` — the plugin's `pen` server). That is the ONLY
+write channel an agent has: there are no `gm` fallbacks, and an agent's
+Bash is for reading the repo. The rule is enforced at the door — the daemon
+refuses a gate verb by caller role, not by which tool reached for it.
+
+Four verbs are PRIMARY DOORS and belong to the primary alone:
+`gm review rank`, `gm arch decide`, `gm prompt set-status`,
+`gm clarify package-complete`. Alongside them the primary keeps the clarify
+conversation + finalize, arch propose/approve, review complete/verdict and
+resolve, and the phase-opening verbs (`gm briefing open`, `gm review open`,
+`gm clarify package-open`) that have no pen tool by design.
+
+Everything else is the agents'. `gmcc:clarifier` owns the exploration rank
+AND the synthesis seal — it opens the synthesis row itself and any agent
+may seal synthesis once everything is ranked. `gmcc:code-architect` pens
+OPTION rows in team flows; its solo proposals stay chat-ephemeral.
 
 **finding_rating (0-999)**: 0 = critical, 999 = tombstone; read threshold
 100. Re-runs supersede by re-ranking, never deletion. Notes reuse the same

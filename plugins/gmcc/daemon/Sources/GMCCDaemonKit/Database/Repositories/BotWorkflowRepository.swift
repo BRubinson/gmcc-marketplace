@@ -143,7 +143,8 @@ struct BotWorkflowRepository: RepositoryContext {
             throw StoreError.corruptState(
                 entity: "bot_workflow", detail: "variant '\(workflow.variant)'")
         }
-        let (current, blockers) = try derivePhase(workflow: workflow, variant: variant)
+        let (current, blockers) = try derivePhase(
+            workflow: workflow, variant: variant, includeAdvisory: true)
         if workflow.lastServedPhase != current.rawValue {
             try core.updateBase(
                 db, table: "bot_workflow", uuid: workflow.uuid,
@@ -179,8 +180,15 @@ struct BotWorkflowRepository: RepositoryContext {
     /// synthesis-only exploration rows fail the per-agent gate even though
     /// architecture/implementation evidence exists). Blockers reported are
     /// the NEXT phase's unmet gate.
+    ///
+    /// `includeAdvisory` adds WorkflowGates' decision-7 advisories to the
+    /// REPORTED blockers. It defaults OFF because this function is also on
+    /// `FileChangeRepository.add`'s hot path — one sweep writes N rows and
+    /// would otherwise pay the advisory SQL N times for a phase string it
+    /// then throws the blockers away from. BOT_NEXT, the one caller that
+    /// actually renders blockers, opts in.
     func derivePhase(
-        workflow: BotWorkflowRow, variant: BotVariant
+        workflow: BotWorkflowRow, variant: BotVariant, includeAdvisory: Bool = false
     ) throws -> (WorkflowSpec.Phase, [String]) {
         let phases = WorkflowSpec.phases(for: variant)
         var current = phases[0]
@@ -196,13 +204,61 @@ struct BotWorkflowRepository: RepositoryContext {
             blockers = try entryBlockers(
                 phase: phases[index + 1], workflow: workflow, variant: variant)
         }
+        if includeAdvisory {
+            blockers += try advisoryBlockers(current: current, promptUuid: workflow.promptUuid)
+        }
         return (current, blockers)
     }
 
+    /// Decision 7's phase-EXIT contracts (WorkflowGates), reported and never
+    /// enforced. Appended to the reporting half of derivePhase AFTER `current`
+    /// is fixed — `entryBlockers` is deliberately untouched, because a new
+    /// entry blocker on `.done` would make an already-done prompt with open
+    /// sub-100 findings derive backwards to `.reviewFix` across ~116
+    /// historical prompts. Read WorkflowGates' header before moving these.
+    ///
+    /// Evaluated only for the two phases whose exit they describe, and STATUS
+    /// SCOPED on top of that: review's contract only while the prompt is
+    /// actually implementing, done's only while the prompt is not already
+    /// done. That scoping suppresses false advisories on closed and
+    /// historical prompts; it is not what makes derivation safe.
+    private func advisoryBlockers(
+        current: WorkflowSpec.Phase, promptUuid: String
+    ) throws -> [String] {
+        guard current == .implement || current == .reviewFix else { return [] }
+        let status = try promptStatus(promptUuid: promptUuid)
+        let unmet: [String]
+        switch current {
+        case .implement where status == "implementing":
+            unmet = try WorkflowGates.implementExitUnmet(db, promptUuid: promptUuid)
+        case .reviewFix where status != "done":
+            unmet = try WorkflowGates.reviewFixExitUnmet(db, promptUuid: promptUuid)
+        default:
+            unmet = []
+        }
+        return unmet.map { "advisory: \($0)" }
+    }
+
     /// Advance the reconcile baseline tree (client-computed git snapshot).
+    ///
+    /// `expectedGitTree` makes the advance a COMPARE-AND-SWAP: the caller
+    /// names the tree it actually diffed from, and the write is refused when
+    /// the stored cursor has moved since. Read and write happen inside the
+    /// caller's single transaction, so the check cannot be raced. Two
+    /// concurrent SubagentStop sweeps otherwise interleave — the slower one
+    /// advances the cursor past work the faster one has not swept, and those
+    /// changes are invisible to every later sweep. The optimistic
+    /// `expectedVersion` below is NOT this guard: the row's version moves for
+    /// unrelated workflow updates too.
     func setBaseline(_ req: BotSetBaselineRequest) throws -> BotWorkflowResponse {
         let workflow = try resolve(
             promptUuid: req.promptUuid, clientKey: req.clientKey, sessionUuid: req.sessionUuid)
+        if let expected = req.expectedGitTree, workflow.reconcileGitHead != expected {
+            throw StoreError.badRequest(
+                detail: "reconcile baseline moved: expected '\(expected)', found "
+                    + "'\(workflow.reconcileGitHead ?? "<unset>")' — a concurrent sweep "
+                    + "advanced it; this sweep's rows are recorded, the advance is not")
+        }
         try core.updateBase(
             db, table: "bot_workflow", uuid: workflow.uuid,
             expectedVersion: workflow.version,

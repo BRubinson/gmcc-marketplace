@@ -18,6 +18,13 @@ enum BriefingOpenHandler {
 enum BriefingCompleteHandler {
     static func handle(line: Data, head: EnvelopeHead, store: Store) throws -> HandlerResult {
         let request = try decodePayload(BriefingCompleteRequest.self, from: line)
+        // The role-keyed completeness rule runs HERE and only here: this is
+        // the one layer that holds both the decoded payload and the caller's
+        // role. The dispatch guard sees the role but not the payload (it acts
+        // before handlers, MessageType-granular); the repository sees the
+        // payload but not the role. An agent that omits a ref class entirely
+        // is refused before anything is written.
+        try BriefingCompletenessRule.check(request, callerRole: head.callerRole)
         return try okResult(.briefingComplete, head, try store.briefingComplete(request))
     }
 }

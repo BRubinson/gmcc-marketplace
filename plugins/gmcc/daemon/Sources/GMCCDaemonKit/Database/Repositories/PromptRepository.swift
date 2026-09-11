@@ -198,7 +198,23 @@ struct PromptRepository: RepositoryContext {
                 promptUuid: req.promptUuid,
                 expected: ArchitectureStatus.approved.rawValue)
         default:
-            break // implementing → {reviewing, done}, reviewing → done: ungated
+            // implementing → {reviewing, done} and reviewing → done stay
+            // UNGATED (decision 7, advisory for one release). Their exit
+            // contracts DO exist now — WorkflowGates.implementExitUnmet and
+            // WorkflowGates.reviewFixExitUnmet — but they are only REPORTED,
+            // through the blockers BOT_NEXT already prints, prefixed
+            // `advisory: `. Refusing here today would block prompts that are
+            // mid-flight against a capture path still being repaired.
+            //
+            // Promotion condition, both halves required: the advisories run
+            // clean on real prompts, AND per-agent file-change attribution
+            // has been watched across at least one parallel fan-out run
+            // (N agents race one baseline cursor; prompt-level attribution
+            // and change kinds are exact, agent_id is best-effort). Promote
+            // by calling the two predicates from cases added here — not by
+            // moving them into BotWorkflowRepository.entryBlockers, which
+            // would derive already-done prompts backwards.
+            break
         }
         try core.updateBase(
             db, table: "prompt", uuid: req.promptUuid,

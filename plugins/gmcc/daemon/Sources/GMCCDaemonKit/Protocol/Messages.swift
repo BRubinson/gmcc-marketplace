@@ -1087,6 +1087,36 @@ public struct ChangeRange: Codable, Hashable, Sendable {
 /// ensure chain can run lazily — deliberately NOT slimmed to uuid addressing
 /// this prompt (no call-order coupling for gm; revisit when the yamls and
 /// their context source go away in prompt 2).
+/// The `file_change.origin` vocabulary — ONE declaration, four consumers:
+/// the server-side guard in FileChangeRepository.add, the gm writers that
+/// stamp it, this message's documentation, and the
+/// `agentics.enums.file_change_origin` dope entity that mirrors it.
+///
+/// The column is `TEXT NOT NULL DEFAULT 'hook'` with NO CHECK constraint
+/// (m0025), so THIS LIST IS THE CONSTRAINT: extending the dope enum without
+/// extending this list makes every write of the new value throw, and a
+/// caller that swallows errors records nothing at all. Extend both together.
+public enum FileChangeOrigin {
+    /// PostToolUse Edit|Write|NotebookEdit bookkeeping — immediate and
+    /// agent-attributed, but blind to Bash-driven writes.
+    public static let hook = "hook"
+    /// Recorded by hand through `gm file-change add`.
+    public static let manual = "manual"
+    /// `gm bot reconcile` — the operator-facing gate-boundary completeness
+    /// sweep against the workflow's baseline tree.
+    public static let reconcile = "reconcile"
+    /// `gm bot sweep` — the same engine on the per-turn Stop/SubagentStop
+    /// hook, so the delta lands every turn instead of only at phase gates.
+    public static let turn = "turn"
+
+    /// The accepted set, in documentation order. The guard's error detail is
+    /// generated from this — never hand-written.
+    public static let all: [String] = [hook, manual, reconcile, turn]
+
+    /// `hook|manual|reconcile|turn` — for help text and error details.
+    public static var vocabulary: String { all.joined(separator: "|") }
+}
+
 public struct FileChangeAdd: Codable, Hashable, Sendable {
     public let project: ProjectContext
     public let instance: InstanceContext
@@ -1106,7 +1136,7 @@ public struct FileChangeAdd: Codable, Hashable, Sendable {
     public let clientKey: String?
     /// m0025 attribution axis — all OPTIONAL/additive. agent identity is
     /// self-reported (ClientKey cannot distinguish sibling subagents);
-    /// origin is hook|manual|reconcile (nil → hook default in the db);
+    /// origin is one of `FileChangeOrigin.all` (nil → hook, the db default);
     /// workflow_phase is NEVER taken from the caller — the daemon stamps it
     /// from the attributed prompt's active bot_workflow.
     public let agentId: String?
@@ -2418,17 +2448,27 @@ public struct BotSetBaselineRequest: Codable, Hashable, Sendable {
     public let clientKey: String?
     public let sessionUuid: String?
     public let gitTree: String
+    /// COMPARE-AND-SWAP guard for the per-turn sweep. When non-nil the
+    /// advance applies ONLY if the stored reconcile_git_head still equals
+    /// this value — the tree the caller actually diffed from — so two
+    /// concurrent SubagentStop sweeps cannot advance the cursor past another
+    /// agent's in-flight work. nil = unconditional advance, byte-for-byte
+    /// today's behaviour (gm prompt start/resume, gm bot reconcile).
+    /// Additive OPTIONAL field on an existing message: no wire bump.
+    public let expectedGitTree: String?
 
     public init(
         promptUuid: String? = nil,
         clientKey: String? = nil,
         sessionUuid: String? = nil,
-        gitTree: String
+        gitTree: String,
+        expectedGitTree: String? = nil
     ) {
         self.promptUuid = promptUuid
         self.clientKey = clientKey
         self.sessionUuid = sessionUuid
         self.gitTree = gitTree
+        self.expectedGitTree = expectedGitTree
     }
 }
 
@@ -2981,10 +3021,21 @@ public struct BriefingOpenRequest: Codable, Hashable, Sendable {
 public struct BriefingRowResponse: Codable, Hashable, Sendable {
     public let briefing: AgentBriefingRow
     public let created: Bool
+    /// Well-formed dope dot-paths the briefing asked for that resolve to
+    /// NOTHING in the dope tree. Reported back in the tool result so a doper
+    /// sees its own unresolvable refs instead of discovering them as silence.
+    /// Additive OPTIONAL field (nil = this build did not compute it), so it
+    /// decodes safely in both directions — no wire bump.
+    public let unresolvedDopeRefs: [String]?
 
-    public init(briefing: AgentBriefingRow, created: Bool = false) {
+    public init(
+        briefing: AgentBriefingRow,
+        created: Bool = false,
+        unresolvedDopeRefs: [String]? = nil
+    ) {
         self.briefing = briefing
         self.created = created
+        self.unresolvedDopeRefs = unresolvedDopeRefs
     }
 }
 

@@ -12,6 +12,15 @@ import XCTest
 /// cheatsheet and the CLI `--help` abstracts, which a docs-only walk cannot
 /// see even though they reach every session.
 ///
+/// The last section is not about prose at all: it is the HOOK/LAUNCHER
+/// CONTRACT. `hooks.json`, `settings.json` and `.mcp.json` are the only files
+/// in this plugin whose blast radius is every turn of every session in every
+/// booted repo — a malformed entry there wedges turns that have nothing to do
+/// with GMCC — and until these tests existed the entire mitigation was a human
+/// remembering to validate the JSON before committing. Nothing here needs a
+/// daemon, a db or a network: it parses three files, stats the paths they
+/// name, and runs `bash -n`.
+///
 /// Allowlists are deliberate and commented — keep them SHORT; every entry
 /// names why it is exempt.
 final class DocsContractTests: XCTestCase {
@@ -56,6 +65,22 @@ final class DocsContractTests: XCTestCase {
             if url.pathExtension == "swift" { out.append(url) }
         }
         XCTAssertGreaterThan(out.count, 20, "source tree walk looks broken: \(root.path)")
+        return out
+    }
+
+    /// plugins/gmcc/agents — the agent definitions. `docFiles()` deliberately
+    /// does not walk them (they are frontmatter + identity, not reference
+    /// prose), but a retired agent NAME lives here first and reaches every
+    /// spawn, so the retired-agent sweep below reads them too.
+    private func agentFiles() throws -> [URL] {
+        let fm = FileManager.default
+        let root = pluginRoot.appendingPathComponent("agents", isDirectory: true)
+        var out: [URL] = []
+        let enumerator = fm.enumerator(at: root, includingPropertiesForKeys: nil)
+        while let url = enumerator?.nextObject() as? URL {
+            if url.pathExtension == "md" { out.append(url) }
+        }
+        XCTAssertGreaterThan(out.count, 3, "agent tree walk looks broken: \(root.path)")
         return out
     }
 
@@ -281,5 +306,295 @@ final class DocsContractTests: XCTestCase {
             pattern: #"(gmcc_agent_(code_explorer|code_architect|code_quality_reviewer|finding_reranker)\.prompt\.md|output-styles/|skills/gmcc_agent\b|gmcc:agent:\{)"#,
             allowFiles: [])
         XCTAssertEqual(hits, [], "retired agent identity surface referenced in docs:\n" + hits.joined(separator: "\n"))
+    }
+
+    /// Two agents were retired by the clarifier merge: `finding-reranker`
+    /// (its rank pass folded into the clarifier's single reader) and `ques`
+    /// (renamed to `clarifier`, and the proper-name/persona framing dropped —
+    /// SKILL.md establishes exactly one persona, the GMB). A doc or a def
+    /// naming either hands the primary a `Task` subagent_type that does not
+    /// resolve, which fails the phase rather than degrading it.
+    ///
+    /// Walks the doc tree, the agent defs AND `daemon/Sources`: the retired
+    /// names reached callers through CLI `--help` abstracts and the compiled
+    /// instruction blocks as much as through markdown.
+    ///
+    /// `The Ques` / `the-ques` are bounded so `The Question` and
+    /// `--clone-from-the-quest…`-shaped words cannot false-positive, and
+    /// `gmcc:ques` is bounded so `gmcc:clarifier` reads clean.
+    func testNoRetiredClarifierAgentNames() throws {
+        let pattern = #"finding-reranker|gmcc:ques\b|\bThe Ques\b|\bthe-ques\b"#
+        var hits = try violations(pattern: pattern, allowFiles: [])
+        hits += try violations(in: try agentFiles(), pattern: pattern, allowFiles: [])
+        hits += try violations(in: try swiftFiles(), pattern: pattern, allowFiles: [])
+        XCTAssertEqual(
+            hits, [],
+            "retired clarifier-merge agent name referenced:\n" + hits.joined(separator: "\n"))
+    }
+
+    // MARK: - Hook / launcher contract
+    //
+    // WHY THIS LIVES IN A TEST AND NOT IN A CHECKLIST. Every other surface in
+    // this plugin fails loudly and locally: a bad skill is a bad answer, a bad
+    // verb is an error return. A bad `hooks.json` entry is different in kind —
+    // the harness runs it on a turn boundary in EVERY session, GMCC's or not,
+    // so a syntax error or a renamed script is a global stall with no obvious
+    // culprit. That is precisely the shape of risk the CheatsheetTests /
+    // VerbRegistryTests precedent exists for, and it is the one place it had
+    // not been applied.
+    //
+    // These assert SHAPE, never a fixed roster of hook events. Which events
+    // the plugin subscribes to is a live design question; that every command
+    // it declares resolves to a real, executable, syntactically valid script
+    // is not.
+
+    private var scriptsDir: URL {
+        pluginRoot.appendingPathComponent("scripts", isDirectory: true)
+    }
+
+    /// Every `*.sh` the plugin ships.
+    private func shellScripts() throws -> [URL] {
+        let fm = FileManager.default
+        let contents = try fm.contentsOfDirectory(
+            at: scriptsDir, includingPropertiesForKeys: nil)
+        let out = contents.filter { $0.pathExtension == "sh" }.sorted { $0.path < $1.path }
+        XCTAssertGreaterThan(out.count, 4, "scripts walk looks broken: \(scriptsDir.path)")
+        return out
+    }
+
+    /// Parse one plugin-root-relative JSON file into a dictionary. Returns nil
+    /// when the file is absent; FAILS when it is present and unparseable —
+    /// "present but malformed" is the wedge this whole section is about.
+    private func jsonObject(_ relativePath: String) -> [String: Any]? {
+        let url = pluginRoot.appendingPathComponent(relativePath)
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        guard let data = try? Data(contentsOf: url) else {
+            XCTFail("\(relativePath) is unreadable")
+            return nil
+        }
+        let parsed = try? JSONSerialization.jsonObject(with: data)
+        guard let object = parsed as? [String: Any] else {
+            XCTFail("\(relativePath) is not a JSON object — the harness will refuse to load it")
+            return nil
+        }
+        return object
+    }
+
+    /// `bash -n` one script. nil = clean (or no bash to test with, on a host
+    /// that has none — the test degrades rather than lying).
+    private func bashSyntaxError(_ url: URL) -> String? {
+        let bash = "/bin/bash"
+        guard FileManager.default.isExecutableFile(atPath: bash) else { return nil }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: bash)
+        process.arguments = ["-n", url.path]
+        let errPipe = Pipe()
+        process.standardError = errPipe
+        process.standardOutput = Pipe()
+        do { try process.run() } catch { return nil }
+        let data = errPipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        guard process.terminationStatus != 0 else { return nil }
+        let text = String(data: data, encoding: .utf8) ?? ""
+        return text.isEmpty ? "bash -n exited \(process.terminationStatus)" : text
+    }
+
+    /// Every `scripts/<file>` a command string names. A command may be a bare
+    /// path (hooks.json) or a shell snippet (settings.json's launcher), so the
+    /// reference is matched rather than the whole string parsed.
+    private func referencedScripts(in command: String) throws -> [String] {
+        let regex = try NSRegularExpression(pattern: #"scripts/([A-Za-z0-9_.\-]+)"#)
+        let range = NSRange(command.startIndex..., in: command)
+        return regex.matches(in: command, range: range).compactMap { match in
+            Range(match.range(at: 1), in: command).map { String(command[$0]) }
+        }
+    }
+
+    /// The shared assertion behind all three manifests: the script a command
+    /// names exists, is executable, and parses.
+    private func assertScriptIsLaunchable(_ name: String, from source: String) {
+        let url = scriptsDir.appendingPathComponent(name)
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: url.path) else {
+            XCTFail("\(source) launches scripts/\(name), which does not exist")
+            return
+        }
+        XCTAssertTrue(
+            fm.isExecutableFile(atPath: url.path),
+            "\(source) launches scripts/\(name), which is not executable — the harness gets exit 126")
+        if url.pathExtension == "sh", let error = bashSyntaxError(url) {
+            XCTFail("\(source) launches scripts/\(name), which fails `bash -n`:\n\(error)")
+        }
+    }
+
+    /// Nothing in `scripts/` may be syntactically broken, whether or not a
+    /// manifest currently points at it — a script is wired up long after it is
+    /// written, and a parse error found at wiring time is found in production.
+    func testEveryShippedShellScriptParses() throws {
+        for script in try shellScripts() {
+            if let error = bashSyntaxError(script) {
+                XCTFail("scripts/\(script.lastPathComponent) fails `bash -n`:\n\(error)")
+            }
+        }
+    }
+
+    /// `hooks.json` is well-formed and every command it declares is
+    /// launchable. Walks whatever events are present — the subscription list
+    /// is a design decision, the resolvability of what it declares is not.
+    func testHookManifestIsWellFormedAndEveryCommandLaunches() throws {
+        guard let root = jsonObject("hooks/hooks.json") else {
+            XCTFail("plugins/gmcc/hooks/hooks.json is missing")
+            return
+        }
+        guard let events = root["hooks"] as? [String: Any] else {
+            XCTFail("hooks.json has no top-level `hooks` object")
+            return
+        }
+        XCTAssertFalse(events.isEmpty, "hooks.json subscribes to no events at all")
+
+        var commandCount = 0
+        for (event, value) in events {
+            guard let groups = value as? [[String: Any]] else {
+                XCTFail("hooks.json `\(event)` is not an array of matcher groups")
+                continue
+            }
+            XCTAssertFalse(groups.isEmpty, "hooks.json `\(event)` declares no groups")
+            for (groupIndex, group) in groups.enumerated() {
+                let where_ = "hooks.json \(event)[\(groupIndex)]"
+                if let matcher = group["matcher"] {
+                    XCTAssertTrue(
+                        matcher is String,
+                        "\(where_) has a non-string `matcher` — the harness compiles it as a regex")
+                }
+                guard let entries = group["hooks"] as? [[String: Any]] else {
+                    XCTFail("\(where_) has no `hooks` array")
+                    continue
+                }
+                XCTAssertFalse(entries.isEmpty, "\(where_) declares an empty `hooks` array")
+                for entry in entries {
+                    commandCount += 1
+                    XCTAssertEqual(
+                        entry["type"] as? String, "command",
+                        "\(where_) declares a hook that is not type `command`")
+                    if let async = entry["async"] {
+                        XCTAssertTrue(async is Bool, "\(where_) has a non-boolean `async`")
+                    }
+                    guard let command = entry["command"] as? String, !command.isEmpty else {
+                        XCTFail("\(where_) declares a hook with no `command` string")
+                        continue
+                    }
+                    // The one spelling the harness actually expands. A bare
+                    // relative path here runs as `/scripts/...` and exits 127
+                    // on every single turn.
+                    XCTAssertTrue(
+                        command.contains("${CLAUDE_PLUGIN_ROOT}/scripts/"),
+                        "\(where_) command does not go through ${CLAUDE_PLUGIN_ROOT}/scripts/: \(command)")
+                    let referenced = try referencedScripts(in: command)
+                    XCTAssertFalse(
+                        referenced.isEmpty, "\(where_) command names no script: \(command)")
+                    for name in referenced {
+                        assertScriptIsLaunchable(name, from: where_)
+                    }
+                }
+            }
+        }
+        XCTAssertGreaterThan(commandCount, 2, "hooks.json walk looks broken")
+    }
+
+    /// Hook scripts must HARD NO-OP outside a booted GMCC session. A hook that
+    /// does real work in an unbooted repo is doing it in somebody else's
+    /// project on every turn.
+    ///
+    /// SessionStart is exempt by definition — it is the event that performs the
+    /// boot, so it cannot require the boot to have happened. The guard is
+    /// asserted as PRESENT rather than as the literal first line: two shipped
+    /// scripts legitimately put an earlier escape hatch above it.
+    func testNonBootHookScriptsNoOpWhenGmccIsNotBooted() throws {
+        guard let root = jsonObject("hooks/hooks.json"),
+              let events = root["hooks"] as? [String: Any]
+        else { return }
+        for (event, value) in events where event != "SessionStart" {
+            guard let groups = value as? [[String: Any]] else { continue }
+            for group in groups {
+                for entry in (group["hooks"] as? [[String: Any]]) ?? [] {
+                    guard let command = entry["command"] as? String else { continue }
+                    for name in try referencedScripts(in: command) {
+                        let url = scriptsDir.appendingPathComponent(name)
+                        guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
+                        XCTAssertTrue(
+                            text.contains(#"[ -z "$GMCC_BOOTED" ] && exit 0"#),
+                            """
+                            scripts/\(name) runs on \(event) but carries no \
+                            `[ -z "$GMCC_BOOTED" ] && exit 0` no-op — it would do work \
+                            on every turn of every unbooted repo on this machine.
+                            """)
+                    }
+                }
+            }
+        }
+    }
+
+    /// A plugin `settings.json` may carry ONLY the keys the harness reads. An
+    /// unsupported key is not ignored politely everywhere, and this file ships
+    /// to every install.
+    func testPluginSettingsCarriesOnlySupportedKeys() throws {
+        guard let root = jsonObject("settings.json") else { return }
+        // The two keys a PLUGIN's settings.json is allowed to contribute.
+        let supported: Set<String> = ["agent", "subagentStatusLine"]
+        let unsupported = Set(root.keys).subtracting(supported).sorted()
+        XCTAssertEqual(
+            unsupported, [],
+            "plugins/gmcc/settings.json carries unsupported key(s) \(unsupported) — a plugin may set only \(supported.sorted())")
+
+        if let statusLine = root["subagentStatusLine"] {
+            guard let entry = statusLine as? [String: Any] else {
+                XCTFail("settings.json subagentStatusLine is not an object")
+                return
+            }
+            XCTAssertEqual(
+                entry["type"] as? String, "command",
+                "settings.json subagentStatusLine is not type `command`")
+            guard let command = entry["command"] as? String, !command.isEmpty else {
+                XCTFail("settings.json subagentStatusLine has no `command` string")
+                return
+            }
+            let referenced = try referencedScripts(in: command)
+            XCTAssertFalse(
+                referenced.isEmpty,
+                "settings.json subagentStatusLine names no script: \(command)")
+            for name in referenced {
+                assertScriptIsLaunchable(name, from: "settings.json subagentStatusLine")
+            }
+        }
+    }
+
+    /// `.mcp.json` is the pen's front door — it is loaded at startup, so a
+    /// broken command string here is a startup failure, not a lazy one.
+    func testMcpManifestIsWellFormedAndEveryServerLaunches() throws {
+        guard let root = jsonObject(".mcp.json") else {
+            XCTFail("plugins/gmcc/.mcp.json is missing")
+            return
+        }
+        guard let servers = root["mcpServers"] as? [String: Any], !servers.isEmpty else {
+            XCTFail(".mcp.json has no non-empty `mcpServers` object")
+            return
+        }
+        for (name, value) in servers {
+            guard let server = value as? [String: Any] else {
+                XCTFail(".mcp.json server `\(name)` is not an object")
+                continue
+            }
+            if let alwaysLoad = server["alwaysLoad"] {
+                XCTAssertTrue(
+                    alwaysLoad is Bool, ".mcp.json server `\(name)` has a non-boolean `alwaysLoad`")
+            }
+            guard let command = server["command"] as? String, !command.isEmpty else {
+                XCTFail(".mcp.json server `\(name)` has no `command` string")
+                continue
+            }
+            for script in try referencedScripts(in: command) {
+                assertScriptIsLaunchable(script, from: ".mcp.json server `\(name)`")
+            }
+        }
     }
 }

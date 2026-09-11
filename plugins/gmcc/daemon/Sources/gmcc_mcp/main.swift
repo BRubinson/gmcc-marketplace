@@ -1,26 +1,38 @@
 import Foundation
 import GMCCDaemonKit
 
-// gmcc_mcp — the GMCC MCP stdio server (m0025): the agent PEN surface as
-// typed MCP tools. A THIRD thin client of the daemon socket beside gm and
-// GMVibes — reuses DaemonClient/WireCodec verbatim and NEVER touches the db
-// (single-writer invariant).
+// gmcc_mcp — the GMCC MCP stdio server: the agent PEN surface as typed MCP
+// tools. A thin client of the daemon socket beside gm and GMVibes — reuses
+// DaemonClient/WireCodec verbatim and NEVER touches the db (single-writer
+// invariant).
 //
 // Hand-rolled JSON-RPC 2.0 over newline-delimited stdio: exactly the three
 // methods that matter (initialize, tools/list, tools/call) plus ping;
 // notifications are ignored. Three methods do not justify a dependency —
-// the daemon already hand-rolls its own wire envelope. Fallback if this
-// ever fights back: modelcontextprotocol/swift-sdk (no schema impact).
+// the daemon already hand-rolls its own wire envelope.
 //
-// The tool surface is DELIBERATELY the pen: primary-only verbs (rank, the
-// seal gates, decide, set-status) are NOT exposed — an agent physically
-// lacks the primary's verbs, which enforces the pen contract by
-// construction rather than by prose. gm remains the canonical CLI for
-// humans, hooks, and scripts.
+// THE SURFACE IS THE PEN, AND VerbRegistry DECLARES IT. Every tool below is
+// a VerbSpec row carrying `pen:`; the primary's gate verbs (review rank,
+// arch decide, prompt set-status, care-package seal) carry none, and the
+// daemon refuses them to this client by caller role — the stamp is
+// `DaemonClient(callerRole: .agent)` at the bottom of this file. Withholding
+// a tool withholds the TOOL, never the capability (every agent also holds
+// Bash), so the door is what enforces; the roster is what makes the door
+// something an agent can comply with.
+//
+// READS MATTER AS MUCH AS WRITES: an agent that cannot read its own
+// exploration/review/architecture rows through the pen will shell out to gm
+// to get them, and then it is already in the CLI when it writes. Rating
+// windows exist on explore_get/review_get for the same reason — renderResult
+// caps a result at 80_000 bytes and an unnarrowable read is an incentive to
+// leave.
 //
 // Registered by the plugin as server `pen`, so tools surface as
 // mcp__plugin_gmcc_pen__<tool> (the plugin-scoped naming rule — a bare
-// mcp__gmcc__ matcher never fires).
+// mcp__gmcc__ matcher never fires). Harness tool search defers tool schemas
+// by default; `alwaysLoadedTools` below is the small set that is exempt, so
+// the pen is in every session's surface without a search and without holding
+// up startup.
 
 // MARK: - Minimal JSON value
 
@@ -125,8 +137,41 @@ struct Args {
         json[key]?.intValue
     }
 
+    func optBool(_ key: String) -> Bool? {
+        json[key]?.boolValue
+    }
+
     func optStrings(_ key: String) -> [String]? {
         json[key]?.stringArray
+    }
+
+    /// The rating window shared by explore_get and review_get, mirroring the
+    /// CLI's RatingWindowOptions: mutually exclusive, 0-999, A:B inclusive.
+    /// Without it a pen read of a ranked finding set is all-or-nothing, and
+    /// the 80_000-byte result cap turns "all" into a truncation.
+    func ratingWindow() throws -> (full: Bool, min: Int?, max: Int?) {
+        let full = optBool("full") ?? false
+        let maxRating = optInt("max_rating")
+        let range = optString("rating_range")
+        let picked = [full, maxRating != nil, range != nil].filter { $0 }.count
+        guard picked <= 1 else {
+            throw ToolError(message: "full, max_rating, and rating_range are mutually exclusive")
+        }
+        if let range {
+            let parts = range.split(separator: ":", maxSplits: 1)
+            guard parts.count == 2, let low = Int(parts[0]), let high = Int(parts[1]),
+                  (0...999).contains(low), (0...999).contains(high), low <= high else {
+                throw ToolError(message: "rating_range expects A:B with 0 <= A <= B <= 999, got '\(range)'")
+            }
+            return (false, low, high)
+        }
+        if let maxRating {
+            guard (0...999).contains(maxRating) else {
+                throw ToolError(message: "max_rating must be 0-999")
+            }
+            return (false, nil, maxRating)
+        }
+        return (full, nil, nil)
     }
 }
 
@@ -165,6 +210,26 @@ private func botSelector(_ args: Args, _ client: DaemonClient) -> (String?, Stri
     return (promptUuid, ClientKey.resolve(), session)
 }
 
+/// The record reads are prompt-keyed, and an agent is rarely told a uuid —
+/// so an explicit `prompt_uuid` wins, and otherwise the workflow BOT_GET
+/// already resolves answers it. Same zero-uuid contract the bot tools have.
+private func resolvePromptUuid(_ args: Args, _ client: DaemonClient) throws -> String {
+    if let explicit = args.optString("prompt_uuid") { return explicit }
+    let (prompt, key, session) = botSelector(args, client)
+    return try client.botGet(BotGetRequest(
+        promptUuid: prompt, clientKey: key, sessionUuid: session)).workflow.promptUuid
+}
+
+/// Shared schema rows for the two rating-windowed reads.
+private let ratingWindowParams: [(String, String, String, Bool)] = [
+    ("full", "boolean", "Return every finding as a full row (no stub partition)", false),
+    ("max_rating", "number", "Widen/narrow the full-row window to ratings 0...N", false),
+    ("rating_range", "string", "Full-row window as A:B (inclusive rating bounds)", false),
+]
+
+private let promptSelectorParam: (String, String, String, Bool) =
+    ("prompt_uuid", "string", "Explicit prompt uuid (omit to resolve YOUR workflow's prompt)", false)
+
 let tools: [Tool] = [
     Tool(
         name: "bot_next",
@@ -196,21 +261,21 @@ let tools: [Tool] = [
         }),
     Tool(
         name: "bot_summary",
-        description: "Fetch-or-open YOUR per-agent exploration summary (identity is self-reported agent_type; synthesis is refused — the seal is the primary's).",
+        description: "Fetch-or-open an exploration summary (identity is the self-reported agent_type; 'synthesis' is the prompt-level seal row the clarifier opens once everything is ranked).",
         params: [
-            ("agent_type", "string", "aggressive|conservative|pragmatic|alternative|general", true),
+            ("agent_type", "string", "aggressive|conservative|pragmatic|alternative|general|synthesis", true),
             ("agent_id", "string", "Self-reported agent id for dedup/tracking", false),
             ("prompt_uuid", "string", "Explicit prompt uuid (escape hatch)", false),
         ],
         run: { args, client in
             let agentType = try args.string("agent_type")
-            // The synthesis row is the prompt-level SEAL — the primary's,
-            // never a pen agent's. Without this the pen contract leaks:
-            // bot_summary(synthesis) + explore_complete would let any agent
-            // seal the prompt.
-            guard agentType != ExplorationAgentType.synthesis.rawValue else {
-                throw ToolError(message: "agent_type 'synthesis' is the primary's seal row — pen agents open their own methodology summary")
-            }
+            // No payload-granular synthesis guard here. Authorization is the
+            // daemon's door, keyed on caller_role against VerbRegistry — and
+            // the approved invariant is "no agent may call the PRIMARY doors;
+            // any agent may seal synthesis once everything is ranked". The
+            // merged clarifier opens this row (it never explored, so nothing
+            // else can have opened one for it) and completes it in the same
+            // pass; a guard here would have made that pass impossible.
             let (prompt, key, session) = botSelector(args, client)
             let workflow = try client.botGet(BotGetRequest(
                 promptUuid: prompt, clientKey: key, sessionUuid: session)).workflow
@@ -241,13 +306,20 @@ let tools: [Tool] = [
         }),
     Tool(
         name: "briefing_complete",
-        description: "building → ready: write the briefing's ref set (opinion-free; the daemon stamps staleness + kbite briefs).",
+        description: """
+            building → ready: write the briefing's ref set (opinion-free; the daemon \
+            stamps staleness + kbite briefs). ALL THREE ref classes are REQUIRED of \
+            you: a briefing records what it LOOKED FOR, not only what it found. Pass \
+            [] for a class you searched and came up empty on — that is a real answer. \
+            Omitting a class is refused, because absent is indistinguishable from \
+            never having looked.
+            """,
         params: [
             ("briefing_uuid", "string", "The briefing to complete", true),
             ("expected_version", "number", "The briefing version this write was based on", true),
-            ("dope_refs", "array", "Dope dot-path CODES (never uuids)", false),
-            ("kbite_refs", "array", "Kbite file uuids", false),
-            ("file_change_refs", "array", "file_change uuids", false),
+            ("dope_refs", "array", "Dope dot-path CODES (never uuids). Pass [] if you searched and found none — omitting this is refused", true),
+            ("kbite_refs", "array", "Kbite file uuids. Pass [] if you searched and found none — omitting this is refused", true),
+            ("file_change_refs", "array", "file_change uuids. Pass [] if there are none — omitting this is refused", true),
             ("agent_id", "string", "Self-reported agent id", false),
         ],
         run: { args, client in
@@ -300,7 +372,7 @@ let tools: [Tool] = [
         }),
     Tool(
         name: "explore_complete",
-        description: "Seal YOUR OWN summary with its overview (agents complete only their own row — the synthesis row is the primary's).",
+        description: "Seal a summary with its overview — your own methodology row, or the synthesis row once every finding is ranked (it refuses while anything is unranked).",
         params: [
             ("summary_uuid", "string", "Your exploration summary uuid", true),
             ("expected_version", "number", "The summary version this write was based on", true),
@@ -510,7 +582,234 @@ let tools: [Tool] = [
         run: { args, client in
             try client.getKbiteFile(KbiteFileGetRequest(fileUuid: try args.string("file_uuid")))
         }),
+
+    // ── Reading the record ───────────────────────────────────────────────
+    //
+    // The half of the pen that makes the other half usable: an agent reads
+    // the prompt's own rows here instead of shelling out to `gm ... get`.
+    // Every one is prompt-keyed and zero-uuid by default. explore_rank rides
+    // along because it is the same reader's next move — read the findings,
+    // calibrate them in one batch.
+
+    Tool(
+        name: "explore_get",
+        description: "The prompt's exploration record: summaries, key files, findings inside the rating window, stubs outside it. Default window is ratings under 100; unranked findings are ALWAYS full rows (they are the work queue).",
+        params: [
+            promptSelectorParam,
+            ("agent_type", "string", "Filter to one agent's summary (omit for all)", false),
+        ] + ratingWindowParams,
+        run: { args, client in
+            let window = try args.ratingWindow()
+            return try client.exploreGet(ExploreGetRequest(
+                promptUuid: try resolvePromptUuid(args, client),
+                agentType: args.optString("agent_type"),
+                full: window.full,
+                ratingMin: window.min,
+                ratingMax: window.max))
+        }),
+    Tool(
+        name: "explore_rank",
+        description: "Batch-rank exploration findings PROMPT-wide: one atomic calibrated batch across every summary. One bad pair rejects the whole batch; 0 unranked is what lets the synthesis seal pass.",
+        params: [
+            ("ratings", "array", "\"<finding-uuid>:<0-999>\" pairs (0=critical, 999=tombstone)", true),
+            promptSelectorParam,
+        ],
+        run: { args, client in
+            let raw = args.optStrings("ratings") ?? []
+            guard !raw.isEmpty else {
+                throw ToolError(message: "pass at least one rating as \"<finding-uuid>:<0-999>\"")
+            }
+            let pairs: [FindingRating] = try raw.map { pair in
+                let parts = pair.split(separator: ":", maxSplits: 1)
+                guard parts.count == 2, let rating = Int(parts[1]), (0...999).contains(rating) else {
+                    throw ToolError(message: "rating '\(pair)' is not <finding-uuid>:<0-999>")
+                }
+                return FindingRating(findingUuid: String(parts[0]), rating: rating)
+            }
+            return try client.exploreRank(ExploreRankRequest(
+                promptUuid: try resolvePromptUuid(args, client), ratings: pairs))
+        }),
+    Tool(
+        name: "review_get",
+        description: "The prompt's review record: summary, findings inside the rating window, stubs outside it. Same window semantics as explore_get.",
+        params: [promptSelectorParam] + ratingWindowParams,
+        run: { args, client in
+            let window = try args.ratingWindow()
+            return try client.reviewGet(ReviewGetRequest(
+                promptUuid: try resolvePromptUuid(args, client),
+                full: window.full,
+                ratingMin: window.min,
+                ratingMax: window.max))
+        }),
+    Tool(
+        name: "clarify_get",
+        description: "The prompt's clarification record: summary, questions (+answers), notes, and the care package with its dope staleness when one exists.",
+        params: [promptSelectorParam],
+        run: { args, client in
+            try client.clarifyGet(ClarifyGetRequest(
+                promptUuid: try resolvePromptUuid(args, client)))
+        }),
+    Tool(
+        name: "arch_get",
+        description: "The approved architecture with its implementation state: persistence changes before general changes, each joined to its recorded file changes, plus the touched-but-unplanned set. This is the implementation spec.",
+        params: [promptSelectorParam],
+        run: { args, client in
+            try client.archGet(ArchGetRequest(
+                promptUuid: try resolvePromptUuid(args, client)))
+        }),
+    Tool(
+        name: "file_change_list",
+        description: "Recorded file changes for the prompt (or an explicit session/path). What the machine believes you have touched — read it to check your own capture.",
+        params: [
+            promptSelectorParam,
+            ("session_uuid", "string", "List a whole session instead of one prompt", false),
+            ("path", "string", "Filter to one repo-relative path", false),
+            ("limit", "number", "Max rows", false),
+        ],
+        run: { args, client in
+            let session = args.optString("session_uuid")
+            // An explicit session read is session-scoped; otherwise the
+            // prompt is resolved the same way every other record read is.
+            let prompt = session == nil ? try resolvePromptUuid(args, client) : args.optString("prompt_uuid")
+            return try client.listFileChanges(FileChangeListRequest(
+                sessionUuid: session,
+                promptUuid: prompt,
+                relativePath: args.optString("path"),
+                limit: args.optInt("limit")))
+        }),
+    Tool(
+        name: "dope_get",
+        description: "The dope tree at a scope (prompt overlay or session base). Pass code to read one subtree by dot-path — the whole tree is large.",
+        params: [
+            ("code", "string", "Dot-path CODE of the subtree to read (omit for the whole tree)", false),
+            ("prompt_uuid", "string", "Read this prompt's PROMPT scope instead of the session base", false),
+            ("session_uuid", "string", "Explicit session uuid (default: YOUR session)", false),
+            ("resolved", "boolean", "Merge the masking overlay over its base", false),
+        ],
+        run: { args, client in
+            var session = args.optString("session_uuid")
+            if session == nil { session = try? ContextBuilder.resolveSessionUuid(client) }
+            guard let session else {
+                throw ToolError(message: "could not resolve a session — pass session_uuid")
+            }
+            return try client.dopeGet(DopeGetRequest(
+                sessionUuid: session,
+                promptUuid: args.optString("prompt_uuid"),
+                code: args.optString("code"),
+                resolved: args.optBool("resolved")))
+        }),
+    Tool(
+        name: "prompt_get",
+        description: "One prompt row by uuid, with its artifacts, kbite codes, and change summary. (bot_current_prompt is the zero-uuid form of this.)",
+        params: [("prompt_uuid", "string", "The prompt uuid", true)],
+        run: { args, client in
+            try client.getPrompt(PromptGetRequest(promptUuid: try args.string("prompt_uuid")))
+        }),
 ]
+
+// MARK: - Upfront loading
+
+/// The tools that load into every session's context WITHOUT a ToolSearch,
+/// advertised per-tool as `_meta: {"anthropic/alwaysLoad": true}`.
+///
+/// WHY PER-TOOL AND NOT `alwaysLoad` ON THE SERVER ENTRY. Server-level
+/// alwaysLoad makes session startup WAIT for this server's tools, capped at
+/// the 5-second connect timeout, because they must exist when the first
+/// prompt is built. This server's launcher (scripts/run_mcp.sh) runs
+/// build_daemon.sh before exec, and a cold or invalidated `swift build -c
+/// release` takes minutes, not seconds — so exactly the sessions that follow
+/// a source edit would spend the whole budget in bash and then build their
+/// first prompt with no pen in it. The per-tool flag carries no startup wait:
+/// the server connects off the critical path and these tools land upfront the
+/// moment it does, which is the property that was actually wanted.
+///
+/// THE SET IS THE SPINE EVERY AGENT WALKS BEFORE IT KNOWS ANYTHING. bot_next
+/// hands back the phase instructions, which name the phase's own pen tools by
+/// their exact `mcp__plugin_gmcc_pen__` spelling — as does the `instructions`
+/// string below — so every remaining tool is one exact-name search away. The
+/// rest stay deferred, which is what keeps the upfront cost proportional.
+let alwaysLoadedTools: Set<String> = [
+    "bot_next",           // the entry point; names everything else
+    "bot_get",            // the uuid bundle every later call is keyed on
+    "briefing_get",       // every agent's first read
+    "briefing_complete",  // every agent's first write
+    "dope_search",        // the two searches a briefing is MADE of — an agent
+    "kbite_search",       // must reach them before it can complete one
+]
+
+// MARK: - The initialize instructions, generated from the registry
+
+/// The `instructions` field of `initialize` — the one piece of prose the
+/// harness loads at session start, ahead of any tool schema. It is GENERATED
+/// from VerbRegistry so it cannot drift from the roster, ordered critical
+/// first, and deliberately small (the budget below is ~2KB: this text is paid
+/// for by every session the pen is loaded into).
+func penInstructions() -> String {
+    // Orientation before record before write: an agent that calls bot_next
+    // first never needs the rest of this text.
+    let leadReads = ["bot_next", "bot_get", "bot_current_prompt"]
+    var reads: [String] = leadReads
+    var writes: [String] = []
+    for spec in VerbRegistry.all.sorted(by: { $0.messageType.rawValue < $1.messageType.rawValue }) {
+        guard let tool = spec.penTool, !reads.contains(tool) else { continue }
+        switch spec.role {
+        case .read: reads.append(tool)
+        case .record: writes.append(tool)
+        case .primaryDoor: continue  // a door never carries a pen tool
+        }
+    }
+    for tool in VerbRegistry.compositePenTools.keys.sorted() where !reads.contains(tool) {
+        reads.append(tool)
+    }
+    let doors = VerbRegistry.all
+        .filter { $0.role == .primaryDoor && !$0.gmInvocation.isEmpty }
+        .map(\.gmInvocation)
+        .sorted()
+        .joined(separator: ", ")
+    return """
+        The GMCC pen: the GM-CDE workflow machine's record, as tools.
+
+        START HERE — bot_next returns your current phase, its instructions, \
+        your uuid bundle, and the gate blockers. Call it before anything else, \
+        and again after every seal. It answers without being told a uuid.
+
+        THE RULE — where a pen tool exists, it is the write path. Do not shell \
+        out to `gm` for it: the daemon knows which channel a write came from, \
+        and the CLI is the primary's surface, not yours.
+
+        READ: \(reads.joined(separator: ", ")).
+        WRITE: \(writes.joined(separator: ", ")).
+
+        NOT YOURS — the primary's gate doors, refused to this client by role: \
+        \(doors). Report that you are ready for one; never walk through it.
+        """
+}
+
+/// Startup diagnostics on stderr (stdout belongs to the protocol): the roster
+/// and the registry must be the same set. The build-time guard is
+/// WorkflowSpecTests' parity assertion — this is the runtime echo of it, so a
+/// mismatched binary says so in the MCP log instead of silently serving a
+/// surface nobody declared.
+@MainActor func validateRosterAgainstRegistry() {
+    let served = Set(tools.map(\.name))
+    let declared = VerbRegistry.penToolNames
+    var lines: [String] = []
+    for orphan in served.subtracting(declared).sorted() {
+        lines.append("[gmcc_mcp] serves '\(orphan)' with no VerbSpec — the door has made no role decision about it")
+    }
+    for missing in declared.subtracting(served).sorted() {
+        lines.append("[gmcc_mcp] VerbRegistry declares pen tool '\(missing)' but this binary does not serve it")
+    }
+    for ghost in alwaysLoadedTools.subtracting(served).sorted() {
+        lines.append("[gmcc_mcp] alwaysLoadedTools names '\(ghost)', which this binary does not serve — it will load nothing")
+    }
+    let instructionBytes = penInstructions().utf8.count
+    if instructionBytes > 2_048 {
+        lines.append("[gmcc_mcp] initialize instructions are \(instructionBytes) bytes (budget 2048)")
+    }
+    guard !lines.isEmpty else { return }
+    FileHandle.standardError.write(Data((lines.joined(separator: "\n") + "\n").utf8))
+}
 
 // MARK: - Rendering (byte-budgeted)
 
@@ -563,8 +862,12 @@ if let projectDir = ProcessInfo.processInfo.environment["CLAUDE_PROJECT_DIR"],
     FileManager.default.changeCurrentDirectoryPath(projectDir)
 }
 
-let client = DaemonClient()
+// EVERYTHING this process forwards is an agent write. The stamp is the
+// agent-side half of the door; the daemon's VerbRegistry check is the other.
+let client = DaemonClient(callerRole: .agent)
 defer { client.close() }
+
+validateRosterAgainstRegistry()
 
 while let line = readLine(strippingNewline: true) {
     guard !line.isEmpty, let message = JSON.parse(Data(line.utf8)) else { continue }
@@ -584,17 +887,24 @@ while let line = readLine(strippingNewline: true) {
                 "name": "gmcc-pen",
                 "version": "\(GMCCWireProtocol.version)",
             ],
+            // Loaded at session start, ahead of any tool schema — the only
+            // place the pen gets to state its own contract.
+            "instructions": penInstructions(),
         ])
     case "ping":
         respond(id: id, result: [:])
     case "tools/list":
         respond(id: id, result: [
             "tools": tools.map { tool in
-                [
+                var entry: [String: Any] = [
                     "name": tool.name,
                     "description": tool.description,
                     "inputSchema": tool.inputSchema,
-                ] as [String: Any]
+                ]
+                if alwaysLoadedTools.contains(tool.name) {
+                    entry["_meta"] = ["anthropic/alwaysLoad": true]
+                }
+                return entry
             }
         ])
     case "tools/call":

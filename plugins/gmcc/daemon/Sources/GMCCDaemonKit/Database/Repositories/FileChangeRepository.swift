@@ -48,12 +48,17 @@ struct FileChangeRepository: RepositoryContext {
             changeKind: req.changeKind
         )
 
-        // origin vocabulary (m0025): hook|manual|reconcile — provenance
-        // honesty, so reconciliation rows never masquerade as hook rows.
-        let origin = req.origin ?? "hook"
-        guard ["hook", "manual", "reconcile"].contains(origin) else {
+        // origin vocabulary — provenance honesty, so reconciliation and
+        // per-turn sweep rows never masquerade as hook rows. The column has
+        // no CHECK constraint, so THIS guard is the whole constraint: it
+        // reads the one shared list (FileChangeOrigin.all) rather than a
+        // local literal, because a value the dope enum accepts and this
+        // guard rejects throws on every write — and the hook callers that
+        // exit 0 by design swallow the throw and record nothing.
+        let origin = req.origin ?? FileChangeOrigin.hook
+        guard FileChangeOrigin.all.contains(origin) else {
             throw StoreError.badRequest(
-                detail: "origin must be hook|manual|reconcile (got '\(origin)')")
+                detail: "origin must be \(FileChangeOrigin.vocabulary) (got '\(origin)')")
         }
         // workflow_phase is stamped SERVER-SIDE and DERIVED LIVE (the
         // machine's doctrine — last_served_phase is observability only and

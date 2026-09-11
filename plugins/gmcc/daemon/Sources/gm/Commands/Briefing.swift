@@ -62,9 +62,9 @@ struct Briefing: ParsableCommand {
         @OptionGroup var output: OutputOptions
         @Option(name: .long) var briefingUuid: String
         @Option(name: .long) var expectedVersion: Int64
-        @Option(name: .long, help: "Repeatable dope DOT-PATH the briefing pre-selects (never a uuid).")
+        @Option(name: .long, help: "Repeatable dope DOT-PATH (domain.entity[.property]) the briefing pre-selects — never a uuid, a file path or prose; a malformed one is REFUSED and nothing is written.")
         var dopeRef: [String] = []
-        @Option(name: .long, help: "Repeatable kbite file uuid; the daemon attaches each brief.")
+        @Option(name: .long, help: "Repeatable kbite file uuid; the daemon attaches each brief. An unknown uuid is REFUSED, never silently dropped.")
         var kbiteRef: [String] = []
         @Option(name: .long, help: "Repeatable file_change uuid to pre-select.")
         var fileChangeRef: [String] = []
@@ -72,18 +72,34 @@ struct Briefing: ParsableCommand {
         var agentId: String?
 
         func run() throws {
+            // NO isEmpty → nil COLLAPSE. The wire declares every ref class
+            // Optional precisely so "attempted and found nothing" ([]) is
+            // distinguishable from "never considered this class" (absent) —
+            // collapsing here made them byte-identical and destroyed the only
+            // signal that tells a doper's empty search from a skipped one.
+            // The CLI cannot spell absent (ArgumentParser has no empty
+            // repeated option), so every gm-issued complete now honestly
+            // reports ATTEMPTED for all three classes; agents call through
+            // the pen, where the JSON layer preserves the real distinction
+            // and the daemon refuses an omitted class.
             let response = try withClient {
                 try $0.briefingComplete(BriefingCompleteRequest(
                     briefingUuid: briefingUuid,
                     expectedVersion: expectedVersion,
-                    dopeRefs: dopeRef.isEmpty ? nil : dopeRef,
-                    kbiteRefs: kbiteRef.isEmpty ? nil : kbiteRef,
-                    fileChangeRefs: fileChangeRef.isEmpty ? nil : fileChangeRef,
+                    dopeRefs: dopeRef,
+                    kbiteRefs: kbiteRef,
+                    fileChangeRefs: fileChangeRef,
                     agentId: agentId))
             }
             if output.json { printJSON(response) } else {
                 let b = response.briefing
                 print("[gm] briefing ready: \(b.uuid) (step \(b.briefingForStep), \(b.dopeRefs.count) dope / \(b.kbiteRefs.count) kbite / \(b.fileChangeRefs.count) file refs, scope rev \(b.dopeScopeRevision.map(String.init) ?? "-"), v\(b.version))")
+                if let unresolved = response.unresolvedDopeRefs, !unresolved.isEmpty {
+                    // Well-formed but resolving to nothing in the current
+                    // tree: stored, not refused — reported while the writer
+                    // is still here to fix it.
+                    print("  UNRESOLVED dope refs (stored, but nothing in the scope matches): \(unresolved.joined(separator: ", "))")
+                }
             }
         }
     }

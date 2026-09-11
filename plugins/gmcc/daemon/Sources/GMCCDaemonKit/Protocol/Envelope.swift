@@ -262,24 +262,80 @@ public struct RawEnvelopeHead: Codable, Hashable, Sendable {
     public let protocolVersion: Int
     public let typeRaw: String
     public let requestId: String?
+    /// Who is calling, raw for the same forward-compat reason `typeRaw` is:
+    /// a daemon that grows a third role must not make an older client's
+    /// envelope undecodable. ABSENT ⇒ `.primary`, which is byte-for-byte
+    /// today's behaviour — that is what makes this field additive and the
+    /// wire version unchanged.
+    public let callerRoleRaw: String?
 
     public var type: MessageType? { MessageType(rawValue: typeRaw) }
 
-    // The one intentional rename ("type" is a Swift keyword-adjacent name kept
-    // raw for forward compat). Sibling keys MUST stay bare cases: an explicit
-    // snake_case raw value stops matching under .convertFromSnakeCase and the
-    // field silently decodes to nil. "type" has no underscore, so it is a
-    // fixed point of both key strategies.
+    /// The door's view of the caller. ABSENT ⇒ `.primary`; PRESENT BUT
+    /// UNRECOGNISED ⇒ `.agent`.
+    ///
+    /// THESE TWO CASES LOOK LIKE ONE CASE AND ARE NOT. Do not "simplify" them
+    /// back into a single `?? .primary`:
+    ///
+    ///   • ABSENT is the additive-optional wire contract. Every caller that
+    ///     predates this field — and every pinned-Kit GMVibes — sends no
+    ///     `caller_role` at all, and each one is the primary. Landing those on
+    ///     anything but `.primary` is a silent incompatibility, which is
+    ///     exactly what keeping the wire version unchanged promises not to be.
+    ///
+    ///   • PRESENT BUT UNRECOGNISED is an AUTHORIZATION INPUT, and it is the
+    ///     only one in this file. `.agent` is the RESTRICTED role and
+    ///     `.primary` is the privileged one, so falling back to `.primary`
+    ///     would GRANT privilege on a value this build cannot understand —
+    ///     the opposite of every other forward-compat fallback here.
+    ///     `typeRaw` degrades an unknown verb into a dispatch refusal;
+    ///     `ErrorPayload.codeRaw` keeps an unknown code as inert data. This
+    ///     one degrades to the SMALLER surface.
+    ///
+    /// Only a caller that explicitly stamps a role this build does not know
+    /// reaches the second branch, and such a caller is by definition newer
+    /// than this daemon (a third role like `teammate` stamped by whatever runs
+    /// team variants). Giving it the agent's doors until this build learns the
+    /// role is the safe direction; giving it the primary's is how a future
+    /// restricted role silently arrives unrestricted.
+    ///
+    /// Neither case fails the decode — the raw value is preserved and the rest
+    /// of the head still parses. `WireKeyTests` pins all three behaviours.
+    public var callerRole: CallerRole {
+        guard let raw = callerRoleRaw else { return .primary }
+        return CallerRole(rawValue: raw) ?? .agent
+    }
+
+    // The intentional renames ("type" is a Swift keyword-adjacent name kept
+    // raw for forward compat; "callerRoleRaw" is the same trick). Sibling keys
+    // MUST stay bare cases: an explicit snake_case raw value stops matching
+    // under .convertFromSnakeCase and the field silently decodes to nil.
+    // "type" has no underscore, so it is a fixed point of both key strategies.
+    //
+    // ── AMENDMENT A7, AND IT FAILS OPEN IF YOU GET IT WRONG ──────────────
+    // `callerRoleRaw` MUST carry the explicit CAMEL raw value "callerRole",
+    // exactly as `typeRaw` carries "type". A BARE `case callerRoleRaw` would
+    // be converted to the wire key `caller_role_raw`, never match the
+    // `caller_role` the encoder emits, and decode to nil — and because absent
+    // means `.primary`, EVERY agent caller would read as the primary and the
+    // door would never refuse anything. WireKeyTests is the tripwire.
     private enum CodingKeys: String, CodingKey {
         case protocolVersion
         case typeRaw = "type"
         case requestId
+        case callerRoleRaw = "callerRole"
     }
 
-    public init(protocolVersion: Int, typeRaw: String, requestId: String?) {
+    public init(
+        protocolVersion: Int,
+        typeRaw: String,
+        requestId: String?,
+        callerRoleRaw: String? = nil
+    ) {
         self.protocolVersion = protocolVersion
         self.typeRaw = typeRaw
         self.requestId = requestId
+        self.callerRoleRaw = callerRoleRaw
     }
 }
 
@@ -290,11 +346,31 @@ public struct EnvelopeHead: Codable, Hashable, Sendable {
     public let protocolVersion: Int
     public let type: MessageType
     public let requestId: String
+    /// Narrowed from RawEnvelopeHead. Defaulted so every existing
+    /// construction site compiles untouched.
+    public let callerRole: CallerRole
 
-    public init(protocolVersion: Int, type: MessageType, requestId: String) {
+    public init(
+        protocolVersion: Int,
+        type: MessageType,
+        requestId: String,
+        callerRole: CallerRole = .primary
+    ) {
         self.protocolVersion = protocolVersion
         self.type = type
         self.requestId = requestId
+        self.callerRole = callerRole
+    }
+
+    /// Nothing decodes this type off the wire today (the daemon narrows
+    /// RawEnvelopeHead itself) — but the default is spelled out anyway so a
+    /// future decode of a pre-field line cannot fail on a missing key.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        protocolVersion = try container.decode(Int.self, forKey: .protocolVersion)
+        type = try container.decode(MessageType.self, forKey: .type)
+        requestId = try container.decode(String.self, forKey: .requestId)
+        callerRole = try container.decodeIfPresent(CallerRole.self, forKey: .callerRole) ?? .primary
     }
 }
 
@@ -303,12 +379,25 @@ public struct RequestEnvelope<Payload: Codable & Sendable>: Codable, Sendable {
     public let protocolVersion: Int
     public let type: MessageType
     public let requestId: String
+    /// nil ⇒ `.primary`. Stored Optional ON PURPOSE: a primary request is then
+    /// BYTE-FOR-BYTE what it was before this field existed (JSONEncoder omits
+    /// nil Optionals), which is the whole reason the wire version does not
+    /// bump. Read it through `resolvedCallerRole`.
+    public let callerRole: CallerRole?
     public let payload: Payload
 
-    public init(type: MessageType, requestId: String = UUID().uuidString.lowercased(), payload: Payload) {
+    public var resolvedCallerRole: CallerRole { callerRole ?? .primary }
+
+    public init(
+        type: MessageType,
+        requestId: String = UUID().uuidString.lowercased(),
+        callerRole: CallerRole = .primary,
+        payload: Payload
+    ) {
         self.protocolVersion = GMCCWireProtocol.version
         self.type = type
         self.requestId = requestId
+        self.callerRole = callerRole == .primary ? nil : callerRole
         self.payload = payload
     }
 }
@@ -354,6 +443,12 @@ public enum ErrorCode: String, Codable, Hashable, CaseIterable, Sendable {
     /// review summary yet — open one. Plain NOT_FOUND means only that the
     /// uuid itself is unknown.
     case summaryAbsent = "SUMMARY_ABSENT"
+    /// The caller's role may not walk through this verb — a primary door
+    /// reached with `caller_role: agent`. Adding this case is SAFE for a
+    /// pinned-Kit client by the rule stated on ErrorPayload below: `code`
+    /// travels as a raw string precisely so a daemon that grows new codes
+    /// cannot make an older client fail to decode the envelope.
+    case forbidden = "FORBIDDEN"
 }
 
 /// Error envelope. `code` travels as a RAW STRING so a daemon that grows new

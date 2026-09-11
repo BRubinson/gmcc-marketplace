@@ -213,8 +213,8 @@ final class BriefingTests: XCTestCase {
     func testCompleteRefusesDanglingFileChangeRefAndGetAbsentIsTyped() throws {
         let open = try store.briefingOpen(
             BriefingOpenRequest(promptUuid: "prompt-a", briefingForStep: "initial"))
-        // A file-change child carries a REAL FK — a dangling ref is a typed
-        // refusal (unlike kbite refs, which drop ghost-tolerantly).
+        // A ref carrying a REAL FK is a typed refusal when it dangles — the
+        // same policy kbite refs now follow.
         XCTAssertThrowsError(try store.briefingComplete(BriefingCompleteRequest(
             briefingUuid: open.briefing.uuid,
             expectedVersion: open.briefing.version,
@@ -227,6 +227,223 @@ final class BriefingTests: XCTestCase {
                 return XCTFail("expected summaryAbsent, got \(error)")
             }
         }
+    }
+
+    // MARK: - GAP 7: one ref policy across all three classes
+
+    /// The incident this exists for: a doper wrote twenty-three FILE PATHS
+    /// into --dope-ref, twice, and every one was accepted silently. The
+    /// failure class is purely LEXICAL, so the refusal is too.
+    func testCompleteHardRefusesMalformedDopeRefsAndWritesNothing() throws {
+        try makeScope()
+        let open = try store.briefingOpen(
+            BriefingOpenRequest(promptUuid: "prompt-a", briefingForStep: "initial"))
+
+        let malformed = [
+            "plugins/gmcc/daemon/Sources/gm/Commands/Briefing.swift",  // a file path
+            "BriefingRepository.swift",                                // a bare filename
+            "6315e0cf-d8ed-4b28-9560-30704f01243e",                    // a uuid
+            "gmcc:agentics.agent_briefing",                            // a scope prefix
+            "the briefing machine and how it stamps staleness",        // a sentence
+            "agentics.Agent_Briefing",                                 // wrong case
+            "a.b.c.d.e",                                               // too deep
+            "",                                                        // empty
+        ]
+        for ref in malformed {
+            XCTAssertThrowsError(
+                try store.briefingComplete(BriefingCompleteRequest(
+                    briefingUuid: open.briefing.uuid,
+                    expectedVersion: open.briefing.version,
+                    dopeRefs: ["agentics.agent_briefing", ref]))
+            ) { error in
+                guard case StoreError.badRequest(let detail) = error else {
+                    return XCTFail("expected badRequest for '\(ref)', got \(error)")
+                }
+                // The refusal must NAME the offending ref — a doper holding
+                // twenty-three of them cannot act on "one of these is bad".
+                XCTAssertTrue(detail.contains("'\(ref)'"),
+                              "refusal must name the ref; got: \(detail)")
+            }
+        }
+
+        // Nothing was written by any of those attempts: still building, still
+        // version 0, no children — the whole point of refusing at the door.
+        let after = try store.briefingGet(
+            BriefingGetRequest(briefingUuid: open.briefing.uuid)).briefing
+        XCTAssertEqual(after.status, "building")
+        XCTAssertEqual(after.version, open.briefing.version)
+        XCTAssertTrue(after.dopeRefs.isEmpty)
+    }
+
+    /// The deliberate non-symmetry: well-formed-but-unresolvable is NOT a
+    /// refusal (a legal code ghosts when the tree moves under a briefing) —
+    /// it is stored and REPORTED, so the writing agent sees its own mistake
+    /// while it still holds the pen instead of at read, months later.
+    func testCompleteStoresAndReportsUnresolvableButWellFormedDopeRefs() throws {
+        try makeScope()
+        let open = try store.briefingOpen(
+            BriefingOpenRequest(promptUuid: "prompt-a", briefingForStep: "initial"))
+        let ready = try store.briefingComplete(BriefingCompleteRequest(
+            briefingUuid: open.briefing.uuid,
+            expectedVersion: open.briefing.version,
+            dopeRefs: ["agentics.agent_briefing", "agentics.vanished_entity"]))
+
+        XCTAssertEqual(ready.briefing.status, "ready")
+        // Stored — both of them.
+        XCTAssertEqual(ready.briefing.dopeRefs.map(\.dopeCode),
+                       ["agentics.agent_briefing", "agentics.vanished_entity"])
+        // ...and only the unresolvable one is reported back.
+        XCTAssertEqual(ready.unresolvedDopeRefs, ["agentics.vanished_entity"])
+
+        // A fully resolvable set reports nothing at all (nil, not []).
+        let reopened = try store.briefingOpen(
+            BriefingOpenRequest(promptUuid: "prompt-a", briefingForStep: "initial"))
+        let clean = try store.briefingComplete(BriefingCompleteRequest(
+            briefingUuid: reopened.briefing.uuid,
+            expectedVersion: reopened.briefing.version,
+            dopeRefs: ["agentics.agent_briefing"]))
+        XCTAssertNil(clean.unresolvedDopeRefs)
+    }
+
+    /// kbite refs adopt the file_change policy. They used to `continue` past
+    /// an unknown uuid: the ghost-tolerance argument justified dropping a
+    /// VANISHED file, but it never justified dropping a TYPO, and the caller
+    /// cannot tell the two apart from a silent success.
+    func testCompleteRefusesUnknownKbiteRefInsteadOfDroppingIt() throws {
+        let open = try store.briefingOpen(
+            BriefingOpenRequest(promptUuid: "prompt-a", briefingForStep: "initial"))
+        XCTAssertThrowsError(
+            try store.briefingComplete(BriefingCompleteRequest(
+                briefingUuid: open.briefing.uuid,
+                expectedVersion: open.briefing.version,
+                kbiteRefs: ["no-such-kbite-file"]))
+        ) { error in
+            guard case StoreError.notFound(let entity, let key) = error else {
+                return XCTFail("expected notFound, got \(error)")
+            }
+            XCTAssertEqual(entity, "kbite_resource_file")
+            XCTAssertEqual(key, "no-such-kbite-file")
+        }
+        let after = try store.briefingGet(
+            BriefingGetRequest(briefingUuid: open.briefing.uuid)).briefing
+        XCTAssertEqual(after.status, "building")
+        XCTAssertTrue(after.kbiteRefs.isEmpty)
+    }
+
+    // MARK: - GAP 7: nil vs empty, by subtraction
+
+    /// The other half of the incident: the same briefing carried zero kbite
+    /// refs and zero file-change refs, indistinguishable from having looked
+    /// and found nothing. `[]` is a real answer; ABSENT is not one, and an
+    /// agent caller no longer gets to give it.
+    func testAgentCallerMustNameEveryRefClassButEmptyIsAnAnswer() throws {
+        // Absent classes: refused, and the refusal NAMES each one.
+        XCTAssertThrowsError(
+            try BriefingCompletenessRule.check(
+                BriefingCompleteRequest(
+                    briefingUuid: "b", expectedVersion: 0, dopeRefs: ["a.b"]),
+                callerRole: .agent)
+        ) { error in
+            guard case StoreError.badRequest(let detail) = error else {
+                return XCTFail("expected badRequest, got \(error)")
+            }
+            XCTAssertTrue(detail.contains("kbite_refs"), detail)
+            XCTAssertTrue(detail.contains("file_change_refs"), detail)
+            XCTAssertFalse(detail.contains("dope_refs"), detail)
+        }
+
+        // All three present, two of them empty: ACCEPTED — "I looked, there
+        // was nothing" is a readable answer and must stay writable.
+        XCTAssertNoThrow(try BriefingCompletenessRule.check(
+            BriefingCompleteRequest(
+                briefingUuid: "b", expectedVersion: 0,
+                dopeRefs: ["a.b"], kbiteRefs: [], fileChangeRefs: []),
+            callerRole: .agent))
+
+        // The primary is not the caller this rule is about: its CLI cannot
+        // spell "absent" in the first place.
+        XCTAssertNoThrow(try BriefingCompletenessRule.check(
+            BriefingCompleteRequest(briefingUuid: "b", expectedVersion: 0),
+            callerRole: .primary))
+    }
+
+    /// Opportunity O2 — the JSON-args layer the repository tests never touch.
+    /// The pen (gmcc_mcp) builds this request from `Args.optStrings`, which
+    /// maps a MISSING key to nil and `[]` to `[]`; the whole nil-vs-empty
+    /// design leans on that distinction surviving the decode. gmcc_mcp is an
+    /// executable target and cannot be imported here, so the contract is
+    /// asserted where it actually lives: the Codable layer both sides share.
+    func testBriefingCompleteRequestDecodePreservesEmptyVersusAbsent() throws {
+        func decode(_ json: String) throws -> BriefingCompleteRequest {
+            // The real wire coder, not a hand-rolled one — the whole point is
+            // that the distinction survives the coder the daemon actually uses.
+            try WireCodec.decoder.decode(
+                BriefingCompleteRequest.self, from: Data(json.utf8))
+        }
+
+        let empty = try decode("""
+            {"briefing_uuid": "b", "expected_version": 0,
+             "dope_refs": ["a.b"], "kbite_refs": [], "file_change_refs": []}
+            """)
+        XCTAssertEqual(empty.kbiteRefs, [])
+        XCTAssertEqual(empty.fileChangeRefs, [])
+        XCTAssertNoThrow(try BriefingCompletenessRule.check(empty, callerRole: .agent))
+
+        let absent = try decode("""
+            {"briefing_uuid": "b", "expected_version": 0, "dope_refs": ["a.b"]}
+            """)
+        XCTAssertNil(absent.kbiteRefs)
+        XCTAssertNil(absent.fileChangeRefs)
+        XCTAssertThrowsError(try BriefingCompletenessRule.check(absent, callerRole: .agent))
+
+        // And the round trip an agent's payload actually makes: [] must
+        // survive encoding, or the door would refuse a compliant caller.
+        let wire = String(decoding: try WireCodec.encoder.encode(empty), as: UTF8.self)
+        XCTAssertTrue(wire.contains("\"kbite_refs\":[]"), wire)
+        XCTAssertNoThrow(try BriefingCompletenessRule.check(
+            try decode(wire), callerRole: .agent))
+    }
+
+    // MARK: - The six-line ensureSummary hole
+
+    /// The stray summary that contaminated a real prompt record: a doper
+    /// opened a sealed `general` exploration summary on a TEAM-variant
+    /// prompt. `general` is a legal ExplorationAgentType under every variant,
+    /// and the enum check was the whole gate — so nothing refused it, and
+    /// explore_get handed the stray row to the clarifier as if it belonged.
+    func testExploreOpenRefusesAnAgentTypeOutsideTheActiveVariant() throws {
+        _ = try store.promptStart(PromptStartRequest(promptUuid: "prompt-a", variant: .team))
+
+        XCTAssertThrowsError(
+            try store.exploreOpen(ExploreOpenRequest(
+                promptUuid: "prompt-a", agentType: "general"))
+        ) { error in
+            guard case StoreError.badRequest(let detail) = error else {
+                return XCTFail("expected badRequest, got \(error)")
+            }
+            XCTAssertTrue(detail.contains("team"), detail)
+            XCTAssertTrue(detail.contains("aggressive"), detail)
+        }
+        // The variant's own methodologies are fine, and `synthesis` is legal
+        // under every variant — it is the prompt-level seal, not a persona.
+        XCTAssertTrue(try store.exploreOpen(ExploreOpenRequest(
+            promptUuid: "prompt-a", agentType: "aggressive")).created)
+        XCTAssertTrue(try store.exploreOpen(ExploreOpenRequest(
+            promptUuid: "prompt-a", agentType: "synthesis")).created)
+    }
+
+    /// NO ACTIVE WORKFLOW FALLS THROUGH PERMISSIVELY, deliberately: a
+    /// /gm_task run and an adopted pre-machine prompt carry no variant and
+    /// must not be stranded, and migrated prompts hold synthesis-only rows
+    /// and must stay reopenable.
+    func testExploreOpenStaysPermissiveWithNoActiveWorkflow() throws {
+        XCTAssertTrue(try store.exploreOpen(ExploreOpenRequest(
+            promptUuid: "prompt-b", agentType: "general")).created)
+        XCTAssertTrue(try store.exploreOpen(ExploreOpenRequest(
+            promptUuid: "prompt-b", agentType: "synthesis")).created)
+        // Unknown types stay refused by the enum check, variant or not.
+        XCTAssertThrowsError(try store.exploreOpen(ExploreOpenRequest(
+            promptUuid: "prompt-b", agentType: "bogus")))
     }
 
     // MARK: - Activation registry (per Claude instance, never per session)

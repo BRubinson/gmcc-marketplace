@@ -1,6 +1,6 @@
 {
   "code": "file_change_origin",
-  "description": "Provenance of a file_change row (m0025): the hook's own records vs manual adds vs the reconcile sweep",
+  "description": "Provenance of a file_change row (m0025): the hook's own records vs manual adds vs the gate-boundary reconcile sweep vs the per-turn sweep",
   "name": "File Change Origin",
   "options": [
     {
@@ -20,6 +20,12 @@
       "description": "gm bot reconcile's git-diff completeness sweep",
       "name": "Reconcile",
       "sort_order": 3
+    },
+    {
+      "code": "turn",
+      "description": "gm bot sweep — the per-turn Stop/SubagentStop sweep, not only at phase gates",
+      "name": "Turn",
+      "sort_order": 4
     }
   ],
   "sort_order": 23,

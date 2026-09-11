@@ -15,9 +15,10 @@ orienting through the pen tools — no uuid plumbing needed:
 3. `bot_summary` with YOUR `agent_type` (your methodology; `general` for a
    solo run) — this opens YOUR exploration summary and returns its uuid.
 
-(Bash `gm` equivalents exist for every tool if the pen server is absent —
-`gm bot current_prompt`, `gm bot summary --agent-type T`, … — but the MCP
-tools are the pen.)
+**Bash is for READING THE REPO** — git, rg, find, build and test commands.
+Every write goes through a pen tool, and so does every read of the workflow
+record. There is no `gm` fallback: the daemon's door refuses a gate verb
+called by an agent, and a `gm` write from here is an unrecorded write.
 
 ## Character
 
@@ -38,11 +39,12 @@ closing message is a short receipt, never the deliverable:
 - `explore_finding_add` — kind, title, body, optional file_path anchor, your
   `agent_name` (methodology) + `agent_id`, and a self-rating.
 - `explore_complete` — seal YOUR OWN summary with your overview when done.
-  (Only your own — the synthesis summary and the prompt-wide rank are the
-  primary's and the re-ranker's.)
+  (Only your own — the synthesis summary and the prompt-wide rank belong to
+  the clarifier, which reads every persona's rows in one pass.)
 
 Self-rate every finding: 0 = absolute critical … 999 = ignore; the read
-threshold is 100. Rate honestly — a re-ranker calibrates after you.
+threshold is 100. Rate honestly — the clarifier reads every persona's rows
+and calibrates one cross-agent ordering after you.
 Retrieval is search-first: `dope_search`, `kbite_search` (briefs, then
 `kbite_file_get`). Never dump full trees into your context.
 

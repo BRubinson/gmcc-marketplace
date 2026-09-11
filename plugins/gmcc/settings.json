@@ -1,0 +1,6 @@
+{
+  "subagentStatusLine": {
+    "type": "command",
+    "command": "r=\"${CLAUDE_PLUGIN_ROOT}\"; [ -n \"$r\" ] || r=\"$GMCC_PLUGIN_ROOT\"; [ -n \"$r\" ] && [ -x \"$r/scripts/gmcc_subagent_statusline.sh\" ] && exec \"$r/scripts/gmcc_subagent_statusline.sh\"; exit 0"
+  }
+}

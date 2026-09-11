@@ -31,17 +31,19 @@ Same as /gm_bot (resume by seq / create by slug — STAY TRUE), with
   implementation, and review-fix run as dynamic workflows you HAND-AUTHOR,
   guided by `gm bot next` output. Script code is pure orchestration: it
   never touches gm or the db — every read/write happens inside agent()
-  subagents via the MCP pen tools (or Bash gm). Workflow Bash writes are
-  invisible to the file-change hook — `gm bot reconcile` at each gate is
-  mandatory.
+  subagents, through the MCP pen tools and nothing else. `gm bot reconcile`
+  at each gate is the backstop for writes no turn could attribute.
 - **Explore** — four `gmcc:code-explorer` personas, each opening its OWN
-  summary (`bot_summary` / `--agent-type <methodology>`) and completing it.
-  Then `gmcc:finding-reranker` applies the ONE prompt-scoped calibrated
-  batch; you complete the `synthesis` summary (the seal).
-- **Clarify** — `gmcc:ques` pens the question/note suite; YOU run the user
-  conversation (AskUserQuestion mirroring the option rows) and the answers;
-  then the care package (curated COPIES of ranked findings + dope/kbite
-  refs + the clarified-intent blob), finalize, set-status architecting.
+  summary (`bot_summary`, agent_type = its methodology) and completing it.
+  Findings stay unranked; calibration is cross-agent and belongs to one
+  reader.
+- **Clarify** — ONE `gmcc:clarifier` runs the merged pass: it reads every
+  persona's findings, applies the ONE prompt-scoped calibrated rank batch,
+  opens and seals the `synthesis` summary, and pens the question/note
+  suite. YOU seal the suite, run the user conversation (AskUserQuestion
+  mirroring the option rows) and the answers; then the care package
+  (curated COPIES of ranked findings + dope/kbite refs + the
+  clarified-intent blob), finalize, set-status architecting.
 - **Architecture optioning** — four `gmcc:code-architect` personas each pen
   their OWN option row (`arch_option_add`). You pick the winner with
   `gm arch decide` (rationale recorded; siblings rejected; offer the
@@ -50,8 +52,9 @@ Same as /gm_bot (resume by seq / create by slug — STAY TRUE), with
 - **Plan gate** — propose → user sign-off with the full persistence delta
   table → approve → implementing.
 - **Review** — four `gmcc:code-quality-reviewer` personas pen finding rows;
-  reranker calibrates; you complete with the verdict, clarify fix intent
-  with the user, run review-fix (as a workflow when the fixes fan out), done.
+  you calibrate at your own door (`gm review rank`) and complete with the
+  verdict, clarify fix intent with the user, run review-fix (as a workflow
+  when the fixes fan out), done.
 
 Teammate spawn prompts carry ONLY the methodology, the summary uuid where
 the def asks for one, and the one-line target — plus the explicit

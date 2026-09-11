@@ -33,11 +33,11 @@ Same as /gm_bot (resume by seq / create by slug — STAY TRUE), with
 
 - Haiku doper briefing, then spawn ONE `gmcc:code-explorer` with
   `Methodology: general` — it opens its own summary via the pen tools,
-  writes its rows, completes it. No 4-spawn batches, NO reranker pass:
-  self-ratings stand; you rank prompt-wide from them, then open + complete
-  the `synthesis` summary.
-- Clarification: spawn `gmcc:ques` to pen the question/note suite (or
-  author it yourself for a thin prompt), seal, run the user conversation,
+  writes its rows, completes it. No 4-spawn batches; findings stay unranked
+  at the end of explore.
+- Clarification: spawn ONE `gmcc:clarifier` for the merged pass — it ranks
+  prompt-wide, opens and seals the `synthesis` summary, and pens the
+  question/note suite. You seal the suite, run the user conversation,
   answer, then build the CARE PACKAGE (package-open → package-add refs →
   package-complete with the clarified intent), finalize, set-status
   architecting.

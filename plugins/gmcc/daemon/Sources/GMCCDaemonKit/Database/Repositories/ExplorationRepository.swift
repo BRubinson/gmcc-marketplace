@@ -31,10 +31,37 @@ struct ExplorationRepository: RepositoryContext {
         ) != nil else {
             throw StoreError.notFound(entity: "prompt", key: promptUuid)
         }
-        guard ExplorationAgentType(rawValue: agentType) != nil else {
+        guard let agent = ExplorationAgentType(rawValue: agentType) else {
             throw StoreError.badRequest(
                 detail: "unknown exploration agent type '\(agentType)' — one of "
                     + ExplorationAgentType.allCases.map(\.rawValue).joined(separator: "|"))
+        }
+        // The enum check ALONE used to be the whole gate, which is how a
+        // doper opened a stray sealed `general` summary on a TEAM-variant
+        // prompt: `general` is a legal ExplorationAgentType under every
+        // variant, so nothing refused it — and a stray summary is returned by
+        // explore_get, which is the clarifier's entire input. The variant is
+        // the missing half, resolved IN-TRANSACTION (the pattern
+        // FileChangeRepository.add already demonstrates).
+        //
+        // NO ACTIVE WORKFLOW FALLS THROUGH PERMISSIVELY, deliberately and not
+        // by omission: a /gm_task run and an adopted pre-machine prompt carry
+        // no variant and must not be stranded, and migrated prompts hold
+        // synthesis-only rows and must stay reopenable.
+        if let workflow = try BotWorkflowRepository(db: db, core: core)
+               .fetchActive(promptUuid: promptUuid),
+           let variant = BotVariant(rawValue: workflow.variant) {
+            // `.synthesis` is legal under every variant — it is the
+            // prompt-level seal, not a methodology.
+            let allowed = WorkflowSpec.expectedExplorationAgents(for: variant) + [.synthesis]
+            guard allowed.contains(agent) else {
+                throw StoreError.badRequest(
+                    detail: "exploration agent type '\(agentType)' is not part of the "
+                        + "\(variant.rawValue) workflow on prompt \(promptUuid) — expected one "
+                        + "of \(allowed.map(\.rawValue).joined(separator: "|")). A summary "
+                        + "outside the variant's agent set is read back by explore get as if "
+                        + "it belonged to the run.")
+            }
         }
         if let existing = try String.fetchOne(
             db, sql: "SELECT uuid FROM exploration_summary WHERE prompt_uuid = ? AND agent_type = ?",

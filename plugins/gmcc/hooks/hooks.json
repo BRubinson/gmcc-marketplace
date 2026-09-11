@@ -17,11 +17,23 @@
     ],
     "SubagentStart": [
       {
-        "matcher": "^gmcc:(doper|code-explorer|code-architect|code-quality-reviewer|finding-reranker)$",
         "hooks": [
           {
             "type": "command",
+            "timeout": 5,
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/gmcc_subagent_context.sh"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "timeout": 5,
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/gmcc_gm_write_guard.sh"
           }
         ]
       }

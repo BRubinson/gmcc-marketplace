@@ -8,6 +8,47 @@ import GRDB
 /// body/dope_refs/kbite_refs TEXT columns are gone; refs are typed child
 /// rows (dope children carry dot-path CODES — ghost-legal at read; kbite
 /// and file-change children carry uuid FKs).
+/// The role-keyed briefing completeness rule — the door-side half of gap 7.
+///
+/// The nil-vs-empty fix is SUBTRACTION, not a column. `BriefingCompleteRequest`
+/// has always declared all three ref classes as Optionals, so "did not
+/// attempt" and "attempted and found nothing" were already distinguishable on
+/// the wire; two layers just threw the distinction away before anyone could
+/// act on it. This is the layer that makes it MEAN something: an agent-written
+/// briefing that omits a class ENTIRELY is refused, while `[]` is accepted.
+/// After that, a stored zero-row class on an agent briefing reads as
+/// ATTEMPTED AND EMPTY — because the only writer that could have meant
+/// otherwise was refused.
+///
+/// It lives here, beside the repository, rather than in the dispatch guard:
+/// the guard runs before handlers and is MessageType-granular, and this is a
+/// payload rule. It is keyed on `CallerRole` because the primary's own CLI
+/// cannot spell "absent" at all (ArgumentParser has no empty repeated option),
+/// and the primary is not the caller this rule is about.
+public enum BriefingCompletenessRule {
+
+    /// Throws when an `.agent` caller left a ref class out of the payload.
+    /// A no-op for `.primary`.
+    public static func check(
+        _ req: BriefingCompleteRequest, callerRole: CallerRole
+    ) throws {
+        guard callerRole == .agent else { return }
+        let missing = [
+            ("dope_refs", req.dopeRefs == nil),
+            ("kbite_refs", req.kbiteRefs == nil),
+            ("file_change_refs", req.fileChangeRefs == nil),
+        ].filter(\.1).map(\.0)
+        guard missing.isEmpty else {
+            throw StoreError.badRequest(detail:
+                "briefing complete omits \(missing.joined(separator: ", ")) entirely — a "
+                + "briefing must record what it LOOKED FOR, not only what it found. Pass an "
+                + "EMPTY ARRAY for a class you searched and came up empty on (that is a real, "
+                + "readable answer); leaving the class out is indistinguishable from never "
+                + "having looked, and this daemon no longer accepts the ambiguity.")
+        }
+    }
+}
+
 struct BriefingRepository: RepositoryContext {
     let db: Database
     let core: StoreCore
@@ -101,16 +142,58 @@ struct BriefingRepository: RepositoryContext {
     /// building → ready. The daemon stamps the staleness evidence ITSELF
     /// (the writing agent cannot mis-stamp) and denormalizes kbite briefs
     /// into the child rows.
+    ///
+    /// ONE ref policy, not three. This function used to run three mutually
+    /// incompatible policies in adjacent loops — dope refs inserted RAW,
+    /// kbite refs silently DROPPED on an unknown uuid, file-change refs
+    /// THROWN on — which is how a doper wrote twenty-three FILE PATHS into
+    /// `--dope-ref`, twice, and had every one accepted silently; they
+    /// surfaced only as ghost dot-paths at read, long after the agent that
+    /// could have fixed them was gone. The policy is now single, with one
+    /// deliberate distinction:
+    ///
+    /// - MALFORMED is always a hard refusal that NAMES the offending ref.
+    ///   For dope that test is purely lexical (`DopeCode.validateCode` per
+    ///   dot-segment), which is exactly the class the incident produced:
+    ///   slashes, `.swift`/`.md` suffixes, uuid shapes, sentences, a
+    ///   `gmcc:` scope prefix.
+    /// - WELL-FORMED BUT UNRESOLVABLE is not a refusal. A legal dope code
+    ///   may ghost when the tree moves under a briefing, so it is stored
+    ///   and reported back in `unresolvedDopeRefs` — the writing agent sees
+    ///   its own mistake while it is still holding the pen, without a legal
+    ///   ref set being refused for tree drift.
+    /// - A ref carrying a REAL FK (kbite file, file_change) offers the
+    ///   caller no ghost-vs-typo distinction at all, so an unknown uuid
+    ///   THROWS. The old ghost-tolerance note justified dropping a VANISHED
+    ///   file; it never justified dropping a typo, and the caller cannot
+    ///   tell the two apart from a silent success.
     func complete(_ req: BriefingCompleteRequest) throws -> BriefingRowResponse {
         guard let existing = try fetchBriefing(uuid: req.briefingUuid) else {
             throw StoreError.notFound(entity: "agent_briefing", key: req.briefingUuid)
         }
 
+        // Server-side staleness stamp from the session's SESSION_INSTANCE
+        // scope. No scope is a legal state (nil stamp, staleness unknown).
+        //
+        // HOISTED above the ref loops: this lookup used to sit thirty lines
+        // BELOW them, doing nothing but stamp staleness, while the validator
+        // it unlocks (`DopeRepository.dotPathExists`) went unused by the very
+        // loop that needed it.
+        let scope = try dope.dopeScopeCandidates(
+            sessionUuid: existing.sessionUuid, scopeType: .sessionInstance
+        ).first
+
         // Wholesale replacement (the open-resets precedent): a re-complete
         // replaces the whole ref set, never appends to it.
         try deleteChildren(briefingUuid: req.briefingUuid)
 
+        var unresolvedDopeRefs: [String] = []
         for (i, code) in (req.dopeRefs ?? []).enumerated() {
+            try validateDopeRefShape(code)
+            if let scope {
+                let resolves = try dope.dotPathExists(scopeUuid: scope.uuid, path: code)
+                if !resolves { unresolvedDopeRefs.append(code) }
+            }
             try core.insertBase(db, table: "agent_briefing_dope_persistence", extra: [
                 "agent_briefing_uuid": req.briefingUuid,
                 "dope_code": code,
@@ -118,15 +201,16 @@ struct BriefingRepository: RepositoryContext {
             ])
         }
         // Briefs denormalized from the kbite tables at write time:
-        // point-in-time by design, ghost-tolerant by design — an unknown
-        // file uuid is DROPPED (the child carries a real FK now; a ref to a
-        // vanished file cannot be stored, and must not break the write).
+        // point-in-time by design. An unknown file uuid is a typed refusal —
+        // the file_change policy, adopted here (see the doc comment).
         for (i, fileUuid) in (req.kbiteRefs ?? []).enumerated() {
             guard let brief = try Row.fetchOne(
                 db,
                 sql: "SELECT resource_file_summary FROM kbite_resource_file WHERE uuid = ?",
                 arguments: [fileUuid]
-            ) else { continue }
+            ) else {
+                throw StoreError.notFound(entity: "kbite_resource_file", key: fileUuid)
+            }
             try core.insertBase(db, table: "agent_briefing_dope_kbite", extra: [
                 "agent_briefing_uuid": req.briefingUuid,
                 "kbite_resource_file_uuid": fileUuid,
@@ -146,12 +230,6 @@ struct BriefingRepository: RepositoryContext {
                 "seq": i,
             ])
         }
-
-        // Server-side staleness stamp from the session's SESSION_INSTANCE
-        // scope. No scope is a legal state (nil stamp, staleness unknown).
-        let scope = try dope.dopeScopeCandidates(
-            sessionUuid: existing.sessionUuid, scopeType: .sessionInstance
-        ).first
 
         try core.updateBase(
             db, table: "agent_briefing", uuid: req.briefingUuid,
@@ -174,7 +252,37 @@ struct BriefingRepository: RepositoryContext {
         guard let row = try fetchBriefing(uuid: req.briefingUuid) else {
             throw StoreError.notFound(entity: "agent_briefing", key: req.briefingUuid)
         }
-        return BriefingRowResponse(briefing: row)
+        return BriefingRowResponse(
+            briefing: row,
+            unresolvedDopeRefs: unresolvedDopeRefs.isEmpty ? nil : unresolvedDopeRefs)
+    }
+
+    /// The hard-reject half of the dope ref policy: purely LEXICAL, so it can
+    /// never refuse a legitimate code that merely ghosts. One to four
+    /// snake_case dot-segments — the depth `DopeRepository.dotPathExists`
+    /// resolves — and nothing else.
+    private func validateDopeRefShape(_ code: String) throws {
+        let segments = code.split(separator: ".", omittingEmptySubsequences: false)
+            .map(String.init)
+        guard (1...4).contains(segments.count) else {
+            throw StoreError.badRequest(detail: dopeRefRefusal(
+                code,
+                "has \(segments.count) dot-separated segment(s); a dope dot-path has 1 to 4"))
+        }
+        for (i, segment) in segments.enumerated() {
+            do {
+                try DopeCode.validateCode(segment, field: "segment \(i + 1)")
+            } catch let error as DopeCode.ValidationError {
+                throw StoreError.badRequest(detail: dopeRefRefusal(code, error.description))
+            }
+        }
+    }
+
+    private func dopeRefRefusal(_ code: String, _ why: String) -> String {
+        "dope ref '\(code)' is not a dope dot-path — \(why). A dope ref is a "
+            + "domain.entity[.property] CODE out of the dope tree (gm dope search / the "
+            + "dope_search pen tool), never a file path, a uuid, a kbite name or prose. "
+            + "Nothing was written; fix the ref and complete again."
     }
 
     func get(_ req: BriefingGetRequest) throws -> BriefingGetResponse {

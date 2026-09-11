@@ -31,6 +31,14 @@ public final class DaemonClient: @unchecked Sendable {
     private let daemonBinaryPath: String
     private let clientName: String
     private let autostartEnabled: Bool
+    /// Stamped onto every request this client sends. `gm` and GMVibes leave it
+    /// `.primary`; `gmcc_mcp` constructs with `.agent`, which is the whole
+    /// agent-side half of the door.
+    ///
+    /// An un-stamped pen build is not a reachable state: `run_mcp.sh` runs
+    /// `build_daemon.sh` unconditionally before exec, so a stale `gmcc_mcp`
+    /// cannot serve a newer daemon.
+    public let callerRole: CallerRole
     private let lock = NSLock()
 
     private var fd: Int32 = -1
@@ -40,12 +48,14 @@ public final class DaemonClient: @unchecked Sendable {
         socketPath: String = Paths.socket.path,
         daemonBinaryPath: String = Paths.binDaemon.path,
         clientName: String = "gm",
-        autostart: Bool = true
+        autostart: Bool = true,
+        callerRole: CallerRole = .primary
     ) {
         self.socketPath = socketPath
         self.daemonBinaryPath = daemonBinaryPath
         self.clientName = clientName
         self.autostartEnabled = autostart
+        self.callerRole = callerRole
     }
 
     deinit {
@@ -107,7 +117,7 @@ public final class DaemonClient: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         if fd < 0 { _ = try connectLocked() }
-        let envelope = RequestEnvelope(type: type, payload: payload)
+        let envelope = RequestEnvelope(type: type, callerRole: callerRole, payload: payload)
         let response: ResponseEnvelope<Resp>
         do {
             response = try roundTrip(envelope)
