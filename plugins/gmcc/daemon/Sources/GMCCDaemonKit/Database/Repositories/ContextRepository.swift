@@ -4,9 +4,9 @@ import GRDB
 /// CONTEXT_ENSURE / CONTEXT_GET data access — the promoted ensure chain plus
 /// create-time-only kbite seeding. Runs INSIDE a Store-owned transaction;
 /// holds no dbQueue and never self-transacts.
-struct ContextRepository {
+struct ContextRepository: RepositoryContext {
     let db: Database
-    let store: Store
+    let core: StoreCore
 
     /// Upsert project → instance → session from repo identity, seeding kbite
     /// inheritance down the chain at CREATE time only.
@@ -69,14 +69,14 @@ struct ContextRepository {
         ) {
             return (existing, false)
         }
-        let uuid = try store.insertBase(db, table: "project", uuid: ctx.uuid, extra: [
+        let uuid = try core.insertBase(db, table: "project", uuid: ctx.uuid, extra: [
             "git_repo_name": ctx.gitRepoName,
             "code": ctx.code,
             "name": ctx.name,
             "ckfs_relative_storage_path": ctx.ckfsRelativeStoragePath,
         ])
         try seedKbites(level: "project", ownerUuid: uuid, codes: ctx.kbiteCodes, parent: nil)
-        try store.appendEvent(db, kind: .createProject, subjectUuid: uuid)
+        try core.appendEvent(db, kind: .createProject, subjectUuid: uuid)
         return (uuid, true)
     }
 
@@ -90,7 +90,7 @@ struct ContextRepository {
         ) {
             return (existing, false)
         }
-        let uuid = try store.insertBase(db, table: "instance", uuid: ctx.uuid, extra: [
+        let uuid = try core.insertBase(db, table: "instance", uuid: ctx.uuid, extra: [
             "project_uuid": projectUuid,
             "code": ctx.code,
             "name": ctx.name,
@@ -100,7 +100,7 @@ struct ContextRepository {
         try seedKbites(
             level: "instance", ownerUuid: uuid, codes: ctx.kbiteCodes,
             parent: (level: "project", uuid: projectUuid))
-        try store.appendEvent(db, kind: .createInstance, subjectUuid: uuid)
+        try core.appendEvent(db, kind: .createInstance, subjectUuid: uuid)
         return (uuid, true)
     }
 
@@ -114,7 +114,7 @@ struct ContextRepository {
         ) {
             return (existing, false)
         }
-        let uuid = try store.insertBase(db, table: "session", uuid: ctx.uuid, extra: [
+        let uuid = try core.insertBase(db, table: "session", uuid: ctx.uuid, extra: [
             "instance_uuid": instanceUuid,
             "code": ctx.code,
             "name": ctx.name,
@@ -126,7 +126,7 @@ struct ContextRepository {
         try seedKbites(
             level: "session", ownerUuid: uuid, codes: ctx.kbiteCodes,
             parent: (level: "instance", uuid: instanceUuid))
-        try store.appendEvent(db, kind: .createSession, subjectUuid: uuid)
+        try core.appendEvent(db, kind: .createSession, subjectUuid: uuid)
         return (uuid, true)
     }
 
@@ -139,7 +139,7 @@ struct ContextRepository {
         ) {
             return existing
         }
-        return try store.insertBase(db, table: "kbite", extra: ["code": code])
+        return try core.insertBase(db, table: "kbite", extra: ["code": code])
     }
 
     /// Fill a newly created row's active-kbite junction: explicit codes from
@@ -164,7 +164,7 @@ struct ContextRepository {
             kbiteUuids.formUnion(inherited)
         }
         for kbiteUuid in kbiteUuids.sorted() {
-            try store.insertBase(db, table: "\(level)_active_kbite", extra: [
+            try core.insertBase(db, table: "\(level)_active_kbite", extra: [
                 "\(level)_uuid": ownerUuid,
                 "kbite_uuid": kbiteUuid,
             ])

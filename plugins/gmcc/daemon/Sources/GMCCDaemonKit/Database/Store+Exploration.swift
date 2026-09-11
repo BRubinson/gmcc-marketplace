@@ -26,31 +26,31 @@ extension Store {
     // MARK: - Verbs
 
     public func exploreOpen(_ req: ExploreOpenRequest) throws -> ExploreSummaryResponse {
-        try dbQueue.write { db in try ExplorationRepository(db: db, store: self).open(req) }
+        try dbQueue.write { db in try ExplorationRepository(db: db, core: core).open(req) }
     }
 
     public func exploreKeyFileAdd(_ req: ExploreKeyFileAddRequest) throws -> ExploreKeyFileAddResponse {
-        try dbQueue.write { db in try ExplorationRepository(db: db, store: self).keyFileAdd(req) }
+        try dbQueue.write { db in try ExplorationRepository(db: db, core: core).keyFileAdd(req) }
     }
 
     public func exploreFindingAdd(_ req: ExploreFindingAddRequest) throws -> ExploreFindingRowResponse {
-        try dbQueue.write { db in try ExplorationRepository(db: db, store: self).findingAdd(req) }
+        try dbQueue.write { db in try ExplorationRepository(db: db, core: core).findingAdd(req) }
     }
 
     public func exploreRank(_ req: ExploreRankRequest) throws -> ExploreRankResponse {
-        try dbQueue.write { db in try ExplorationRepository(db: db, store: self).rank(req) }
+        try dbQueue.write { db in try ExplorationRepository(db: db, core: core).rank(req) }
     }
 
     public func exploreComplete(_ req: ExploreCompleteRequest) throws -> ExploreSummaryResponse {
-        try dbQueue.write { db in try ExplorationRepository(db: db, store: self).complete(req) }
+        try dbQueue.write { db in try ExplorationRepository(db: db, core: core).complete(req) }
     }
 
     public func exploreReopen(_ req: ExploreReopenRequest) throws -> ExploreSummaryResponse {
-        try dbQueue.write { db in try ExplorationRepository(db: db, store: self).reopen(req) }
+        try dbQueue.write { db in try ExplorationRepository(db: db, core: core).reopen(req) }
     }
 
     public func exploreGet(_ req: ExploreGetRequest) throws -> ExploreGetResponse {
-        try dbQueue.read { db in try ExplorationRepository(db: db, store: self).get(req) }
+        try dbQueue.read { db in try ExplorationRepository(db: db, core: core).get(req) }
     }
 
     // MARK: - Cross-domain helper forwards

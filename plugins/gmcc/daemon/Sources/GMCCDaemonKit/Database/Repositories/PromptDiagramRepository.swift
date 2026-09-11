@@ -4,9 +4,9 @@ import GRDB
 /// PROMPT_DIAGRAM_QUALIFY / _GET / _LIST data access — a prompt's standing
 /// reading of a rendered diagram (m0022). Runs INSIDE a Store-owned
 /// transaction; holds no dbQueue and never self-transacts.
-struct PromptDiagramRepository {
+struct PromptDiagramRepository: RepositoryContext {
     let db: Database
-    let store: Store
+    let core: StoreCore
 
     func qualify(
         _ req: PromptDiagramQualifyRequest, qualification: String
@@ -47,11 +47,11 @@ struct PromptDiagramRepository {
                             Store.isoNow(), existing])
             uuid = existing
         } else {
-            uuid = try store.insertBase(
+            uuid = try core.insertBase(
                 db, table: "prompt_qualified_diagram", extra: extra)
         }
 
-        try store.appendEvent(
+        try core.appendEvent(
             db, kind: .promptDiagramQualified, subjectUuid: uuid,
             payload: Store.jsonPayload([
                 "prompt_uuid": req.promptUuid,

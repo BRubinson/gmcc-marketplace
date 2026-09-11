@@ -4,9 +4,9 @@ import GRDB
 /// SESSION_GET / SESSION_UPDATE data access, plus the activation registry
 /// (v21) and the shared prompt-stub/change-summary aggregations. Runs INSIDE
 /// a Store-owned transaction; holds no dbQueue and never self-transacts.
-struct SessionRepository {
+struct SessionRepository: RepositoryContext {
     let db: Database
-    let store: Store
+    let core: StoreCore
 
     func getSession(_ req: SessionGetRequest) throws -> SessionGetResponse {
         guard let session = try fetchRow(uuid: req.sessionUuid) else {
@@ -71,11 +71,11 @@ struct SessionRepository {
             throw StoreError.emptyUpdate(entity: "session")
         }
         if !set.isEmpty {
-            try store.updateBase(
+            try core.updateBase(
                 db, table: "session", uuid: req.sessionUuid,
                 expectedVersion: req.expectedVersion, set: set)
         }
-        try store.appendEvent(
+        try core.appendEvent(
             db, kind: .updateSession, subjectUuid: req.sessionUuid,
             payload: Store.jsonPayload(["fields": set.keys.sorted()]))
         guard let row = try fetchRow(uuid: req.sessionUuid) else {
@@ -120,7 +120,7 @@ struct SessionRepository {
         try db.execute(
             sql: "DELETE FROM prompt_activation WHERE client_key = ? OR prompt_uuid = ?",
             arguments: [clientKey, promptUuid])
-        _ = try store.insertBase(db, table: "prompt_activation", extra: [
+        _ = try core.insertBase(db, table: "prompt_activation", extra: [
             "session_uuid": sessionUuid,
             "prompt_uuid": promptUuid,
             "client_key": clientKey,

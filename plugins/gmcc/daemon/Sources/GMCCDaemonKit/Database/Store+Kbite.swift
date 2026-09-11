@@ -13,15 +13,15 @@ extension Store {
     /// after the child row was created. `all: true` bypasses scope resolution
     /// and returns every kbite row.
     public func listKbites(_ req: KbiteListRequest) throws -> KbiteListResponse {
-        try dbQueue.read { db in try KbiteRepository(db: db, store: self).listKbites(req) }
+        try dbQueue.read { db in try KbiteRepository(db: db, core: core).listKbites(req) }
     }
 
     public func addKbite(_ req: KbiteAddRequest) throws -> KbiteAddResponse {
-        try dbQueue.write { db in try KbiteRepository(db: db, store: self).addKbite(req) }
+        try dbQueue.write { db in try KbiteRepository(db: db, core: core).addKbite(req) }
     }
 
     public func removeKbite(_ req: KbiteRemoveRequest) throws -> KbiteRemoveResponse {
-        try dbQueue.write { db in try KbiteRepository(db: db, store: self).removeKbite(req) }
+        try dbQueue.write { db in try KbiteRepository(db: db, core: core).removeKbite(req) }
     }
 
     // MARK: - Cross-domain helper forward
@@ -30,7 +30,7 @@ extension Store {
     func resolveAncestorScopes(
         _ db: Database, scope: KbiteScope, ownerUuid: String
     ) throws -> [(level: String, uuid: String)] {
-        try KbiteRepository(db: db, store: self)
+        try KbiteRepository(db: db, core: core)
             .resolveAncestorScopes(scope: scope, ownerUuid: ownerUuid)
     }
 }

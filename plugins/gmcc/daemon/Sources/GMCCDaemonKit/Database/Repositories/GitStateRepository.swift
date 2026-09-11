@@ -4,12 +4,12 @@ import GRDB
 /// Git-derived checked-out state reads (SESSION_RESOLVE /
 /// INSTANCE_CURRENT_SESSION). Runs INSIDE a Store-owned transaction; holds no
 /// dbQueue and never self-transacts.
-struct GitStateRepository {
+struct GitStateRepository: RepositoryContext {
     let db: Database
-    let store: Store
+    let core: StoreCore
 
     func sessionResolve(_ req: SessionResolveRequest) throws -> SessionResolveResponse {
-        guard let session = try store.fetchSessionRow(db, uuid: req.sessionUuid) else {
+        guard let session = try session.fetchRow(uuid: req.sessionUuid) else {
             throw StoreError.notFound(entity: "session", key: req.sessionUuid)
         }
         let instanceRoot = try String.fetchOne(db, sql: """
@@ -53,7 +53,7 @@ struct GitStateRepository {
                 FROM session s
                 WHERE s.instance_uuid = ? AND s.code = ?
                 """, arguments: [req.instanceUuid, code]) {
-                stub = store.sessionStub(from: row)
+                stub = Store.sessionStub(from: row)
             }
         }
         return InstanceCurrentSessionResponse(

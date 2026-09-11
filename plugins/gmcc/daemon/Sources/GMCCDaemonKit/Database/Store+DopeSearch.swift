@@ -11,7 +11,7 @@ extension Store {
             throw StoreError.badRequest(detail: "search query has no searchable tokens")
         }
         return try dbQueue.read { db in
-            try DopeSearchRepository(db: db, store: self).search(req, pattern: pattern)
+            try DopeSearchRepository(db: db, core: core).search(req, pattern: pattern)
         }
     }
 }

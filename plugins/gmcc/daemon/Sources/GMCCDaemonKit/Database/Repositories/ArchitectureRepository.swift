@@ -3,9 +3,9 @@ import GRDB
 
 /// ARCH_* data access — the db-native architecture machine. Runs INSIDE a
 /// Store-owned transaction; holds no dbQueue and never self-transacts.
-struct ArchitectureRepository {
+struct ArchitectureRepository: RepositoryContext {
     let db: Database
-    let store: Store
+    let core: StoreCore
 
     // MARK: - Shared create-or-return
 
@@ -24,12 +24,12 @@ struct ArchitectureRepository {
         ) {
             return (existing, false)
         }
-        let uuid = try store.insertBase(db, table: "architecture_summary", extra: [
+        let uuid = try core.insertBase(db, table: "architecture_summary", extra: [
             "prompt_uuid": promptUuid,
             "body": "",
             "status": ArchitectureStatus.drafting.rawValue,
         ])
-        try store.appendEvent(
+        try core.appendEvent(
             db, kind: .architectureChange, subjectUuid: uuid,
             payload: Store.jsonPayload(["action": "open", "prompt_uuid": promptUuid]))
         return (uuid, true)
@@ -47,13 +47,13 @@ struct ArchitectureRepository {
 
     func summarize(_ req: ArchSummarizeRequest) throws -> ArchSummaryResponse {
         let summary = try requireSummary(uuid: req.summaryUuid, at: .drafting, verb: "summarize")
-        try store.updateBase(
+        try core.updateBase(
             db, table: "architecture_summary", uuid: req.summaryUuid,
             expectedVersion: req.expectedVersion, set: ["body": req.body])
-        try store.appendEvent(
+        try core.appendEvent(
             db, kind: .architectureChange, subjectUuid: req.summaryUuid,
             payload: Store.jsonPayload(["action": "summarize", "prompt_uuid": summary.promptUuid]))
-        try store.touchSessionForPrompt(db, promptUuid: summary.promptUuid)
+        try clarification.touchSessionForPrompt(promptUuid: summary.promptUuid)
         guard let updated = try fetchSummary(uuid: req.summaryUuid) else {
             throw StoreError.notFound(entity: "architecture_summary", key: req.summaryUuid)
         }
@@ -68,14 +68,14 @@ struct ArchitectureRepository {
             db,
             sql: "SELECT COALESCE(MAX(seq), 0) FROM architecture_persistence_change WHERE architecture_summary_uuid = ?",
             arguments: [req.summaryUuid]) ?? 0) + 1
-        let uuid = try store.insertBase(db, table: "architecture_persistence_change", extra: [
+        let uuid = try core.insertBase(db, table: "architecture_persistence_change", extra: [
             "architecture_summary_uuid": req.summaryUuid,
             "seq": seq,
             "class_name": req.className,
             "file_path": path,
             "reason_brief": req.reasonBrief,
         ])
-        try store.appendEvent(
+        try core.appendEvent(
             db, kind: .architectureChange, subjectUuid: req.summaryUuid,
             payload: Store.jsonPayload([
                 "action": "persist_add", "seq": seq, "file_path": path,
@@ -107,7 +107,7 @@ struct ArchitectureRepository {
             db,
             sql: "SELECT COALESCE(MAX(seq), 0) FROM architecture_persistence_field_change WHERE persistence_change_uuid = ?",
             arguments: [req.persistenceChangeUuid]) ?? 0) + 1
-        let uuid = try store.insertBase(db, table: "architecture_persistence_field_change", extra: [
+        let uuid = try core.insertBase(db, table: "architecture_persistence_field_change", extra: [
             "persistence_change_uuid": req.persistenceChangeUuid,
             "seq": seq,
             "field_name": req.fieldName,
@@ -119,7 +119,7 @@ struct ArchitectureRepository {
             "fk_target": req.isForeignKey ? req.fkTarget : nil,
             "is_indexed": req.isIndexed ? 1 : 0,
         ])
-        try store.appendEvent(
+        try core.appendEvent(
             db, kind: .architectureChange, subjectUuid: summaryUuid,
             payload: Store.jsonPayload([
                 "action": "field_add", "persistence_change_uuid": req.persistenceChangeUuid,
@@ -145,7 +145,7 @@ struct ArchitectureRepository {
             db,
             sql: "SELECT COALESCE(MAX(seq), 0) FROM architecture_general_change WHERE architecture_summary_uuid = ?",
             arguments: [req.summaryUuid]) ?? 0) + 1
-        let uuid = try store.insertBase(db, table: "architecture_general_change", extra: [
+        let uuid = try core.insertBase(db, table: "architecture_general_change", extra: [
             "architecture_summary_uuid": req.summaryUuid,
             "seq": seq,
             "file_path": path,
@@ -154,7 +154,7 @@ struct ArchitectureRepository {
             "change_depth": req.changeDepth.rawValue,
             "change_code": req.changeCode,
         ])
-        try store.appendEvent(
+        try core.appendEvent(
             db, kind: .architectureChange, subjectUuid: req.summaryUuid,
             payload: Store.jsonPayload([
                 "action": "general_add", "seq": seq, "file_path": path,
@@ -300,16 +300,16 @@ struct ArchitectureRepository {
                 entity: "architecture", from: from.rawValue, to: to.rawValue,
                 reason: "\(action) runs from \(requireFrom.rawValue) — this summary is \(from.rawValue)")
         }
-        try store.updateBase(
+        try core.updateBase(
             db, table: "architecture_summary", uuid: summaryUuid,
             expectedVersion: expectedVersion, set: ["status": to.rawValue])
-        try store.appendEvent(
+        try core.appendEvent(
             db, kind: .architectureChange, subjectUuid: summaryUuid,
             payload: Store.jsonPayload([
                 "action": action, "from": from.rawValue, "to": to.rawValue,
                 "prompt_uuid": summary.promptUuid,
             ]))
-        try store.touchSessionForPrompt(db, promptUuid: summary.promptUuid)
+        try clarification.touchSessionForPrompt(promptUuid: summary.promptUuid)
         guard let updated = try fetchSummary(uuid: summaryUuid) else {
             throw StoreError.notFound(entity: "architecture_summary", key: summaryUuid)
         }

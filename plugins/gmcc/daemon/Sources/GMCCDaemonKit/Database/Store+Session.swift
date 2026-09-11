@@ -6,11 +6,11 @@ import GRDB
 
 extension Store {
     public func getSession(_ req: SessionGetRequest) throws -> SessionGetResponse {
-        try dbQueue.read { db in try SessionRepository(db: db, store: self).getSession(req) }
+        try dbQueue.read { db in try SessionRepository(db: db, core: core).getSession(req) }
     }
 
     public func updateSession(_ req: SessionUpdateRequest) throws -> SessionRow {
-        try dbQueue.write { db in try SessionRepository(db: db, store: self).updateSession(req) }
+        try dbQueue.write { db in try SessionRepository(db: db, core: core).updateSession(req) }
     }
 
     // MARK: - Liveness statics
@@ -40,35 +40,35 @@ extension Store {
     // MARK: - Cross-domain helper forwards
 
     func fetchSessionRow(_ db: Database, uuid: String) throws -> SessionRow? {
-        try SessionRepository(db: db, store: self).fetchRow(uuid: uuid)
+        try SessionRepository(db: db, core: core).fetchRow(uuid: uuid)
     }
 
     func claimActivation(
         _ db: Database, sessionUuid: String, promptUuid: String, clientKey: String
     ) throws {
-        try SessionRepository(db: db, store: self).claimActivation(
+        try SessionRepository(db: db, core: core).claimActivation(
             sessionUuid: sessionUuid, promptUuid: promptUuid, clientKey: clientKey)
     }
 
     func evictDeadActivations(_ db: Database, sessionUuid: String) throws {
-        try SessionRepository(db: db, store: self).evictDeadActivations(sessionUuid: sessionUuid)
+        try SessionRepository(db: db, core: core).evictDeadActivations(sessionUuid: sessionUuid)
     }
 
     func fetchActivations(_ db: Database, sessionUuid: String) throws -> [PromptActivationRow] {
-        try SessionRepository(db: db, store: self).fetchActivations(sessionUuid: sessionUuid)
+        try SessionRepository(db: db, core: core).fetchActivations(sessionUuid: sessionUuid)
     }
 
     func resolveActivePrompt(
         _ db: Database, sessionUuid: String, clientKey: String?
     ) throws -> String? {
-        try SessionRepository(db: db, store: self).resolveActivePrompt(
+        try SessionRepository(db: db, core: core).resolveActivePrompt(
             sessionUuid: sessionUuid, clientKey: clientKey)
     }
 
     func fetchPromptStubs(
         _ db: Database, sessionUuid: String?, withReports: Bool = false
     ) throws -> [PromptStub] {
-        try SessionRepository(db: db, store: self).fetchPromptStubs(
+        try SessionRepository(db: db, core: core).fetchPromptStubs(
             sessionUuid: sessionUuid, withReports: withReports)
     }
 
@@ -77,11 +77,11 @@ extension Store {
         where condition: String,
         arguments: StatementArguments
     ) throws -> ChangeSummary {
-        try SessionRepository(db: db, store: self).changeSummary(
+        try SessionRepository(db: db, core: core).changeSummary(
             where: condition, arguments: arguments)
     }
 
     func promptChangeSummaries(_ db: Database, sessionUuid: String) throws -> [PromptChangeSummary] {
-        try SessionRepository(db: db, store: self).promptChangeSummaries(sessionUuid: sessionUuid)
+        try SessionRepository(db: db, core: core).promptChangeSummaries(sessionUuid: sessionUuid)
     }
 }

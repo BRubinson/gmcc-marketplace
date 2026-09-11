@@ -5,9 +5,9 @@ import GRDB
 /// Runs INSIDE a Store-owned transaction; holds no dbQueue and never
 /// self-transacts. The file I/O phases stay on the Store facade — filesystem
 /// work never enters a db transaction.
-struct KbiteArchiveRepository {
+struct KbiteArchiveRepository: RepositoryContext {
     let db: Database
-    let store: Store
+    let core: StoreCore
 
     /// Assemble the scrubbed export document (read-only — no event).
     func exportDocument(
@@ -95,8 +95,8 @@ struct KbiteArchiveRepository {
                 resourceCount: 0, fileCount: 0, keywordCount: 0)
         }
 
-        let kbites = KbiteResourceRepository(db: db, store: store)
-        let kbiteUuid = try ContextRepository(db: db, store: store).ensureKbite(code: rehydrated.code)
+        let kbites = KbiteResourceRepository(db: db, core: core)
+        let kbiteUuid = try ContextRepository(db: db, core: core).ensureKbite(code: rehydrated.code)
         // Clean-slate content replace under the stable kbite uuid:
         // resources cascade to files + file junctions; the kbite-level
         // keyword junction is cleared explicitly. Registrations survive.
@@ -108,7 +108,7 @@ struct KbiteArchiveRepository {
         var fileCount = 0
         var attachedKeywords: Set<String> = []
         for resource in rehydrated.resources {
-            let resourceUuid = try store.insertBase(db, table: "kbite_resource", extra: [
+            let resourceUuid = try core.insertBase(db, table: "kbite_resource", extra: [
                 "kbite_uuid": kbiteUuid,
                 "resource_name": resource.resourceName,
                 "resource_summary": resource.resourceSummary,
@@ -116,7 +116,7 @@ struct KbiteArchiveRepository {
                 "resource_trust": resource.resourceTrust,
             ])
             for file in resource.files {
-                let fileUuid = try store.insertBase(db, table: "kbite_resource_file", extra: [
+                let fileUuid = try core.insertBase(db, table: "kbite_resource_file", extra: [
                     "kbite_resource_uuid": resourceUuid,
                     "resource_file_name": file.resourceFileName,
                     "resource_file_summary": file.resourceFileSummary,
@@ -144,7 +144,7 @@ struct KbiteArchiveRepository {
         // for — the previous content's keywords must not orphan forever.
         let gcCount = existing != nil ? try gcOrphanKeywords() : 0
 
-        try store.appendEvent(
+        try core.appendEvent(
             db, kind: .kbiteImport, subjectUuid: kbiteUuid,
             payload: Store.jsonPayload([
                 "code": rehydrated.code,
@@ -192,7 +192,7 @@ struct KbiteArchiveRepository {
 
         let gcCount = try gcOrphanKeywords()
 
-        try store.appendEvent(
+        try core.appendEvent(
             db, kind: .kbiteDelete, subjectUuid: kbiteUuid,
             payload: Store.jsonPayload([
                 "code": req.code,

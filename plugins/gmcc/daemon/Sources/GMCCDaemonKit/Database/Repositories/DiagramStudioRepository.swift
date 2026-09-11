@@ -4,9 +4,9 @@ import GRDB
 /// Diagram Studio (v23) data access: cross-tier search/browse and the row
 /// delete. Runs INSIDE a Store-owned transaction; holds no dbQueue and never
 /// self-transacts.
-struct DiagramStudioRepository {
+struct DiagramStudioRepository: RepositoryContext {
     let db: Database
-    let store: Store
+    let core: StoreCore
 
     func diagramSearch(_ req: DiagramSearchRequest, pattern: FTS5Pattern?) throws -> DiagramSearchResponse {
         guard try Row.fetchOne(
@@ -60,7 +60,7 @@ struct DiagramStudioRepository {
     }
 
     func diagramDelete(_ req: DiagramDeleteRequest) throws -> DiagramDeleteResponse {
-        guard let diagram = try store.fetchDiagram(db, uuid: req.diagramUuid) else {
+        guard let diagram = try diagram.fetchDiagram(uuid: req.diagramUuid) else {
             throw StoreError.notFound(entity: "diagram", key: req.diagramUuid)
         }
         if let expected = req.expectedRevision, expected != diagram.revision {
@@ -70,11 +70,11 @@ struct DiagramStudioRepository {
         let elements = try Int.fetchOne(
             db, sql: "SELECT COUNT(*) FROM diagram_element WHERE diagram_uuid = ?",
             arguments: [diagram.uuid]) ?? 0
-        let storagePath = try store.diagramOwnerStoragePath(db, diagram: diagram)
+        let storagePath = try self.diagram.diagramOwnerStoragePath(diagram: diagram)
         // The durable goodbye rides BEFORE the row drop, carrying the
         // final revision — live galleries/editors drop the card on it.
-        try store.recordDiagramChange(
-            db, diagram: diagram, action: "deleted", elementUuid: nil,
+        try self.diagram.recordDiagramChange(
+            diagram: diagram, action: "deleted", elementUuid: nil,
             mutationCount: nil, revision: diagram.revision)
         // One statement: elements + subtypes + vertices cascade via FKs,
         // the FTS row via its delete trigger, and m0022's qualified

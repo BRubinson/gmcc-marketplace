@@ -30,9 +30,9 @@ import GRDB
 
 /// DOPE_PROMOTE data access. Runs INSIDE a Store-owned transaction; holds no
 /// dbQueue and never self-transacts.
-struct DopePromoteRepository {
+struct DopePromoteRepository: RepositoryContext {
     let db: Database
-    let store: Store
+    let core: StoreCore
 
     func promote(_ req: DopePromoteRequest) throws -> DopePromoteResponse {
 
@@ -61,8 +61,8 @@ struct DopePromoteRepository {
                       + "'\(primaryBranch)' (expected session code '\(expected)')")
         }
 
-        var sources = try store.dopeScopeCandidates(
-            db, sessionUuid: req.sessionUuid, scopeType: .sessionInstance, code: req.code)
+        var sources = try dope.dopeScopeCandidates(
+            sessionUuid: req.sessionUuid, scopeType: .sessionInstance, code: req.code)
         sources = sources.filter { $0.deletedOn == nil }
         guard !sources.isEmpty else {
             return DopePromoteResponse(promoted: [], skipped: "no_session_scope",
@@ -105,8 +105,8 @@ struct DopePromoteRepository {
                                                enums: 0, options: 0)))
                     continue
                 }
-                try store.wipeDopeTree(db, scopeUuid: base.uuid)
-                let counts = try store.copyDopeTree(db, from: source, into: base.uuid)
+                try dope.wipeDopeTree(scopeUuid: base.uuid)
+                let counts = try dope.copyDopeTree(from: source, into: base.uuid)
                 // The base's own revision is ITS counter: +1, never copied
                 // from the source, so it can only move forward.
                 try db.execute(sql: """
@@ -138,7 +138,7 @@ struct DopePromoteRepository {
                                                enums: 0, options: 0)))
                     continue
                 }
-                let uuid = try store.insertBase(db, table: "dope_scope", extra: [
+                let uuid = try core.insertBase(db, table: "dope_scope", extra: [
                     "project_uuid": projectUuid,
                     "scope_type": DopeScopeType.baseProject.rawValue,
                     "code": source.code,
@@ -149,7 +149,7 @@ struct DopePromoteRepository {
                     "promoted_from_revision": source.revision,
                     "promoted_from_updated_at": source.updatedAt,
                 ])
-                let counts = try store.copyDopeTree(db, from: source, into: uuid)
+                let counts = try dope.copyDopeTree(from: source, into: uuid)
                 promoted.append(DopePromotedScope(
                     code: source.code, baseScopeUuid: uuid, fromRevision: 0,
                     toRevision: source.revision, counts: counts))
@@ -157,8 +157,8 @@ struct DopePromoteRepository {
         }
 
         for entry in promoted where req.dryRun != true {
-            if let base = try store.fetchDopeScope(db, uuid: entry.baseScopeUuid) {
-                try store.recordDopeChange(db, scope: base, action: "promote",
+            if let base = try dope.fetchDopeScope(uuid: entry.baseScopeUuid) {
+                try dope.recordDopeChange(scope: base, action: "promote",
                                           level: .scope, nodeUuid: base.uuid,
                                           revision: base.revision)
             }

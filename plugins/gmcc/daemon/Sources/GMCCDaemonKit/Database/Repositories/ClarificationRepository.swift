@@ -3,9 +3,9 @@ import GRDB
 
 /// CLARIFY_* data access — the db-native clarification machine. Runs INSIDE a
 /// Store-owned transaction; holds no dbQueue and never self-transacts.
-struct ClarificationRepository {
+struct ClarificationRepository: RepositoryContext {
     let db: Database
-    let store: Store
+    let core: StoreCore
 
     // MARK: - Shared create-or-return
 
@@ -25,14 +25,14 @@ struct ClarificationRepository {
         ) {
             return (existing, false)
         }
-        let uuid = try store.insertBase(db, table: "clarification_summary", extra: [
+        let uuid = try core.insertBase(db, table: "clarification_summary", extra: [
             "prompt_uuid": promptUuid,
             "status": ClarificationStatus.building.rawValue,
             "backstory_note": "",
             "refined_goal": "",
             "refined_detail": "",
         ])
-        try store.appendEvent(
+        try core.appendEvent(
             db, kind: .clarificationChange, subjectUuid: uuid,
             payload: Store.jsonPayload(["action": "open", "prompt_uuid": promptUuid]))
         return (uuid, true)
@@ -77,7 +77,7 @@ struct ClarificationRepository {
             db,
             sql: "SELECT COALESCE(MAX(seq), 0) FROM clarification WHERE clarification_summary_uuid = ?",
             arguments: [req.summaryUuid]) ?? 0) + 1
-        let uuid = try store.insertBase(db, table: "clarification", extra: [
+        let uuid = try core.insertBase(db, table: "clarification", extra: [
             "clarification_summary_uuid": req.summaryUuid,
             "seq": seq,
             "category": req.category.rawValue,
@@ -86,7 +86,7 @@ struct ClarificationRepository {
             "answer_source": source,
             "status": status,
         ])
-        try store.appendEvent(
+        try core.appendEvent(
             db, kind: .clarificationChange, subjectUuid: req.summaryUuid,
             payload: Store.jsonPayload([
                 "action": "ask", "seq": seq, "category": req.category.rawValue,
@@ -122,10 +122,10 @@ struct ClarificationRepository {
             set["answer_source"] = (req.answerSource ?? .user).rawValue
             set["status"] = ClarificationRowStatus.answered.rawValue
         }
-        try store.updateBase(
+        try core.updateBase(
             db, table: "clarification", uuid: req.clarificationUuid,
             expectedVersion: req.expectedVersion, set: set)
-        try store.appendEvent(
+        try core.appendEvent(
             db, kind: .clarificationChange, subjectUuid: row.clarificationSummaryUuid,
             payload: Store.jsonPayload([
                 "action": req.skip ? "skip" : "answer", "clarification_uuid": req.clarificationUuid,
@@ -174,7 +174,7 @@ struct ClarificationRepository {
             "refined_detail": refinedDetail,
         ]
         if let note = req.backstoryNote { set["backstory_note"] = note }
-        try store.updateBase(
+        try core.updateBase(
             db, table: "clarification_summary", uuid: req.summaryUuid,
             expectedVersion: req.expectedVersion, set: set)
 
@@ -183,19 +183,19 @@ struct ClarificationRepository {
         ) else {
             throw StoreError.notFound(entity: "prompt", key: summary.promptUuid)
         }
-        try store.updateBase(
+        try core.updateBase(
             db, table: "prompt", uuid: summary.promptUuid,
             expectedVersion: promptVersion, set: ["goal": refinedGoal])
-        try store.appendEvent(
+        try core.appendEvent(
             db, kind: .updatePrompt, subjectUuid: summary.promptUuid,
             payload: Store.jsonPayload(["fields": ["goal"], "source": "clarify_finalize"]))
-        try store.appendEvent(
+        try core.appendEvent(
             db, kind: .clarificationChange, subjectUuid: req.summaryUuid,
             payload: Store.jsonPayload(["action": "finalize", "prompt_uuid": summary.promptUuid]))
         try touchSessionForPrompt(promptUuid: summary.promptUuid)
 
         guard let updatedSummary = try fetchSummary(uuid: req.summaryUuid),
-              let prompt = try store.fetchPromptRow(db, uuid: summary.promptUuid) else {
+              let prompt = try prompt.fetchRow(uuid: summary.promptUuid) else {
             throw StoreError.notFound(entity: "clarification_summary", key: req.summaryUuid)
         }
         return ClarifyFinalizeResponse(summary: updatedSummary, prompt: prompt)
@@ -237,10 +237,10 @@ struct ClarificationRepository {
                 entity: "clarification", from: from.rawValue, to: to.rawValue,
                 reason: "\(action) runs from \(requireFrom.rawValue) — this summary is \(from.rawValue)")
         }
-        try store.updateBase(
+        try core.updateBase(
             db, table: "clarification_summary", uuid: summaryUuid,
             expectedVersion: expectedVersion, set: ["status": to.rawValue])
-        try store.appendEvent(
+        try core.appendEvent(
             db, kind: .clarificationChange, subjectUuid: summaryUuid,
             payload: Store.jsonPayload([
                 "action": action, "from": from.rawValue, "to": to.rawValue,
@@ -258,7 +258,7 @@ struct ClarificationRepository {
         if let sessionUuid = try String.fetchOne(
             db, sql: "SELECT session_uuid FROM prompt WHERE uuid = ?", arguments: [promptUuid]
         ) {
-            try store.touchSession(db, uuid: sessionUuid)
+            try core.touchSession(db, uuid: sessionUuid)
         }
     }
 

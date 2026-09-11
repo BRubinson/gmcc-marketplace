@@ -27,7 +27,7 @@ extension Store {
             throw StoreError.badRequest(detail: "search query has no searchable tokens")
         }
         return try dbQueue.read { db in
-            try SearchRepository(db: db, store: self).search(req, pattern: pattern)
+            try SearchRepository(db: db, core: core).search(req, pattern: pattern)
         }
     }
 }

@@ -13,9 +13,9 @@ import GRDB
 /// `bumpScopeRevision` WITHOUT touching the scope row's version — a property
 /// edit deep in the tree must never invalidate a dope_scope version a
 /// GMVibes scope editor is holding.
-struct DopeRepository {
+struct DopeRepository: RepositoryContext {
     let db: Database
-    let store: Store
+    let core: StoreCore
 
 
     // MARK: - Level description limits (pre-validated for friendly errors;
@@ -35,7 +35,7 @@ struct DopeRepository {
 
 
     /// Advance the whole-tree content counter WITHOUT bumping the scope row's
-    /// version — see the extension doc comment and Store.touchSession.
+    /// version — see the extension doc comment and StoreCore.touchSession.
     /// `area` additionally advances that subtree's own content counter, which
     /// is what makes dope sub-LOADABLE: a client compares one area's number
     /// instead of refetching the whole tree.
@@ -132,8 +132,8 @@ struct DopeRepository {
         // one place the merge base learns that this session touched an
         // element. Addressed by dot-path, because ingest re-mints uuids.
         if let level, let nodeUuid, level != .scope {
-            if let dotPath = try store.dopeDotPath(db, nodeUuid: nodeUuid, level: level) {
-                try store.markLocallyModified(db, scopeUuid: scope.uuid,
+            if let dotPath = try dopeProvenance.dotPath(nodeUuid: nodeUuid, level: level) {
+                try dopeProvenance.markLocallyModified(scopeUuid: scope.uuid,
                                         dotPath: dotPath, kind: level.rawValue)
             }
         }
@@ -153,10 +153,10 @@ struct DopeRepository {
         if let level { payload["level"] = level.rawValue }
         if let nodeUuid { payload["node_uuid"] = nodeUuid }
         if let promptUuid = scope.promptUuid { payload["prompt_uuid"] = promptUuid }
-        try store.appendEvent(db, kind: .dopeChange, subjectUuid: scope.uuid,
+        try core.appendEvent(db, kind: .dopeChange, subjectUuid: scope.uuid,
                         payload: Store.jsonPayload(payload))
         if let sessionUuid = scope.sessionUuid {
-            try store.touchSession(db, uuid: sessionUuid)
+            try core.touchSession(db, uuid: sessionUuid)
         }
     }
 
@@ -210,7 +210,7 @@ struct DopeRepository {
                 entity: "session",
                 detail: "session \(req.sessionUuid) has no instance->project lineage")
         }
-        let uuid = try store.insertBase(db, table: "dope_scope", extra: [
+        let uuid = try core.insertBase(db, table: "dope_scope", extra: [
             "project_uuid": lineage["p"] as String,
             "instance_uuid": lineage["i"] as String,
             "session_uuid": req.sessionUuid,
@@ -694,7 +694,7 @@ struct DopeRepository {
         // per-domain forward pass would miss a ref into a later domain and
         // write NULL into a CHECK-coupled column.
         for file in domainFiles {
-            let domainUuid = try store.insertBase(db, table: "dope_persistence", extra: [
+            let domainUuid = try core.insertBase(db, table: "dope_persistence", extra: [
                 "dope_scope_uuid": scopeUuid,
                 "code": file.body.code, "name": file.body.name,
                 "description": file.body.description, "sort_order": file.body.sortOrder,
@@ -705,7 +705,7 @@ struct DopeRepository {
         for file in domainFiles {
             let domainUuid = domainUuidByCode[file.body.code]!
             for en in file.enums {
-                let enumUuid = try store.insertBase(db, table: "dope_persistence_enum", extra: [
+                let enumUuid = try core.insertBase(db, table: "dope_persistence_enum", extra: [
                     "dope_persistence_uuid": domainUuid,
                     "code": en.body.code, "name": en.body.name,
                     "description": en.body.description, "sort_order": en.body.sortOrder,
@@ -715,7 +715,7 @@ struct DopeRepository {
                 enumUuidByRef[DopeCode.formatEnumRef(
                     domain: file.body.code, enumCode: en.body.code)] = enumUuid
                 for option in en.options {
-                    _ = try store.insertBase(db, table: "dope_persistence_enum_option", extra: [
+                    _ = try core.insertBase(db, table: "dope_persistence_enum_option", extra: [
                         "dope_persistence_enum_uuid": enumUuid,
                         "code": option.body.code, "name": option.body.name,
                         "description": option.body.description,
@@ -731,7 +731,7 @@ struct DopeRepository {
         for file in domainFiles {
             let domainUuid = domainUuidByCode[file.body.code]!
             for entity in file.entities {
-                let entityUuid = try store.insertBase(db, table: "dope_persistence_entity", extra: [
+                let entityUuid = try core.insertBase(db, table: "dope_persistence_entity", extra: [
                     "dope_persistence_uuid": domainUuid,
                     "code": entity.body.code, "name": entity.body.name,
                     "entity_type": entity.body.entityType,
@@ -761,7 +761,7 @@ struct DopeRepository {
                         }
                         enumUuid = resolved
                     }
-                    let uuid = try store.insertBase(db, table: "dope_persistence_entity_property", extra: [
+                    let uuid = try core.insertBase(db, table: "dope_persistence_entity_property", extra: [
                         "dope_persistence_entity_uuid": entityUuid,
                         "code": body.code, "name": body.name,
                         "description": body.description, "sort_order": body.sortOrder,
@@ -806,7 +806,7 @@ struct DopeRepository {
                 throw StoreError.badRequest(
                     detail: "relationship property '\(body.code)' target '\(body.relationshipTargetRef ?? "nil")' did not resolve during insert")
             }
-            let uuid = try store.insertBase(db, table: "dope_persistence_entity_property", extra: [
+            let uuid = try core.insertBase(db, table: "dope_persistence_entity_property", extra: [
                 "dope_persistence_entity_uuid": pending.entityUuid,
                 "code": body.code, "name": body.name,
                 "description": body.description, "sort_order": body.sortOrder,
@@ -903,7 +903,7 @@ struct DopeRepository {
         scopeUuid: String, cogFiles: [DopeCogDocument]
     ) throws {
         for (cogIndex, cog) in cogFiles.enumerated() {
-            let cogUuid = try store.insertBase(db, table: "dope_cog", extra: [
+            let cogUuid = try core.insertBase(db, table: "dope_cog", extra: [
                 "dope_scope_uuid": scopeUuid,
                 "code": cog.body.code, "name": cog.body.name,
                 "description": cog.body.description,
@@ -912,7 +912,7 @@ struct DopeRepository {
             ])
             for element in cog.elements {
                 let spec = try DopeCogElementSpec.spec(for: element.elementType)
-                let elementUuid = try store.insertBase(db, table: "dope_cog_element", extra: [
+                let elementUuid = try core.insertBase(db, table: "dope_cog_element", extra: [
                     "dope_cog_uuid": cogUuid,
                     "parent_element_uuid": nil,
                     "element_type": element.elementType,
@@ -925,14 +925,14 @@ struct DopeRepository {
                 if spec.ownedFields.contains(.primaryPath) {
                     subtype["primary_path"] = element.primaryPath ?? ""
                 }
-                _ = try store.insertBase(db, table: spec.subtypeTable, extra: subtype)
+                _ = try core.insertBase(db, table: spec.subtypeTable, extra: subtype)
 
                 // Expand the links block back into child rows, using the ONE
                 // synthesis both the reader and the seeder share.
                 for (i, owned) in (element.links?.persistenceOwners ?? []).enumerated() {
                     let child = DopeCogProjection.ownerElement(
                         parentCode: element.code, persistenceCode: owned, sortOrder: i)
-                    let childUuid = try store.insertBase(db, table: "dope_cog_element", extra: [
+                    let childUuid = try core.insertBase(db, table: "dope_cog_element", extra: [
                         "dope_cog_uuid": cogUuid,
                         "parent_element_uuid": elementUuid,
                         "element_type": DopeCogElementType.persistenceOwner.rawValue,
@@ -941,7 +941,7 @@ struct DopeRepository {
                         "sort_order": child.sortOrder,
                         "dope_scope_code": nil,
                     ])
-                    _ = try store.insertBase(db, table: "dope_cog_persistence_owner", extra: [
+                    _ = try core.insertBase(db, table: "dope_cog_persistence_owner", extra: [
                         "element_uuid": childUuid,
                         "dope_persistence_code": owned,
                     ])
@@ -1292,7 +1292,7 @@ struct DopeRepository {
             break
         }
 
-        let uuid = try store.insertBase(db, table: spec.table, extra: extra)
+        let uuid = try core.insertBase(db, table: spec.table, extra: extra)
         let revision = try bumpScopeRevision(
             scopeUuid: scope.uuid, area: .persistence,
             ownerUuid: try owningPersistenceUuid(level: req.level, nodeUuid: uuid))
@@ -1425,7 +1425,7 @@ struct DopeRepository {
         guard !set.isEmpty else {
             throw StoreError.emptyUpdate(entity: spec.table)
         }
-        try store.updateBase(db, table: spec.table, uuid: req.nodeUuid,
+        try core.updateBase(db, table: spec.table, uuid: req.nodeUuid,
                             expectedVersion: req.expectedVersion, set: set)
         let revision = try bumpScopeRevision(
             scopeUuid: scope.uuid, area: .persistence,
@@ -1478,7 +1478,7 @@ struct DopeRepository {
                 throw StoreError.badRequest(
                     detail: "node \(req.nodeUuid) is already soft-deleted")
             }
-            try store.updateBase(
+            try core.updateBase(
                 db, table: spec.table, uuid: req.nodeUuid,
                 expectedVersion: req.expectedVersion,
                 set: ["deleted_on": Store.isoNow()])
@@ -1552,7 +1552,7 @@ struct DopeRepository {
         default:
             break
         }
-        try store.deleteBase(db, table: spec.table, uuid: req.nodeUuid,
+        try core.deleteBase(db, table: spec.table, uuid: req.nodeUuid,
                             expectedVersion: req.expectedVersion)
         let revision = try bumpScopeRevision(scopeUuid: scope.uuid)
         try recordDopeChange(scope: scope, action: "node_delete", level: req.level,

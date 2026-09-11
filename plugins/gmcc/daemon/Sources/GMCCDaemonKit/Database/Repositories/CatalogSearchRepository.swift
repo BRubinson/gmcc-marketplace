@@ -4,9 +4,9 @@ import GRDB
 /// CATALOG_SEARCH data access — tokenized OR name/code search across
 /// instances + sessions. Runs INSIDE a Store-owned transaction; holds no
 /// dbQueue and never self-transacts.
-struct CatalogSearchRepository {
+struct CatalogSearchRepository: RepositoryContext {
     let db: Database
-    let store: Store
+    let core: StoreCore
 
     func searchCatalog(_ req: CatalogSearchRequest, tokens: [String], limit: Int) throws -> CatalogSearchResponse {
         // OR across tokens × (name, code) for one table alias; every token is a
@@ -57,7 +57,7 @@ struct CatalogSearchRepository {
         sessionSql += " LIMIT \(limit)"
         let sessions = try Row.fetchAll(
             db, sql: sessionSql, arguments: StatementArguments(sessionArguments)
-        ).map { store.sessionStub(from: $0) }
+        ).map { Store.sessionStub(from: $0) }
 
         // Instances: the parent closure of every returned session, plus
         // instances that matched directly (kept even when they contribute no

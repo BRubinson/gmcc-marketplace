@@ -11,34 +11,34 @@ extension Store {
     /// inheritance down the chain at CREATE time only. Idempotent; one
     /// transaction; returns all three uuids plus created flags.
     public func ensureContext(_ req: ContextEnsureRequest) throws -> ContextEnsureResponse {
-        try dbQueue.write { db in try ContextRepository(db: db, store: self).ensureContext(req) }
+        try dbQueue.write { db in try ContextRepository(db: db, core: core).ensureContext(req) }
     }
 
     /// Read-only resolution — never creates rows.
     public func getContext(_ req: ContextGetRequest) throws -> ContextGetResponse {
-        try dbQueue.read { db in try ContextRepository(db: db, store: self).getContext(req) }
+        try dbQueue.read { db in try ContextRepository(db: db, core: core).getContext(req) }
     }
 
     // MARK: - Cross-domain helper forwards (ensure chain shared with addFileChange)
 
     func ensureProject(_ db: Database, _ ctx: ProjectContext) throws -> (uuid: String, created: Bool) {
-        try ContextRepository(db: db, store: self).ensureProject(ctx)
+        try ContextRepository(db: db, core: core).ensureProject(ctx)
     }
 
     func ensureInstance(
         _ db: Database, _ ctx: InstanceContext, projectUuid: String
     ) throws -> (uuid: String, created: Bool) {
-        try ContextRepository(db: db, store: self).ensureInstance(ctx, projectUuid: projectUuid)
+        try ContextRepository(db: db, core: core).ensureInstance(ctx, projectUuid: projectUuid)
     }
 
     func ensureSession(
         _ db: Database, _ ctx: SessionContext, instanceUuid: String
     ) throws -> (uuid: String, created: Bool) {
-        try ContextRepository(db: db, store: self).ensureSession(ctx, instanceUuid: instanceUuid)
+        try ContextRepository(db: db, core: core).ensureSession(ctx, instanceUuid: instanceUuid)
     }
 
     /// Upsert a kbite row by code, returning its uuid.
     func ensureKbite(_ db: Database, code: String) throws -> String {
-        try ContextRepository(db: db, store: self).ensureKbite(code: code)
+        try ContextRepository(db: db, core: core).ensureKbite(code: code)
     }
 }

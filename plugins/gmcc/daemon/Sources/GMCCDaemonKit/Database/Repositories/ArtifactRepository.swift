@@ -3,9 +3,9 @@ import GRDB
 
 /// Data access for prompt_artifact pointers. Runs INSIDE a Store-owned
 /// transaction; holds no dbQueue and never self-transacts.
-struct ArtifactRepository {
+struct ArtifactRepository: RepositoryContext {
     let db: Database
-    let store: Store
+    let core: StoreCore
 
     func add(_ req: ArtifactAddRequest) throws -> ArtifactRow {
         guard try Row.fetchOne(
@@ -27,7 +27,7 @@ struct ArtifactRepository {
                     WHERE uuid = ?
                     """,
                 arguments: [req.note, Store.isoNow(), existing])
-            try store.appendEvent(
+            try core.appendEvent(
                 db, kind: .addArtifact, subjectUuid: existing,
                 payload: Store.jsonPayload(["file_path": req.filePath]))
             guard let row = try fetchRow(uuid: existing) else {
@@ -35,12 +35,12 @@ struct ArtifactRepository {
             }
             return row
         }
-        let uuid = try store.insertBase(db, table: "prompt_artifact", extra: [
+        let uuid = try core.insertBase(db, table: "prompt_artifact", extra: [
             "prompt_uuid": req.promptUuid,
             "file_path": req.filePath,
             "note": req.note,
         ])
-        try store.appendEvent(
+        try core.appendEvent(
             db, kind: .addArtifact, subjectUuid: uuid,
             payload: Store.jsonPayload(["file_path": req.filePath]))
         guard let row = try fetchRow(uuid: uuid) else {

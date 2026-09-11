@@ -5,9 +5,9 @@ import GRDB
 /// INSIDE a Store-owned transaction; holds no dbQueue and never
 /// self-transacts. The shared rank/validation statics stay on Store (they
 /// serve Store+Review too).
-struct ExplorationRepository {
+struct ExplorationRepository: RepositoryContext {
     let db: Database
-    let store: Store
+    let core: StoreCore
 
     // MARK: - Shared create-or-return
 
@@ -27,15 +27,15 @@ struct ExplorationRepository {
         ) {
             return (existing, false)
         }
-        let uuid = try store.insertBase(db, table: "exploration_summary", extra: [
+        let uuid = try core.insertBase(db, table: "exploration_summary", extra: [
             "prompt_uuid": promptUuid,
             "status": ExplorationStatus.exploring.rawValue,
             "overview": "",
         ])
-        try store.appendEvent(
+        try core.appendEvent(
             db, kind: .explorationChange, subjectUuid: uuid,
             payload: Store.jsonPayload(["action": "open", "prompt_uuid": promptUuid]))
-        try store.touchSessionForPrompt(db, promptUuid: promptUuid)
+        try clarification.touchSessionForPrompt(promptUuid: promptUuid)
         return (uuid, true)
     }
 
@@ -56,24 +56,24 @@ struct ExplorationRepository {
         let summary = try requireSummary(
             uuid: req.summaryUuid, at: .exploring, verb: "key-file-add")
         let path = try Store.normalizeRepoRelativePath(
-            req.filePath, repoRoot: try store.instanceRoot(db, promptUuid: summary.promptUuid))
+            req.filePath, repoRoot: try architecture.instanceRoot(promptUuid: summary.promptUuid))
         if let existing = try fetchKeyFiles(
             where: "exploration_summary_uuid = ? AND file_path = ?",
             arguments: [req.summaryUuid, path]
         ).first {
             return ExploreKeyFileAddResponse(keyFile: existing, created: false)
         }
-        let uuid = try store.insertBase(db, table: "exploration_key_file", extra: [
+        let uuid = try core.insertBase(db, table: "exploration_key_file", extra: [
             "exploration_summary_uuid": req.summaryUuid,
             "file_path": path,
         ])
-        try store.appendEvent(
+        try core.appendEvent(
             db, kind: .explorationChange, subjectUuid: req.summaryUuid,
             payload: Store.jsonPayload([
                 "action": "key_file_add", "file_path": path,
                 "prompt_uuid": summary.promptUuid,
             ]))
-        try store.touchSessionForPrompt(db, promptUuid: summary.promptUuid)
+        try clarification.touchSessionForPrompt(promptUuid: summary.promptUuid)
         guard let row = try fetchKeyFiles(where: "uuid = ?", arguments: [uuid]).first else {
             throw StoreError.notFound(entity: "exploration_key_file", key: uuid)
         }
@@ -86,7 +86,7 @@ struct ExplorationRepository {
         let (title, body, agentName) = try Store.validatedFindingText(
             title: req.title, body: req.body, agentName: req.agentName)
         try Store.validateRating(req.rating)
-        let uuid = try store.insertBase(db, table: "exploration_finding", extra: [
+        let uuid = try core.insertBase(db, table: "exploration_finding", extra: [
             "exploration_summary_uuid": req.summaryUuid,
             "kind": req.kind.rawValue,
             "title": title,
@@ -94,13 +94,13 @@ struct ExplorationRepository {
             "agent_name": agentName,
             "finding_rating": req.rating,
         ])
-        try store.appendEvent(
+        try core.appendEvent(
             db, kind: .explorationChange, subjectUuid: req.summaryUuid,
             payload: Store.jsonPayload([
                 "action": "finding_add", "kind": req.kind.rawValue,
                 "prompt_uuid": summary.promptUuid,
             ]))
-        try store.touchSessionForPrompt(db, promptUuid: summary.promptUuid)
+        try clarification.touchSessionForPrompt(promptUuid: summary.promptUuid)
         guard let row = try fetchFindings(where: "uuid = ?", arguments: [uuid]).first else {
             throw StoreError.notFound(entity: "exploration_finding", key: uuid)
         }
@@ -115,19 +115,19 @@ struct ExplorationRepository {
     /// ranking a sealed set would shift the sub-100 contract; reopen first.
     func rank(_ req: ExploreRankRequest) throws -> ExploreRankResponse {
         let summary = try requireSummary(uuid: req.summaryUuid, at: .exploring, verb: "rank")
-        try store.applyRankBatch(
-            db, table: "exploration_finding", parentColumn: "exploration_summary_uuid",
+        try findingRank.applyRankBatch(
+            table: "exploration_finding", parentColumn: "exploration_summary_uuid",
             summaryUuid: req.summaryUuid, ratings: req.ratings)
-        let unranked = try store.unrankedCount(
-            db, table: "exploration_finding", parentColumn: "exploration_summary_uuid",
+        let unranked = try findingRank.unrankedCount(
+            table: "exploration_finding", parentColumn: "exploration_summary_uuid",
             summaryUuid: req.summaryUuid)
-        try store.appendEvent(
+        try core.appendEvent(
             db, kind: .explorationChange, subjectUuid: req.summaryUuid,
             payload: Store.jsonPayload([
                 "action": "rank", "count": req.ratings.count,
                 "prompt_uuid": summary.promptUuid,
             ]))
-        try store.touchSessionForPrompt(db, promptUuid: summary.promptUuid)
+        try clarification.touchSessionForPrompt(promptUuid: summary.promptUuid)
         guard let updated = try fetchSummary(uuid: req.summaryUuid) else {
             throw StoreError.notFound(entity: "exploration_summary", key: req.summaryUuid)
         }
@@ -139,8 +139,8 @@ struct ExplorationRepository {
     /// is carried only here (its ONLY write path).
     func complete(_ req: ExploreCompleteRequest) throws -> ExploreSummaryResponse {
         let summary = try requireSummary(uuid: req.summaryUuid, at: .exploring, verb: "complete")
-        let unranked = try store.unrankedCount(
-            db, table: "exploration_finding", parentColumn: "exploration_summary_uuid",
+        let unranked = try findingRank.unrankedCount(
+            table: "exploration_finding", parentColumn: "exploration_summary_uuid",
             summaryUuid: req.summaryUuid)
         guard unranked == 0 else {
             throw StoreError.invalidEntityTransition(
@@ -149,14 +149,14 @@ struct ExplorationRepository {
                 reason: "\(unranked) finding(s) unranked — run gm explore rank first")
         }
         let overview = try Store.validatedOverview(req.overview, entity: "exploration")
-        try store.updateBase(
+        try core.updateBase(
             db, table: "exploration_summary", uuid: req.summaryUuid,
             expectedVersion: req.expectedVersion,
             set: ["status": ExplorationStatus.complete.rawValue, "overview": overview])
-        try store.appendEvent(
+        try core.appendEvent(
             db, kind: .explorationChange, subjectUuid: req.summaryUuid,
             payload: Store.jsonPayload(["action": "complete", "prompt_uuid": summary.promptUuid]))
-        try store.touchSessionForPrompt(db, promptUuid: summary.promptUuid)
+        try clarification.touchSessionForPrompt(promptUuid: summary.promptUuid)
         guard let updated = try fetchSummary(uuid: req.summaryUuid) else {
             throw StoreError.notFound(entity: "exploration_summary", key: req.summaryUuid)
         }
@@ -177,14 +177,14 @@ struct ExplorationRepository {
                 to: ExplorationStatus.exploring.rawValue,
                 reason: "reopen runs from complete — this summary is \(summary.status)")
         }
-        try store.updateBase(
+        try core.updateBase(
             db, table: "exploration_summary", uuid: req.summaryUuid,
             expectedVersion: req.expectedVersion,
             set: ["status": ExplorationStatus.exploring.rawValue])
-        try store.appendEvent(
+        try core.appendEvent(
             db, kind: .explorationChange, subjectUuid: req.summaryUuid,
             payload: Store.jsonPayload(["action": "reopen", "prompt_uuid": summary.promptUuid]))
-        try store.touchSessionForPrompt(db, promptUuid: summary.promptUuid)
+        try clarification.touchSessionForPrompt(promptUuid: summary.promptUuid)
         guard let updated = try fetchSummary(uuid: req.summaryUuid) else {
             throw StoreError.notFound(entity: "exploration_summary", key: req.summaryUuid)
         }

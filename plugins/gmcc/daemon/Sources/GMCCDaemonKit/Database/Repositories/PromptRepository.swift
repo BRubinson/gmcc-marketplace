@@ -3,9 +3,9 @@ import GRDB
 
 /// PROMPT_* data access — the prompt lifecycle. Runs INSIDE a Store-owned
 /// transaction; holds no dbQueue and never self-transacts.
-struct PromptRepository {
+struct PromptRepository: RepositoryContext {
     let db: Database
-    let store: Store
+    let core: StoreCore
 
     func create(_ req: PromptCreateRequest) throws -> PromptRow {
         guard try Row.fetchOne(
@@ -40,7 +40,7 @@ struct PromptRepository {
                 ckfsPath = "\(sessionPath)/prompts/\(seq)_\(Store.slugStorageSegment(req.name))"
             }
         }
-        let uuid = try store.insertBase(db, table: "prompt", uuid: req.uuid, extra: [
+        let uuid = try core.insertBase(db, table: "prompt", uuid: req.uuid, extra: [
             "session_uuid": req.sessionUuid,
             "seq": seq,
             "code": code,
@@ -59,19 +59,19 @@ struct PromptRepository {
             sql: "SELECT kbite_uuid FROM session_active_kbite WHERE session_uuid = ?",
             arguments: [req.sessionUuid])
         for kbiteUuid in sessionKbites {
-            try store.insertBase(db, table: "prompt_active_kbite", extra: [
+            try core.insertBase(db, table: "prompt_active_kbite", extra: [
                 "prompt_uuid": uuid,
                 "kbite_uuid": kbiteUuid,
             ])
         }
         // Item 4: payload carries session_uuid so GMVibes can route the
         // event to one session instead of invalidating all of them.
-        try store.appendEvent(
+        try core.appendEvent(
             db, kind: .createPrompt, subjectUuid: uuid,
             payload: Store.jsonPayload(
                 ["seq": seq, "name": req.name, "session_uuid": req.sessionUuid]))
         // Item 3: prompt writes advance session recency (version untouched).
-        try store.touchSession(db, uuid: req.sessionUuid)
+        try core.touchSession(db, uuid: req.sessionUuid)
         guard let row = try fetchRow(uuid: uuid) else {
             throw StoreError.notFound(entity: "prompt", key: uuid)
         }
@@ -89,7 +89,7 @@ struct PromptRepository {
                 throw StoreError.notFound(entity: "session", key: sessionUuid)
             }
         }
-        return PromptListResponse(prompts: try SessionRepository(db: db, store: store)
+        return PromptListResponse(prompts: try SessionRepository(db: db, core: core)
             .fetchPromptStubs(sessionUuid: req.sessionUuid, withReports: req.withReports ?? false))
     }
 
@@ -97,7 +97,7 @@ struct PromptRepository {
         guard let prompt = try fetchRow(uuid: req.promptUuid) else {
             throw StoreError.notFound(entity: "prompt", key: req.promptUuid)
         }
-        let artifacts = try ArtifactRepository(db: db, store: store)
+        let artifacts = try ArtifactRepository(db: db, core: core)
             .fetchRows(promptUuid: req.promptUuid)
         let kbiteCodes = try String.fetchAll(db, sql: """
             SELECT k.code FROM kbite k
@@ -105,7 +105,7 @@ struct PromptRepository {
             WHERE j.prompt_uuid = ?
             ORDER BY k.code
             """, arguments: [req.promptUuid])
-        let changeSummary = try SessionRepository(db: db, store: store)
+        let changeSummary = try SessionRepository(db: db, core: core)
             .changeSummary(where: "prompt_uuid = ?", arguments: [req.promptUuid])
         return PromptGetResponse(
             prompt: prompt,
@@ -136,16 +136,16 @@ struct PromptRepository {
         guard !set.isEmpty else {
             throw StoreError.emptyUpdate(entity: "prompt")
         }
-        try store.updateBase(
+        try core.updateBase(
             db, table: "prompt", uuid: req.promptUuid,
             expectedVersion: req.expectedVersion, set: set)
-        try store.appendEvent(
+        try core.appendEvent(
             db, kind: .updatePrompt, subjectUuid: req.promptUuid,
             payload: Store.jsonPayload(["fields": set.keys.sorted()]))
         guard let row = try fetchRow(uuid: req.promptUuid) else {
             throw StoreError.notFound(entity: "prompt", key: req.promptUuid)
         }
-        try store.touchSession(db, uuid: row.sessionUuid)
+        try core.touchSession(db, uuid: row.sessionUuid)
         return row
     }
 
@@ -183,14 +183,14 @@ struct PromptRepository {
         }
         switch (from, req.status) {
         case (.draft, .clarifying):
-            _ = try ClarificationRepository(db: db, store: store)
+            _ = try ClarificationRepository(db: db, core: core)
                 .ensureSummary(promptUuid: req.promptUuid)
         case (.clarifying, .architecting):
             try requireSummaryStatus(
                 table: "clarification_summary", entity: "clarification",
                 promptUuid: req.promptUuid,
                 expected: ClarificationStatus.complete.rawValue)
-            _ = try ArchitectureRepository(db: db, store: store)
+            _ = try ArchitectureRepository(db: db, core: core)
                 .ensureSummary(promptUuid: req.promptUuid)
         case (.architecting, .implementing):
             try requireSummaryStatus(
@@ -200,7 +200,7 @@ struct PromptRepository {
         default:
             break // implementing → {reviewing, done}, reviewing → done: ungated
         }
-        try store.updateBase(
+        try core.updateBase(
             db, table: "prompt", uuid: req.promptUuid,
             expectedVersion: req.expectedVersion,
             set: ["status": req.status.rawValue])
@@ -212,7 +212,7 @@ struct PromptRepository {
         // regardless of which instance calls it.
         let sessionUuid: String = head["session_uuid"]
         if req.status == .implementing, let clientKey = req.clientKey {
-            try SessionRepository(db: db, store: store).claimActivation(
+            try SessionRepository(db: db, core: core).claimActivation(
                 sessionUuid: sessionUuid,
                 promptUuid: req.promptUuid, clientKey: clientKey)
         } else if req.status == .done {
@@ -220,10 +220,10 @@ struct PromptRepository {
                 sql: "DELETE FROM prompt_activation WHERE prompt_uuid = ?",
                 arguments: [req.promptUuid])
         }
-        try store.appendEvent(
+        try core.appendEvent(
             db, kind: .promptStatusChange, subjectUuid: req.promptUuid,
             payload: Store.jsonPayload(["from": from.rawValue, "to": req.status.rawValue]))
-        try store.touchSession(db, uuid: sessionUuid)
+        try core.touchSession(db, uuid: sessionUuid)
         guard let row = try fetchRow(uuid: req.promptUuid) else {
             throw StoreError.notFound(entity: "prompt", key: req.promptUuid)
         }

@@ -73,7 +73,7 @@ extension Store {
             var rc = resourceCount
             var fc = fileCount
             var kw = attachedKeywords
-            let uuid = try KbiteResourceRepository(db: db, store: self).digestApply(
+            let uuid = try KbiteResourceRepository(db: db, core: core).digestApply(
                 code: req.code, found: found, inlinedContents: inlinedContents,
                 resourceCount: &rc, fileCount: &fc, attachedKeywords: &kw)
             resourceCount = rc
@@ -112,12 +112,12 @@ extension Store {
     }
 
     public func getKbite(_ req: KbiteGetRequest) throws -> KbiteGetResponse {
-        try dbQueue.read { db in try KbiteResourceRepository(db: db, store: self).getKbite(req) }
+        try dbQueue.read { db in try KbiteResourceRepository(db: db, core: core).getKbite(req) }
     }
 
     /// The targeted load replacing "cat the chewed file".
     public func getKbiteFile(_ req: KbiteFileGetRequest) throws -> KbiteFileGetResponse {
-        try dbQueue.read { db in try KbiteResourceRepository(db: db, store: self).getKbiteFile(req) }
+        try dbQueue.read { db in try KbiteResourceRepository(db: db, core: core).getKbiteFile(req) }
     }
 
     public func searchKbites(_ req: KbiteSearchRequest) throws -> KbiteSearchResponse {
@@ -125,26 +125,26 @@ extension Store {
             return KbiteSearchResponse(hits: [])
         }
         return try dbQueue.read { db in
-            try KbiteResourceRepository(db: db, store: self).searchKbites(req, pattern: pattern)
+            try KbiteResourceRepository(db: db, core: core).searchKbites(req, pattern: pattern)
         }
     }
 
     /// Attach/detach normalized keywords at kbite or resource-file level.
     public func tagKeyword(_ req: KbiteKeywordTagRequest) throws -> KbiteKeywordTagResponse {
-        try dbQueue.write { db in try KbiteResourceRepository(db: db, store: self).tagKeyword(req) }
+        try dbQueue.write { db in try KbiteResourceRepository(db: db, core: core).tagKeyword(req) }
     }
 
     // MARK: - Cross-domain helper forwards (Store+KbiteArchive's import reuses these)
 
     func ensureKeyword(_ db: Database, _ keyword: String) throws -> String {
-        try KbiteResourceRepository(db: db, store: self).ensureKeyword(keyword)
+        try KbiteResourceRepository(db: db, core: core).ensureKeyword(keyword)
     }
 
     @discardableResult
     func attachKeyword(
         _ db: Database, table: String, ownerColumn: String, ownerUuid: String, keywordUuid: String
     ) throws -> Bool {
-        try KbiteResourceRepository(db: db, store: self).attachKeyword(
+        try KbiteResourceRepository(db: db, core: core).attachKeyword(
             table: table, ownerColumn: ownerColumn, ownerUuid: ownerUuid, keywordUuid: keywordUuid)
     }
 }

@@ -16,9 +16,9 @@ import GRDB
 /// Everything is addressed by dot-path, never uuid: ingest re-mints every
 /// child uuid, so uuid-keyed provenance would be erased by the operation it
 /// exists to inform.
-struct DopeProvenanceRepository {
+struct DopeProvenanceRepository: RepositoryContext {
     let db: Database
-    let store: Store
+    let core: StoreCore
 
 
     /// Load the stored base for one scope.

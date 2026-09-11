@@ -5,9 +5,9 @@ import GRDB
 /// scopes; --only-masks is a post-filter over resolver provenance. Runs
 /// INSIDE a Store-owned transaction; holds no dbQueue and never
 /// self-transacts.
-struct DopeSearchRepository {
+struct DopeSearchRepository: RepositoryContext {
     let db: Database
-    let store: Store
+    let core: StoreCore
 
 
     func search(_ req: DopeSearchRequest, pattern: FTS5Pattern) throws -> DopeSearchResponse {
@@ -46,11 +46,11 @@ struct DopeSearchRepository {
         var provenance = [String: [String: DopeOverlay.Origin]]()
         for scope in scopes where scope.tier?.isOverlay == true {
             guard let baseTier = scope.tier?.masks else { continue }
-            let overlayTree = try store.fetchDopeTree(db, scope: scope)
+            let overlayTree = try dope.fetchDopeTree(scope: scope)
             let baseRows: [DopeScopeRow]
             if baseTier.isSessionOwned, let sessionUuid = scope.sessionUuid {
-                baseRows = try store.dopeScopeCandidates(
-                    db, sessionUuid: sessionUuid, scopeType: baseTier, code: scope.code)
+                baseRows = try dope.dopeScopeCandidates(
+                    sessionUuid: sessionUuid, scopeType: baseTier, code: scope.code)
             } else {
                 baseRows = try Row.fetchAll(db, sql: """
                     SELECT * FROM dope_scope
@@ -58,7 +58,7 @@ struct DopeSearchRepository {
                     """, arguments: [scope.projectUuid, baseTier.rawValue, scope.code])
                     .map(Store.dopeScopeRow)
             }
-            let baseTree = try baseRows.first.map { try store.fetchDopeTree(db, scope: $0) }
+            let baseTree = try baseRows.first.map { try dope.fetchDopeTree(scope: $0) }
             let merged = DopeOverlay.resolve(base: baseTree, overlay: overlayTree)
             provenance[scope.uuid] = merged.resolutions.mapValues(\.origin)
         }

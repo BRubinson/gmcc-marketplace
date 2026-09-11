@@ -13,16 +13,16 @@ extension Store {
     // MARK: - Verbs
 
     public func clarifyOpen(_ req: ClarifyOpenRequest) throws -> ClarifySummaryResponse {
-        try dbQueue.write { db in try ClarificationRepository(db: db, store: self).open(req) }
+        try dbQueue.write { db in try ClarificationRepository(db: db, core: core).open(req) }
     }
 
     public func clarifyAsk(_ req: ClarifyAskRequest) throws -> ClarificationRowResponse {
-        try dbQueue.write { db in try ClarificationRepository(db: db, store: self).ask(req) }
+        try dbQueue.write { db in try ClarificationRepository(db: db, core: core).ask(req) }
     }
 
     public func clarifySeal(_ req: ClarifySealRequest) throws -> ClarifySummaryResponse {
         try dbQueue.write { db in
-            try ClarificationRepository(db: db, store: self).transition(
+            try ClarificationRepository(db: db, core: core).transition(
                 summaryUuid: req.summaryUuid, expectedVersion: req.expectedVersion,
                 to: .answering, action: "seal", requireFrom: .building)
         }
@@ -30,22 +30,22 @@ extension Store {
 
     public func clarifyReopen(_ req: ClarifyReopenRequest) throws -> ClarifySummaryResponse {
         try dbQueue.write { db in
-            try ClarificationRepository(db: db, store: self).transition(
+            try ClarificationRepository(db: db, core: core).transition(
                 summaryUuid: req.summaryUuid, expectedVersion: req.expectedVersion,
                 to: .answering, action: "reopen", requireFrom: .complete)
         }
     }
 
     public func clarifyAnswer(_ req: ClarifyAnswerRequest) throws -> ClarificationRowResponse {
-        try dbQueue.write { db in try ClarificationRepository(db: db, store: self).answer(req) }
+        try dbQueue.write { db in try ClarificationRepository(db: db, core: core).answer(req) }
     }
 
     public func clarifyFinalize(_ req: ClarifyFinalizeRequest) throws -> ClarifyFinalizeResponse {
-        try dbQueue.write { db in try ClarificationRepository(db: db, store: self).finalize(req) }
+        try dbQueue.write { db in try ClarificationRepository(db: db, core: core).finalize(req) }
     }
 
     public func clarifyGet(_ req: ClarifyGetRequest) throws -> ClarifyGetResponse {
-        try dbQueue.read { db in try ClarificationRepository(db: db, store: self).get(req) }
+        try dbQueue.read { db in try ClarificationRepository(db: db, core: core).get(req) }
     }
 
     // MARK: - Cross-domain helper forwards
@@ -54,7 +54,7 @@ extension Store {
     /// Item 3 helper shared by the clarify/arch mutation paths: prompt-scoped
     /// writes advance session recency without bumping the session version.
     func touchSessionForPrompt(_ db: Database, promptUuid: String) throws {
-        try ClarificationRepository(db: db, store: self).touchSessionForPrompt(promptUuid: promptUuid)
+        try ClarificationRepository(db: db, core: core).touchSessionForPrompt(promptUuid: promptUuid)
     }
 
 

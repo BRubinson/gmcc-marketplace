@@ -9,28 +9,28 @@ import GRDB
 
 extension Store {
     public func createPrompt(_ req: PromptCreateRequest) throws -> PromptRow {
-        try dbQueue.write { db in try PromptRepository(db: db, store: self).create(req) }
+        try dbQueue.write { db in try PromptRepository(db: db, core: core).create(req) }
     }
 
     public func listPrompts(_ req: PromptListRequest) throws -> PromptListResponse {
-        try dbQueue.read { db in try PromptRepository(db: db, store: self).list(req) }
+        try dbQueue.read { db in try PromptRepository(db: db, core: core).list(req) }
     }
 
     public func getPrompt(_ req: PromptGetRequest) throws -> PromptGetResponse {
-        try dbQueue.read { db in try PromptRepository(db: db, store: self).get(req) }
+        try dbQueue.read { db in try PromptRepository(db: db, core: core).get(req) }
     }
 
     public func updatePromptContent(_ req: PromptUpdateContentRequest) throws -> PromptRow {
-        try dbQueue.write { db in try PromptRepository(db: db, store: self).updateContent(req) }
+        try dbQueue.write { db in try PromptRepository(db: db, core: core).updateContent(req) }
     }
 
     public func setPromptStatus(_ req: PromptSetStatusRequest) throws -> PromptRow {
-        try dbQueue.write { db in try PromptRepository(db: db, store: self).setStatus(req) }
+        try dbQueue.write { db in try PromptRepository(db: db, core: core).setStatus(req) }
     }
 
     // MARK: - Cross-domain helper forward
 
     func fetchPromptRow(_ db: Database, uuid: String) throws -> PromptRow? {
-        try PromptRepository(db: db, store: self).fetchRow(uuid: uuid)
+        try PromptRepository(db: db, core: core).fetchRow(uuid: uuid)
     }
 }

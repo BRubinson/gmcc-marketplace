@@ -12,37 +12,37 @@ import GRDB
 
 extension Store {
     public func dopeCogAdd(_ req: DopeCogAddRequest) throws -> DopeCogResponse {
-        try dbQueue.write { db in try DopeCogRepository(db: db, store: self).dopeCogAdd(req) }
+        try dbQueue.write { db in try DopeCogRepository(db: db, core: core).dopeCogAdd(req) }
     }
 
     public func dopeCogUpdate(_ req: DopeCogUpdateRequest) throws -> DopeCogResponse {
-        try dbQueue.write { db in try DopeCogRepository(db: db, store: self).dopeCogUpdate(req) }
+        try dbQueue.write { db in try DopeCogRepository(db: db, core: core).dopeCogUpdate(req) }
     }
 
     public func dopeCogDelete(_ req: DopeCogDeleteRequest) throws -> DopeCogDeleteResponse {
-        try dbQueue.write { db in try DopeCogRepository(db: db, store: self).dopeCogDelete(req) }
+        try dbQueue.write { db in try DopeCogRepository(db: db, core: core).dopeCogDelete(req) }
     }
 
     public func dopeCogElementAdd(
         _ req: DopeCogElementAddRequest
     ) throws -> DopeCogElementResponse {
-        try dbQueue.write { db in try DopeCogRepository(db: db, store: self).dopeCogElementAdd(req) }
+        try dbQueue.write { db in try DopeCogRepository(db: db, core: core).dopeCogElementAdd(req) }
     }
 
     public func dopeCogElementUpdate(
         _ req: DopeCogElementUpdateRequest
     ) throws -> DopeCogElementResponse {
-        try dbQueue.write { db in try DopeCogRepository(db: db, store: self).dopeCogElementUpdate(req) }
+        try dbQueue.write { db in try DopeCogRepository(db: db, core: core).dopeCogElementUpdate(req) }
     }
 
     public func dopeCogElementDelete(
         _ req: DopeCogElementDeleteRequest
     ) throws -> DopeCogDeleteResponse {
-        try dbQueue.write { db in try DopeCogRepository(db: db, store: self).dopeCogElementDelete(req) }
+        try dbQueue.write { db in try DopeCogRepository(db: db, core: core).dopeCogElementDelete(req) }
     }
 
     public func dopeCogGet(_ req: DopeCogGetRequest) throws -> DopeCogGetResponse {
-        try dbQueue.read { db in try DopeCogRepository(db: db, store: self).dopeCogGet(req) }
+        try dbQueue.read { db in try DopeCogRepository(db: db, core: core).dopeCogGet(req) }
     }
 
     // MARK: - Cross-domain helper forward
@@ -51,6 +51,6 @@ extension Store {
     /// transaction — the repo write path needs cogs alongside the
     /// persistence tree.
     func fetchDopeCogs(_ db: Database, scopeUuid: String) throws -> [DopeCogNode] {
-        try DopeCogRepository(db: db, store: self).fetchDopeCogs(scopeUuid: scopeUuid)
+        try DopeCogRepository(db: db, core: core).fetchDopeCogs(scopeUuid: scopeUuid)
     }
 }

@@ -20,7 +20,7 @@ extension Store {
         }
         let limit = min(max(req.limit ?? 200, 1), 1_000)
         return try dbQueue.read { db in
-            try CatalogSearchRepository(db: db, store: self)
+            try CatalogSearchRepository(db: db, core: core)
                 .searchCatalog(req, tokens: tokens, limit: limit)
         }
     }

@@ -5,9 +5,9 @@ import GRDB
 /// table/column identifiers come from KbiteScope.rawValue — enum-bound, never
 /// caller text. Runs INSIDE a Store-owned transaction; holds no dbQueue and
 /// never self-transacts.
-struct KbiteRepository {
+struct KbiteRepository: RepositoryContext {
     let db: Database
-    let store: Store
+    let core: StoreCore
 
     func listKbites(_ req: KbiteListRequest) throws -> KbiteListResponse {
         if req.all == true {
@@ -38,17 +38,17 @@ struct KbiteRepository {
     /// added: false rather than erroring.
     func addKbite(_ req: KbiteAddRequest) throws -> KbiteAddResponse {
         try requireScopeOwner(scope: req.scope, ownerUuid: req.ownerUuid)
-        let kbiteUuid = try store.ensureKbite(db, code: req.code)
+        let kbiteUuid = try context.ensureKbite(code: req.code)
         let level = req.scope.rawValue
         let exists = try Row.fetchOne(db, sql: """
             SELECT 1 FROM \(level)_active_kbite WHERE \(level)_uuid = ? AND kbite_uuid = ?
             """, arguments: [req.ownerUuid, kbiteUuid]) != nil
         if !exists {
-            try store.insertBase(db, table: "\(level)_active_kbite", extra: [
+            try core.insertBase(db, table: "\(level)_active_kbite", extra: [
                 "\(level)_uuid": req.ownerUuid,
                 "kbite_uuid": kbiteUuid,
             ])
-            try store.appendEvent(
+            try core.appendEvent(
                 db, kind: .addKbite, subjectUuid: req.ownerUuid,
                 payload: Store.jsonPayload(["scope": level, "code": req.code]))
         }
@@ -70,7 +70,7 @@ struct KbiteRepository {
             """, arguments: [req.ownerUuid, kbiteUuid])
         let removed = db.changesCount > 0
         if removed {
-            try store.appendEvent(
+            try core.appendEvent(
                 db, kind: .removeKbite, subjectUuid: req.ownerUuid,
                 payload: Store.jsonPayload(["scope": level, "code": req.code]))
         }

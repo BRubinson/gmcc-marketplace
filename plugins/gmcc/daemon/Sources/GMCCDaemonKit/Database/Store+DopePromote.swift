@@ -7,6 +7,6 @@ import GRDB
 
 extension Store {
     public func dopePromote(_ req: DopePromoteRequest) throws -> DopePromoteResponse {
-        try dbQueue.write { db in try DopePromoteRepository(db: db, store: self).promote(req) }
+        try dbQueue.write { db in try DopePromoteRepository(db: db, core: core).promote(req) }
     }
 }

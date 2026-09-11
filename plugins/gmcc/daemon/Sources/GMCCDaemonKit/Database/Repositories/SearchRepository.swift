@@ -3,9 +3,9 @@ import GRDB
 
 /// SEARCH data access — FTS5 UNION over the bot-report mirrors. Runs INSIDE a
 /// Store-owned transaction; holds no dbQueue and never self-transacts.
-struct SearchRepository {
+struct SearchRepository: RepositoryContext {
     let db: Database
-    let store: Store
+    let core: StoreCore
 
     func search(_ req: SearchRequest, pattern: FTS5Pattern) throws -> SearchResponse {
         if let sessionUuid = req.sessionUuid {

@@ -19,31 +19,31 @@ import GRDB
 
 extension Store {
     public func reviewOpen(_ req: ReviewOpenRequest) throws -> ReviewSummaryResponse {
-        try dbQueue.write { db in try ReviewRepository(db: db, store: self).open(req) }
+        try dbQueue.write { db in try ReviewRepository(db: db, core: core).open(req) }
     }
 
     public func reviewFindingAdd(_ req: ReviewFindingAddRequest) throws -> ReviewFindingRowResponse {
-        try dbQueue.write { db in try ReviewRepository(db: db, store: self).findingAdd(req) }
+        try dbQueue.write { db in try ReviewRepository(db: db, core: core).findingAdd(req) }
     }
 
     public func reviewRank(_ req: ReviewRankRequest) throws -> ReviewRankResponse {
-        try dbQueue.write { db in try ReviewRepository(db: db, store: self).rank(req) }
+        try dbQueue.write { db in try ReviewRepository(db: db, core: core).rank(req) }
     }
 
     public func reviewResolve(_ req: ReviewResolveRequest) throws -> ReviewFindingRowResponse {
-        try dbQueue.write { db in try ReviewRepository(db: db, store: self).resolve(req) }
+        try dbQueue.write { db in try ReviewRepository(db: db, core: core).resolve(req) }
     }
 
     public func reviewComplete(_ req: ReviewCompleteRequest) throws -> ReviewSummaryResponse {
-        try dbQueue.write { db in try ReviewRepository(db: db, store: self).complete(req) }
+        try dbQueue.write { db in try ReviewRepository(db: db, core: core).complete(req) }
     }
 
     public func reviewReopen(_ req: ReviewReopenRequest) throws -> ReviewSummaryResponse {
-        try dbQueue.write { db in try ReviewRepository(db: db, store: self).reopen(req) }
+        try dbQueue.write { db in try ReviewRepository(db: db, core: core).reopen(req) }
     }
 
     public func reviewGet(_ req: ReviewGetRequest) throws -> ReviewGetResponse {
-        try dbQueue.read { db in try ReviewRepository(db: db, store: self).get(req) }
+        try dbQueue.read { db in try ReviewRepository(db: db, core: core).get(req) }
     }
 
     // MARK: - Cross-domain helper forwards

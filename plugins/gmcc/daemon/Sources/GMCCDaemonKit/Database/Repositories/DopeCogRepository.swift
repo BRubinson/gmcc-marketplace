@@ -5,27 +5,27 @@ import GRDB
 /// elements are typed nodes whose per-type metadata lives in a subtype table
 /// chosen by the DopeCogElementSpec registry. Runs INSIDE a Store-owned
 /// transaction; holds no dbQueue and never self-transacts.
-struct DopeCogRepository {
+struct DopeCogRepository: RepositoryContext {
     let db: Database
-    let store: Store
+    let core: StoreCore
 
 
     // MARK: - Cog
 
     func dopeCogAdd(_ req: DopeCogAddRequest) throws -> DopeCogResponse {
         try DopeCode.validateCode(req.code, field: "cog code")
-        guard let scope = try store.fetchDopeScope(db, uuid: req.scopeUuid) else {
+        guard let scope = try dope.fetchDopeScope(uuid: req.scopeUuid) else {
             throw StoreError.notFound(entity: "dope_scope", key: req.scopeUuid)
         }
-        let uuid = try store.insertBase(db, table: "dope_cog", extra: [
+        let uuid = try core.insertBase(db, table: "dope_cog", extra: [
             "dope_scope_uuid": req.scopeUuid,
             "code": req.code, "name": req.name,
             "description": req.description ?? "",
             "sort_order": req.sortOrder ?? 0,
         ])
-        let revision = try store.bumpScopeRevision(
-            db, scopeUuid: req.scopeUuid, area: .cogs, ownerUuid: uuid)
-        try store.recordDopeChange(db, scope: scope, action: "cog_add", level: nil,
+        let revision = try dope.bumpScopeRevision(
+            scopeUuid: req.scopeUuid, area: .cogs, ownerUuid: uuid)
+        try dope.recordDopeChange(scope: scope, action: "cog_add", level: nil,
                                   nodeUuid: uuid, revision: revision)
         return try fetchCogResponse(uuid: uuid, revision: revision)
     }
@@ -42,11 +42,11 @@ struct DopeCogRepository {
         guard !set.isEmpty else { throw StoreError.emptyUpdate(entity: "dope_cog") }
 
         let scope = try cogOwningScope(cogUuid: req.uuid)
-        try store.updateBase(db, table: "dope_cog", uuid: req.uuid,
+        try core.updateBase(db, table: "dope_cog", uuid: req.uuid,
                             expectedVersion: req.expectedVersion, set: set)
-        let revision = try store.bumpScopeRevision(
-            db, scopeUuid: scope.uuid, area: .cogs, ownerUuid: req.uuid)
-        try store.recordDopeChange(db, scope: scope, action: "cog_update", level: nil,
+        let revision = try dope.bumpScopeRevision(
+            scopeUuid: scope.uuid, area: .cogs, ownerUuid: req.uuid)
+        try dope.recordDopeChange(scope: scope, action: "cog_update", level: nil,
                                   nodeUuid: req.uuid, revision: revision)
         return try fetchCogResponse(uuid: req.uuid, revision: revision)
     }
@@ -63,15 +63,15 @@ struct DopeCogRepository {
                     detail: "--soft is only valid inside a masking scope; scope "
                           + "\(scope.uuid) is \(scope.scopeType)")
             }
-            try store.updateBase(db, table: "dope_cog", uuid: req.uuid,
+            try core.updateBase(db, table: "dope_cog", uuid: req.uuid,
                                 expectedVersion: req.expectedVersion,
                                 set: ["deleted_on": Store.isoNow()])
         } else {
-            try store.deleteBase(db, table: "dope_cog", uuid: req.uuid,
+            try core.deleteBase(db, table: "dope_cog", uuid: req.uuid,
                                 expectedVersion: req.expectedVersion)
         }
-        let revision = try store.bumpScopeRevision(db, scopeUuid: scope.uuid)
-        try store.recordDopeChange(db, scope: scope, action: "cog_delete", level: nil,
+        let revision = try dope.bumpScopeRevision(scopeUuid: scope.uuid)
+        try dope.recordDopeChange(scope: scope, action: "cog_delete", level: nil,
                                   nodeUuid: req.uuid, revision: revision)
         return DopeCogDeleteResponse(deletedUuid: req.uuid, cascadedElements: elements,
                                      scopeUuid: scope.uuid, revision: revision)
@@ -139,7 +139,7 @@ struct DopeCogRepository {
             subtypeValues[field.dbColumn] = value
         }
 
-        let uuid = try store.insertBase(db, table: "dope_cog_element", extra: [
+        let uuid = try core.insertBase(db, table: "dope_cog_element", extra: [
             "dope_cog_uuid": req.cogUuid,
             "parent_element_uuid": req.parentElementUuid,
             "element_type": spec.type.rawValue,
@@ -149,10 +149,10 @@ struct DopeCogRepository {
             "dope_scope_code": req.dopeScopeCode,
         ])
         subtypeValues["element_uuid"] = uuid
-        _ = try store.insertBase(db, table: spec.subtypeTable, extra: subtypeValues)
-        let revision = try store.bumpScopeRevision(
-            db, scopeUuid: scope.uuid, area: .cogs, ownerUuid: req.cogUuid)
-        try store.recordDopeChange(db, scope: scope, action: "cog_element_add", level: nil,
+        _ = try core.insertBase(db, table: spec.subtypeTable, extra: subtypeValues)
+        let revision = try dope.bumpScopeRevision(
+            scopeUuid: scope.uuid, area: .cogs, ownerUuid: req.cogUuid)
+        try dope.recordDopeChange(scope: scope, action: "cog_element_add", level: nil,
                                   nodeUuid: uuid, revision: revision)
         return try fetchCogElementResponse(uuid: uuid, revision: revision)
     }
@@ -196,13 +196,13 @@ struct DopeCogRepository {
         }
 
         if !set.isEmpty {
-            try store.updateBase(db, table: "dope_cog_element", uuid: req.uuid,
+            try core.updateBase(db, table: "dope_cog_element", uuid: req.uuid,
                                 expectedVersion: req.expectedVersion, set: set)
         }
-        let revision = try store.bumpScopeRevision(
-            db, scopeUuid: scope.uuid, area: .cogs,
+        let revision = try dope.bumpScopeRevision(
+            scopeUuid: scope.uuid, area: .cogs,
             ownerUuid: try owningCogUuid(elementUuid: req.uuid))
-        try store.recordDopeChange(db, scope: scope, action: "cog_element_update", level: nil,
+        try dope.recordDopeChange(scope: scope, action: "cog_element_update", level: nil,
                                   nodeUuid: req.uuid, revision: revision)
         return try fetchCogElementResponse(uuid: req.uuid, revision: revision)
     }
@@ -223,17 +223,17 @@ struct DopeCogRepository {
                     detail: "--soft is only valid inside a masking scope; scope "
                           + "\(scope.uuid) is \(scope.scopeType)")
             }
-            try store.updateBase(db, table: "dope_cog_element", uuid: req.uuid,
+            try core.updateBase(db, table: "dope_cog_element", uuid: req.uuid,
                                 expectedVersion: req.expectedVersion,
                                 set: ["deleted_on": Store.isoNow()])
         } else {
-            try store.deleteBase(db, table: "dope_cog_element", uuid: req.uuid,
+            try core.deleteBase(db, table: "dope_cog_element", uuid: req.uuid,
                                 expectedVersion: req.expectedVersion)
         }
-        let revision = try store.bumpScopeRevision(
-            db, scopeUuid: scope.uuid, area: .cogs,
+        let revision = try dope.bumpScopeRevision(
+            scopeUuid: scope.uuid, area: .cogs,
             ownerUuid: cogUuid)
-        try store.recordDopeChange(db, scope: scope, action: "cog_element_delete", level: nil,
+        try dope.recordDopeChange(scope: scope, action: "cog_element_delete", level: nil,
                                   nodeUuid: req.uuid, revision: revision)
         return DopeCogDeleteResponse(deletedUuid: req.uuid, cascadedElements: children,
                                      scopeUuid: scope.uuid, revision: revision)
@@ -242,7 +242,7 @@ struct DopeCogRepository {
     // MARK: - Read
 
     func dopeCogGet(_ req: DopeCogGetRequest) throws -> DopeCogGetResponse {
-        guard try store.fetchDopeScope(db, uuid: req.scopeUuid) != nil else {
+        guard try dope.fetchDopeScope(uuid: req.scopeUuid) != nil else {
             throw StoreError.notFound(entity: "dope_scope", key: req.scopeUuid)
         }
         var sql = "SELECT * FROM dope_cog WHERE dope_scope_uuid = ?"

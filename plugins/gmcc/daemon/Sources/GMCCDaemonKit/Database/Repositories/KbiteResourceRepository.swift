@@ -6,9 +6,9 @@ import GRDB
 /// Store-owned transaction; holds no dbQueue and never self-transacts.
 /// The digest verb's filesystem phases stay in the Store facade — filesystem
 /// work never enters a db transaction.
-struct KbiteResourceRepository {
+struct KbiteResourceRepository: RepositoryContext {
     let db: Database
-    let store: Store
+    let core: StoreCore
 
     /// The digest's single write-transaction body: resource/file/keyword rows
     /// from the pre-scanned artifacts (content pre-read by the facade).
@@ -20,7 +20,7 @@ struct KbiteResourceRepository {
         fileCount: inout Int,
         attachedKeywords: inout Set<String>
     ) throws -> String {
-        let kbiteUuid = try ContextRepository(db: db, store: store).ensureKbite(code: code)
+        let kbiteUuid = try ContextRepository(db: db, core: core).ensureKbite(code: code)
         for (itemIndex, item) in found.enumerated() {
             // Replace an earlier digest of the same resource: the CASCADE
             // clears its files/junctions and the FTS triggers keep the
@@ -28,7 +28,7 @@ struct KbiteResourceRepository {
             try db.execute(
                 sql: "DELETE FROM kbite_resource WHERE kbite_uuid = ? AND resource_name = ?",
                 arguments: [kbiteUuid, item.artifact.resourceName])
-            let resourceUuid = try store.insertBase(db, table: "kbite_resource", extra: [
+            let resourceUuid = try core.insertBase(db, table: "kbite_resource", extra: [
                 "kbite_uuid": kbiteUuid,
                 "resource_name": item.artifact.resourceName,
                 "resource_summary": item.artifact.body,
@@ -40,7 +40,7 @@ struct KbiteResourceRepository {
             var fileUuids: [String] = []
             for (entryIndex, entry) in item.artifact.files.enumerated() {
                 let content = inlinedContents[itemIndex][entryIndex]
-                let fileUuid = try store.insertBase(db, table: "kbite_resource_file", extra: [
+                let fileUuid = try core.insertBase(db, table: "kbite_resource_file", extra: [
                     "kbite_resource_uuid": resourceUuid,
                     "resource_file_name": entry.name,
                     "resource_file_summary": entry.description,
@@ -63,7 +63,7 @@ struct KbiteResourceRepository {
                 attachedKeywords.insert(keyword)
             }
         }
-        try store.appendEvent(
+        try core.appendEvent(
             db, kind: .kbiteDigest, subjectUuid: kbiteUuid,
             payload: Store.jsonPayload([
                 "code": code,
@@ -230,7 +230,7 @@ struct KbiteResourceRepository {
             }
         }
         if attached > 0 || detached > 0 {
-            try store.appendEvent(
+            try core.appendEvent(
                 db, kind: .kbiteKeywordTag, subjectUuid: req.targetUuid,
                 payload: Store.jsonPayload([
                     "level": req.level.rawValue,
@@ -250,7 +250,7 @@ struct KbiteResourceRepository {
         ) {
             return existing
         }
-        return try store.insertBase(db, table: "keyword", extra: ["keyword": keyword])
+        return try core.insertBase(db, table: "keyword", extra: ["keyword": keyword])
     }
 
     /// Idempotent junction insert; returns whether a row was created.
@@ -264,7 +264,7 @@ struct KbiteResourceRepository {
             sql: "SELECT 1 FROM \(table) WHERE \(ownerColumn) = ? AND keyword_uuid = ?",
             arguments: [ownerUuid, keywordUuid]) != nil
         guard !exists else { return false }
-        try store.insertBase(db, table: table, extra: [
+        try core.insertBase(db, table: table, extra: [
             ownerColumn: ownerUuid,
             "keyword_uuid": keywordUuid,
         ])

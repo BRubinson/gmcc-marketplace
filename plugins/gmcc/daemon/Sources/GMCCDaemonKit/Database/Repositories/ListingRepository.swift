@@ -4,9 +4,9 @@ import GRDB
 /// Read-only enumeration for the Landing browse surface (PROJECT_LIST /
 /// INSTANCE_LIST / SESSION_LIST). Runs INSIDE a Store-owned transaction;
 /// holds no dbQueue and never self-transacts.
-struct ListingRepository {
+struct ListingRepository: RepositoryContext {
     let db: Database
-    let store: Store
+    let core: StoreCore
 
     func listProjects() throws -> ProjectListResponse {
         let records = try ProjectRecord.fetchAll(db, sql: "SELECT * FROM project ORDER BY code")
@@ -61,6 +61,6 @@ struct ListingRepository {
         }
         sql += " ORDER BY s.code"
         let rows = try Row.fetchAll(db, sql: sql, arguments: arguments)
-        return SessionListResponse(sessions: rows.map { store.sessionStub(from: $0) })
+        return SessionListResponse(sessions: rows.map { Store.sessionStub(from: $0) })
     }
 }

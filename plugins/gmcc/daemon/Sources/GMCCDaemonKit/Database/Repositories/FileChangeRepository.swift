@@ -3,9 +3,9 @@ import GRDB
 
 /// FILE_CHANGE_ADD / FILE_CHANGE_LIST data access. Runs INSIDE a Store-owned
 /// transaction; holds no dbQueue and never self-transacts.
-struct FileChangeRepository {
+struct FileChangeRepository: RepositoryContext {
     let db: Database
-    let store: Store
+    let core: StoreCore
 
     /// Ensure the project → instance → session chain exists, then record the
     /// file change: session_file upsert, file_change row, one row per range,
@@ -21,7 +21,7 @@ struct FileChangeRepository {
                 throw StoreError.notFound(entity: "prompt", key: promptUuid)
             }
         }
-        let context = ContextRepository(db: db, store: store)
+        let context = ContextRepository(db: db, core: core)
         let (projectUuid, _) = try context.ensureProject(req.project)
         let (instanceUuid, _) = try context.ensureInstance(req.instance, projectUuid: projectUuid)
         let (sessionUuid, _) = try context.ensureSession(req.session, instanceUuid: instanceUuid)
@@ -34,8 +34,8 @@ struct FileChangeRepository {
         // between two concurrent prompts).
         var attributedPromptUuid = req.promptUuid
         if attributedPromptUuid == nil, req.autoAttribute == true {
-            attributedPromptUuid = try store.resolveActivePrompt(
-                db, sessionUuid: sessionUuid, clientKey: req.clientKey)
+            attributedPromptUuid = try session.resolveActivePrompt(
+                sessionUuid: sessionUuid, clientKey: req.clientKey)
         }
         // The comparison join key: normalized at the boundary so
         // architecture change rows and file changes always meet on the
@@ -48,7 +48,7 @@ struct FileChangeRepository {
             changeKind: req.changeKind
         )
 
-        let fileChangeUuid = try store.insertBase(db, table: "file_change", extra: [
+        let fileChangeUuid = try core.insertBase(db, table: "file_change", extra: [
             "session_file_uuid": sessionFileUuid,
             "session_uuid": sessionUuid,
             "prompt_uuid": attributedPromptUuid,
@@ -57,7 +57,7 @@ struct FileChangeRepository {
 
         var rangeUuids: [String] = []
         for range in req.ranges {
-            let rangeUuid = try store.insertBase(db, table: "file_change_range", extra: [
+            let rangeUuid = try core.insertBase(db, table: "file_change_range", extra: [
                 "file_change_uuid": fileChangeUuid,
                 "line_start": range.lineStart,
                 "line_end": range.lineEnd,
@@ -68,7 +68,7 @@ struct FileChangeRepository {
 
         // Item 4: session_uuid in the payload lets GMVibes route the
         // event to one session instead of invalidating all of them.
-        try store.appendEvent(
+        try core.appendEvent(
             db,
             kind: .fileChange,
             subjectUuid: fileChangeUuid,
@@ -80,7 +80,7 @@ struct FileChangeRepository {
             ])
         )
         // Item 3: file-change writes advance session recency.
-        try store.touchSession(db, uuid: sessionUuid)
+        try core.touchSession(db, uuid: sessionUuid)
 
         return FileChangeAddResponse(
             sessionFileUuid: sessionFileUuid,
@@ -180,7 +180,7 @@ struct FileChangeRepository {
             )
             return existing
         }
-        return try store.insertBase(db, table: "session_file", extra: [
+        return try core.insertBase(db, table: "session_file", extra: [
             "session_uuid": sessionUuid,
             "relative_path": relativePath,
             "active": active,

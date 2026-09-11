@@ -7,11 +7,11 @@ import GRDB
 
 extension Store {
     public func addFileChange(_ req: FileChangeAdd) throws -> FileChangeAddResponse {
-        try dbQueue.write { db in try FileChangeRepository(db: db, store: self).add(req) }
+        try dbQueue.write { db in try FileChangeRepository(db: db, core: core).add(req) }
     }
 
     public func listFileChanges(_ req: FileChangeListRequest) throws -> FileChangeListResponse {
-        try dbQueue.read { db in try FileChangeRepository(db: db, store: self).list(req) }
+        try dbQueue.read { db in try FileChangeRepository(db: db, core: core).list(req) }
     }
 
     // MARK: - Cross-domain helper forward
@@ -22,7 +22,7 @@ extension Store {
         relativePath: String,
         changeKind: ChangeKind
     ) throws -> String {
-        try FileChangeRepository(db: db, store: self).ensureSessionFile(
+        try FileChangeRepository(db: db, core: core).ensureSessionFile(
             sessionUuid: sessionUuid, relativePath: relativePath, changeKind: changeKind)
     }
 }

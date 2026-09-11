@@ -3,9 +3,9 @@ import GRDB
 
 /// BRIEFING_* (v21) data access — the agent-briefing machine. Runs INSIDE a
 /// Store-owned transaction; holds no dbQueue and never self-transacts.
-struct BriefingRepository {
+struct BriefingRepository: RepositoryContext {
     let db: Database
-    let store: Store
+    let core: StoreCore
 
     // MARK: - Verbs
 
@@ -45,7 +45,7 @@ struct BriefingRepository {
         // implementing would claim — and the claim is what makes every
         // downstream agent's zero-uuid pull deterministic.
         if let promptUuid, let clientKey = req.clientKey {
-            try SessionRepository(db: db, store: store).claimActivation(
+            try SessionRepository(db: db, core: core).claimActivation(
                 sessionUuid: sessionUuid,
                 promptUuid: promptUuid, clientKey: clientKey)
         }
@@ -55,24 +55,24 @@ struct BriefingRepository {
         ) {
             // Reset, never duplicate: content is kept for wholesale
             // replacement at complete (the reopen-preserves precedent).
-            try store.updateBase(
+            try core.updateBase(
                 db, table: "agent_briefing", uuid: existing.uuid,
                 expectedVersion: existing.version,
                 set: ["status": "building"])
-            try store.appendEvent(
+            try core.appendEvent(
                 db, kind: .briefingChange, subjectUuid: existing.uuid,
                 payload: Store.jsonPayload([
                     "action": "reset", "step": step,
                     "session_uuid": sessionUuid, "prompt_uuid": promptUuid,
                 ]))
-            try store.touchSession(db, uuid: sessionUuid)
+            try core.touchSession(db, uuid: sessionUuid)
             guard let row = try fetchBriefing(uuid: existing.uuid) else {
                 throw StoreError.notFound(entity: "agent_briefing", key: existing.uuid)
             }
             return BriefingRowResponse(briefing: row, created: false)
         }
 
-        let uuid = try store.insertBase(db, table: "agent_briefing", extra: [
+        let uuid = try core.insertBase(db, table: "agent_briefing", extra: [
             "session_uuid": sessionUuid,
             "prompt_uuid": promptUuid,
             "briefing_for_step": step,
@@ -81,13 +81,13 @@ struct BriefingRepository {
             "dope_refs": "[]",
             "kbite_refs": "[]",
         ])
-        try store.appendEvent(
+        try core.appendEvent(
             db, kind: .briefingChange, subjectUuid: uuid,
             payload: Store.jsonPayload([
                 "action": "open", "step": step,
                 "session_uuid": sessionUuid, "prompt_uuid": promptUuid,
             ]))
-        try store.touchSession(db, uuid: sessionUuid)
+        try core.touchSession(db, uuid: sessionUuid)
         guard let row = try fetchBriefing(uuid: uuid) else {
             throw StoreError.notFound(entity: "agent_briefing", key: uuid)
         }
@@ -121,11 +121,11 @@ struct BriefingRepository {
 
         // Server-side staleness stamp from the session's SESSION_INSTANCE
         // scope. No scope is a legal state (nil stamp, staleness unknown).
-        let scope = try store.dopeScopeCandidates(
-            db, sessionUuid: existing.sessionUuid, scopeType: .sessionInstance
+        let scope = try dope.dopeScopeCandidates(
+            sessionUuid: existing.sessionUuid, scopeType: .sessionInstance
         ).first
 
-        try store.updateBase(
+        try core.updateBase(
             db, table: "agent_briefing", uuid: req.briefingUuid,
             expectedVersion: req.expectedVersion,
             set: [
@@ -136,7 +136,7 @@ struct BriefingRepository {
                 "dope_scope_uuid": scope?.uuid,
                 "dope_scope_revision": scope?.revision,
             ])
-        try store.appendEvent(
+        try core.appendEvent(
             db, kind: .briefingChange, subjectUuid: req.briefingUuid,
             payload: Store.jsonPayload([
                 "action": "complete", "step": existing.briefingForStep,
@@ -144,7 +144,7 @@ struct BriefingRepository {
                 "prompt_uuid": existing.promptUuid,
                 "dope_scope_revision": scope?.revision,
             ]))
-        try store.touchSession(db, uuid: existing.sessionUuid)
+        try core.touchSession(db, uuid: existing.sessionUuid)
         guard let row = try fetchBriefing(uuid: req.briefingUuid) else {
             throw StoreError.notFound(entity: "agent_briefing", key: req.briefingUuid)
         }
@@ -186,7 +186,7 @@ struct BriefingRepository {
         guard let sessionUuid = req.sessionUuid else {
             return BriefingStubResponse(stub: "")
         }
-        let sessions = SessionRepository(db: db, store: store)
+        let sessions = SessionRepository(db: db, core: core)
         guard let session = try sessions.fetchRow(uuid: sessionUuid) else {
             return BriefingStubResponse(stub: "")
         }
@@ -256,7 +256,7 @@ struct BriefingRepository {
             return rows[0]
         }
         if let sessionUuid = req.sessionUuid {
-            guard let session = try SessionRepository(db: db, store: store)
+            guard let session = try SessionRepository(db: db, core: core)
                 .fetchRow(uuid: sessionUuid) else {
                 throw StoreError.notFound(entity: "session", key: sessionUuid)
             }
@@ -281,7 +281,7 @@ struct BriefingRepository {
     private func resolveActiveBriefing(
         session: SessionRow, step: String, clientKey: String?
     ) throws -> AgentBriefingRow? {
-        if let active = try SessionRepository(db: db, store: store).resolveActivePrompt(
+        if let active = try SessionRepository(db: db, core: core).resolveActivePrompt(
                sessionUuid: session.uuid, clientKey: clientKey),
            let row = try fetchBriefingRow(
                ownerPrompt: active, ownerSession: session.uuid, step: step) {

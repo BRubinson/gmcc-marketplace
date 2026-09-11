@@ -3,9 +3,9 @@ import GRDB
 
 /// REVIEW_* data access — the db-native review report machine. Runs INSIDE a
 /// Store-owned transaction; holds no dbQueue and never self-transacts.
-struct ReviewRepository {
+struct ReviewRepository: RepositoryContext {
     let db: Database
-    let store: Store
+    let core: StoreCore
 
     // MARK: - Shared create-or-return
 
@@ -23,16 +23,16 @@ struct ReviewRepository {
         ) {
             return (existing, false)
         }
-        let uuid = try store.insertBase(db, table: "review_summary", extra: [
+        let uuid = try core.insertBase(db, table: "review_summary", extra: [
             "prompt_uuid": promptUuid,
             "status": ReviewSummaryStatus.reviewing.rawValue,
             "verdict": nil,
             "overview": "",
         ])
-        try store.appendEvent(
+        try core.appendEvent(
             db, kind: .reviewChange, subjectUuid: uuid,
             payload: Store.jsonPayload(["action": "open", "prompt_uuid": promptUuid]))
-        try store.touchSessionForPrompt(db, promptUuid: promptUuid)
+        try clarification.touchSessionForPrompt(promptUuid: promptUuid)
         return (uuid, true)
     }
 
@@ -55,7 +55,7 @@ struct ReviewRepository {
         var path: String?
         if let rawPath = req.filePath {
             path = try Store.normalizeRepoRelativePath(
-                rawPath, repoRoot: try store.instanceRoot(db, promptUuid: summary.promptUuid))
+                rawPath, repoRoot: try architecture.instanceRoot(promptUuid: summary.promptUuid))
         }
         // Mirrored in code ahead of the SQL CHECKs for readable errors.
         if let lineStart = req.lineStart, lineStart < 1 {
@@ -69,7 +69,7 @@ struct ReviewRepository {
                 throw StoreError.badRequest(detail: "line_end must be >= line_start")
             }
         }
-        let uuid = try store.insertBase(db, table: "review_finding", extra: [
+        let uuid = try core.insertBase(db, table: "review_finding", extra: [
             "review_summary_uuid": req.summaryUuid,
             "kind": req.kind.rawValue,
             "title": title,
@@ -81,13 +81,13 @@ struct ReviewRepository {
             "finding_rating": req.rating,
             "status": ReviewFindingStatus.open.rawValue,
         ])
-        try store.appendEvent(
+        try core.appendEvent(
             db, kind: .reviewChange, subjectUuid: req.summaryUuid,
             payload: Store.jsonPayload([
                 "action": "finding_add", "kind": req.kind.rawValue,
                 "prompt_uuid": summary.promptUuid,
             ]))
-        try store.touchSessionForPrompt(db, promptUuid: summary.promptUuid)
+        try clarification.touchSessionForPrompt(promptUuid: summary.promptUuid)
         guard let row = try fetchFindings(where: "uuid = ?", arguments: [uuid]).first else {
             throw StoreError.notFound(entity: "review_finding", key: uuid)
         }
@@ -97,19 +97,19 @@ struct ReviewRepository {
     /// Batch rank — same contract and rationale as exploreRank.
     func rank(_ req: ReviewRankRequest) throws -> ReviewRankResponse {
         let summary = try requireSummary(uuid: req.summaryUuid, at: .reviewing, verb: "rank")
-        try store.applyRankBatch(
-            db, table: "review_finding", parentColumn: "review_summary_uuid",
+        try findingRank.applyRankBatch(
+            table: "review_finding", parentColumn: "review_summary_uuid",
             summaryUuid: req.summaryUuid, ratings: req.ratings)
-        let unranked = try store.unrankedCount(
-            db, table: "review_finding", parentColumn: "review_summary_uuid",
+        let unranked = try findingRank.unrankedCount(
+            table: "review_finding", parentColumn: "review_summary_uuid",
             summaryUuid: req.summaryUuid)
-        try store.appendEvent(
+        try core.appendEvent(
             db, kind: .reviewChange, subjectUuid: req.summaryUuid,
             payload: Store.jsonPayload([
                 "action": "rank", "count": req.ratings.count,
                 "prompt_uuid": summary.promptUuid,
             ]))
-        try store.touchSessionForPrompt(db, promptUuid: summary.promptUuid)
+        try clarification.touchSessionForPrompt(promptUuid: summary.promptUuid)
         guard let updated = try fetchSummary(uuid: req.summaryUuid) else {
             throw StoreError.notFound(entity: "review_summary", key: req.summaryUuid)
         }
@@ -142,17 +142,17 @@ struct ReviewRepository {
                     ? "resolve targets fixed, accepted, or wont_fix"
                     : "a resolved finding can only move laterally (never back to open)")
         }
-        try store.updateBase(
+        try core.updateBase(
             db, table: "review_finding", uuid: req.findingUuid,
             expectedVersion: req.expectedVersion, set: ["status": req.status.rawValue])
-        try store.appendEvent(
+        try core.appendEvent(
             db, kind: .reviewChange, subjectUuid: row.reviewSummaryUuid,
             payload: Store.jsonPayload([
                 "action": "resolve", "finding_uuid": req.findingUuid,
                 "to": req.status.rawValue,
             ]))
         if let summary = try fetchSummary(uuid: row.reviewSummaryUuid) {
-            try store.touchSessionForPrompt(db, promptUuid: summary.promptUuid)
+            try clarification.touchSessionForPrompt(promptUuid: summary.promptUuid)
         }
         guard let updated = try fetchFindings(
             where: "uuid = ?", arguments: [req.findingUuid]
@@ -167,8 +167,8 @@ struct ReviewRepository {
     /// message). overview + verdict are carried only here.
     func complete(_ req: ReviewCompleteRequest) throws -> ReviewSummaryResponse {
         let summary = try requireSummary(uuid: req.summaryUuid, at: .reviewing, verb: "complete")
-        let unranked = try store.unrankedCount(
-            db, table: "review_finding", parentColumn: "review_summary_uuid",
+        let unranked = try findingRank.unrankedCount(
+            table: "review_finding", parentColumn: "review_summary_uuid",
             summaryUuid: req.summaryUuid)
         guard unranked == 0 else {
             throw StoreError.invalidEntityTransition(
@@ -177,7 +177,7 @@ struct ReviewRepository {
                 reason: "\(unranked) finding(s) unranked — run gm review rank first")
         }
         let overview = try Store.validatedOverview(req.overview, entity: "review")
-        try store.updateBase(
+        try core.updateBase(
             db, table: "review_summary", uuid: req.summaryUuid,
             expectedVersion: req.expectedVersion,
             set: [
@@ -185,13 +185,13 @@ struct ReviewRepository {
                 "overview": overview,
                 "verdict": req.verdict.rawValue,
             ])
-        try store.appendEvent(
+        try core.appendEvent(
             db, kind: .reviewChange, subjectUuid: req.summaryUuid,
             payload: Store.jsonPayload([
                 "action": "complete", "verdict": req.verdict.rawValue,
                 "prompt_uuid": summary.promptUuid,
             ]))
-        try store.touchSessionForPrompt(db, promptUuid: summary.promptUuid)
+        try clarification.touchSessionForPrompt(promptUuid: summary.promptUuid)
         guard let updated = try fetchSummary(uuid: req.summaryUuid) else {
             throw StoreError.notFound(entity: "review_summary", key: req.summaryUuid)
         }
@@ -210,14 +210,14 @@ struct ReviewRepository {
                 to: ReviewSummaryStatus.reviewing.rawValue,
                 reason: "reopen runs from complete — this summary is \(summary.status)")
         }
-        try store.updateBase(
+        try core.updateBase(
             db, table: "review_summary", uuid: req.summaryUuid,
             expectedVersion: req.expectedVersion,
             set: ["status": ReviewSummaryStatus.reviewing.rawValue])
-        try store.appendEvent(
+        try core.appendEvent(
             db, kind: .reviewChange, subjectUuid: req.summaryUuid,
             payload: Store.jsonPayload(["action": "reopen", "prompt_uuid": summary.promptUuid]))
-        try store.touchSessionForPrompt(db, promptUuid: summary.promptUuid)
+        try clarification.touchSessionForPrompt(promptUuid: summary.promptUuid)
         guard let updated = try fetchSummary(uuid: req.summaryUuid) else {
             throw StoreError.notFound(entity: "review_summary", key: req.summaryUuid)
         }

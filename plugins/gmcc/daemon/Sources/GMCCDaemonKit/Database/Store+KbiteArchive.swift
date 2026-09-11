@@ -14,7 +14,7 @@ extension Store {
     /// `req.dbExportPath`. Read-only against the db — no event.
     public func exportKbite(_ req: KbiteExportRequest) throws -> KbiteExportResponse {
         let (document, fileKeywordCount) = try dbQueue.read { db in
-            try KbiteArchiveRepository(db: db, store: self)
+            try KbiteArchiveRepository(db: db, core: core)
                 .exportDocument(code: req.code, anonymize: req.anonymize)
         }
 
@@ -63,14 +63,14 @@ extension Store {
         let rehydrated = document.rehydrated(rules: req.rehydrate)
 
         return try dbQueue.write { db in
-            try KbiteArchiveRepository(db: db, store: self)
+            try KbiteArchiveRepository(db: db, core: core)
                 .importApply(rehydrated: rehydrated, onCollision: req.onCollision)
         }
     }
 
     public func deleteKbite(_ req: KbiteDeleteRequest) throws -> KbiteDeleteResponse {
         try dbQueue.write { db in
-            try KbiteArchiveRepository(db: db, store: self).deleteKbite(req)
+            try KbiteArchiveRepository(db: db, core: core).deleteKbite(req)
         }
     }
 }

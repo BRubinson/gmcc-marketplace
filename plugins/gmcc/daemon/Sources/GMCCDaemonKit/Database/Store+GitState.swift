@@ -12,14 +12,14 @@ import GRDB
 
 extension Store {
     public func sessionResolve(_ req: SessionResolveRequest) throws -> SessionResolveResponse {
-        try dbQueue.read { db in try GitStateRepository(db: db, store: self).sessionResolve(req) }
+        try dbQueue.read { db in try GitStateRepository(db: db, core: core).sessionResolve(req) }
     }
 
     public func instanceCurrentSession(
         _ req: InstanceCurrentSessionRequest
     ) throws -> InstanceCurrentSessionResponse {
         try dbQueue.read { db in
-            try GitStateRepository(db: db, store: self).instanceCurrentSession(req)
+            try GitStateRepository(db: db, core: core).instanceCurrentSession(req)
         }
     }
 

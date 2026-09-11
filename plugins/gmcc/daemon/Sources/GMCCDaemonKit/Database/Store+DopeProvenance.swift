@@ -18,31 +18,31 @@ extension Store {
     // MARK: - Cross-domain helper forwards (bodies in DopeProvenanceRepository)
 
     func dopeProvenance(_ db: Database, scopeUuid: String) throws -> [String: DopeMerge.Base] {
-        try DopeProvenanceRepository(db: db, store: self).provenance(scopeUuid: scopeUuid)
+        try DopeProvenanceRepository(db: db, core: core).provenance(scopeUuid: scopeUuid)
     }
 
     func stampProvenanceFromFiles(
         _ db: Database, scopeUuid: String, bundle: DopeDocumentBundle
     ) throws {
-        try DopeProvenanceRepository(db: db, store: self)
+        try DopeProvenanceRepository(db: db, core: core)
             .stampFromFiles(scopeUuid: scopeUuid, bundle: bundle)
     }
 
     func markLocallyModified(
         _ db: Database, scopeUuid: String, dotPath: String, kind: String
     ) throws {
-        try DopeProvenanceRepository(db: db, store: self)
+        try DopeProvenanceRepository(db: db, core: core)
             .markLocallyModified(scopeUuid: scopeUuid, dotPath: dotPath, kind: kind)
     }
 
     func dopeDotPath(_ db: Database, nodeUuid: String, level: DopeLevel) throws -> String? {
-        try DopeProvenanceRepository(db: db, store: self)
+        try DopeProvenanceRepository(db: db, core: core)
             .dotPath(nodeUuid: nodeUuid, level: level)
     }
 
     /// The dot-paths this session has edited, in order.
     func locallyModifiedPaths(_ db: Database, scopeUuid: String) throws -> [String] {
-        try DopeProvenanceRepository(db: db, store: self)
+        try DopeProvenanceRepository(db: db, core: core)
             .locallyModifiedPaths(scopeUuid: scopeUuid)
     }
 }

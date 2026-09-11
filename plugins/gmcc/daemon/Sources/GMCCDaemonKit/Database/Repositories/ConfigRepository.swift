@@ -4,9 +4,9 @@ import GRDB
 /// Data access for the daemon_config table (plus the MemoryWatcher's prompt
 /// reverse lookup). Runs INSIDE a Store-owned transaction; holds no dbQueue
 /// and never self-transacts.
-struct ConfigRepository {
+struct ConfigRepository: RepositoryContext {
     let db: Database
-    let store: Store
+    let core: StoreCore
 
     func pathsGet() throws -> PathsGetResponse {
         let config = try Dictionary(
@@ -45,12 +45,12 @@ struct ConfigRepository {
                     """,
                 arguments: [value, Store.isoNow(), req.key.rawValue])
         } else {
-            try store.insertBase(db, table: "daemon_config", extra: [
+            try core.insertBase(db, table: "daemon_config", extra: [
                 "config_key": req.key.rawValue,
                 "config_value": value,
             ])
         }
-        try store.appendEvent(
+        try core.appendEvent(
             db, kind: .configSet,
             payload: Store.jsonPayload(["key": req.key.rawValue, "value": value]))
         return ConfigSetResponse(key: req.key, value: value)

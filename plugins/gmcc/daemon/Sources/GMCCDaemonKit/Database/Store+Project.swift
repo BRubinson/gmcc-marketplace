@@ -17,7 +17,7 @@ import GRDB
 extension Store {
     public func updateProject(_ req: ProjectUpdateRequest) throws -> ProjectRow {
         try dbQueue.write { db in
-            try ProjectRepository(db: db, store: self).update(req)
+            try ProjectRepository(db: db, core: core).update(req)
         }
     }
 

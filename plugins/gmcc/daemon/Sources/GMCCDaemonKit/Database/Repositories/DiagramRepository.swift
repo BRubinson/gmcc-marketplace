@@ -54,9 +54,9 @@ struct ElementRowInfo {
     let type: DiagramElementType
 }
 
-struct DiagramRepository {
+struct DiagramRepository: RepositoryContext {
     let db: Database
-    let store: Store
+    let core: StoreCore
 
     /// The diagram projection.
     ///
@@ -160,12 +160,12 @@ struct DiagramRepository {
         if let mutationCount { payload["mutation_count"] = mutationCount }
         if let sessionUuid = diagram.sessionUuid { payload["session_uuid"] = sessionUuid }
         if let promptUuid = diagram.promptUuid { payload["prompt_uuid"] = promptUuid }
-        try store.appendEvent(db, kind: .diagramChange, subjectUuid: diagram.uuid,
+        try core.appendEvent(db, kind: .diagramChange, subjectUuid: diagram.uuid,
                         payload: Store.jsonPayload(payload))
         // touchSession only when session-owned — PROJECT/INSTANCE-tier
         // diagrams have no session to touch.
         if let sessionUuid = diagram.sessionUuid {
-            try store.touchSession(db, uuid: sessionUuid)
+            try core.touchSession(db, uuid: sessionUuid)
         }
     }
 
@@ -254,7 +254,7 @@ struct DiagramRepository {
             """, arguments: [owner.tier.rawValue, owner.ownerUuid, req.code]) {
             return DiagramResponse(diagram: Self.diagramRow(existing), created: false)
         }
-        let uuid = try store.insertBase(db, table: "diagram", extra: [
+        let uuid = try core.insertBase(db, table: "diagram", extra: [
             "project_uuid": owner.projectUuid,
             "session_uuid": owner.sessionUuid,
             "prompt_uuid": owner.promptUuid,
@@ -544,14 +544,14 @@ struct DiagramRepository {
                 var scope: DopeScopeRow?
                 if let sessionUuid = diagram.sessionUuid {
                     if let promptUuid = diagram.promptUuid {
-                        scope = try store.dopeScopeCandidates(
-                            db, sessionUuid: sessionUuid, scopeType: .sessionInstanceItem,
+                        scope = try dope.dopeScopeCandidates(
+                            sessionUuid: sessionUuid, scopeType: .sessionInstanceItem,
                             promptUuid: promptUuid, code: payload.dopeScopeCode).first
                         if scope != nil { resolvedVia = "prompt" }
                     }
                     if scope == nil {
-                        scope = try store.dopeScopeCandidates(
-                            db, sessionUuid: sessionUuid, scopeType: .sessionInstance,
+                        scope = try dope.dopeScopeCandidates(
+                            sessionUuid: sessionUuid, scopeType: .sessionInstance,
                             code: payload.dopeScopeCode).first
                         if scope != nil { resolvedVia = "session_base" }
                     }
@@ -562,13 +562,13 @@ struct DiagramRepository {
                     // render actual cards — the masking PROJECT_ITEM scope
                     // first, then the BASE_PROJECT scope `gm dope promote`
                     // maintains, mirroring the session ladder exactly.
-                    scope = try store.dopeProjectScopeCandidates(
-                        db, projectUuid: diagram.projectUuid, scopeType: .projectItem,
+                    scope = try dope.dopeProjectScopeCandidates(
+                        projectUuid: diagram.projectUuid, scopeType: .projectItem,
                         code: payload.dopeScopeCode).first
                     if scope != nil { resolvedVia = "project_item" }
                     if scope == nil {
-                        scope = try store.dopeProjectScopeCandidates(
-                            db, projectUuid: diagram.projectUuid, scopeType: .baseProject,
+                        scope = try dope.dopeProjectScopeCandidates(
+                            projectUuid: diagram.projectUuid, scopeType: .baseProject,
                             code: payload.dopeScopeCode).first
                         if scope != nil { resolvedVia = "base_project" }
                     }
@@ -903,7 +903,7 @@ struct DiagramRepository {
             throw StoreError.badRequest(detail: "scale must be > 0")
         }
 
-        let uuid = try store.insertBase(db, table: "diagram_element", extra: [
+        let uuid = try core.insertBase(db, table: "diagram_element", extra: [
             "diagram_uuid": diagram.uuid,
             "parent_element_uuid": parentUuid,
             "element_type": type.rawValue,
@@ -994,7 +994,7 @@ struct DiagramRepository {
         // updateBase with an empty set still bumps version + updated_at under
         // the optimistic-lock guard — exactly right for a payload-only edit
         // (the element row's version IS the aggregate lock).
-        try store.updateBase(db, table: "diagram_element", uuid: info.uuid,
+        try core.updateBase(db, table: "diagram_element", uuid: info.uuid,
                             expectedVersion: update.expectedVersion, set: set)
         if let payload = update.payload {
             try replaceSubtypeRow(
@@ -1026,7 +1026,7 @@ struct DiagramRepository {
         // Plain CASCADE unwinds everything: children via the self-FK, subtype
         // rows via element_uuid, vertex rows via the subtype FKs. No RESTRICT
         // anywhere in the family.
-        try store.deleteBase(db, table: "diagram_element", uuid: info.uuid,
+        try core.deleteBase(db, table: "diagram_element", uuid: info.uuid,
                             expectedVersion: delete.expectedVersion)
         return DiagramMutationResult(index: index, kind: "element_delete",
                                      uuid: info.uuid, cascadedElements: children + 1)
@@ -1122,7 +1122,7 @@ struct DiagramRepository {
         guard !set.isEmpty else {
             throw StoreError.emptyUpdate(entity: "diagram")
         }
-        try store.updateBase(db, table: "diagram", uuid: diagram.uuid,
+        try core.updateBase(db, table: "diagram", uuid: diagram.uuid,
                             expectedVersion: update.expectedVersion, set: set)
         guard let version = try Int64.fetchOne(
             db, sql: "SELECT version FROM diagram WHERE uuid = ?", arguments: [diagram.uuid]
@@ -1142,7 +1142,7 @@ struct DiagramRepository {
     ) throws {
         switch payload {
         case .drawingLayer(let p):
-            _ = try store.insertBase(db, table: "diagram_drawing_layer", extra: [
+            _ = try core.insertBase(db, table: "diagram_drawing_layer", extra: [
                 "element_uuid": elementUuid,
                 "opacity": p.opacity,
                 "visible": p.visible ? 1 : 0,
@@ -1153,7 +1153,7 @@ struct DiagramRepository {
             // rows are deliberately NOT written for a stroke: one
             // representation at a time, so a read never has to decide which
             // of two disagreeing copies is true.
-            _ = try store.insertBase(db, table: "diagram_drawing_stroke", extra: [
+            _ = try core.insertBase(db, table: "diagram_drawing_stroke", extra: [
                 "element_uuid": elementUuid,
                 "tool": p.tool.rawValue,
                 "stroke_color": p.strokeColor,
@@ -1162,7 +1162,7 @@ struct DiagramRepository {
                 "vertex_count": p.vertices.count,
             ])
         case .drawingShape(let p):
-            _ = try store.insertBase(db, table: "diagram_drawing_shape", extra: [
+            _ = try core.insertBase(db, table: "diagram_drawing_shape", extra: [
                 "element_uuid": elementUuid,
                 "shape_kind": p.shapeKind.rawValue,
                 "stroke_color": p.strokeColor,
@@ -1175,7 +1175,7 @@ struct DiagramRepository {
                                 elementUuid: elementUuid, vertices: p.vertices,
                                 withPressure: false)
         case .drawingText(let p):
-            _ = try store.insertBase(db, table: "diagram_drawing_text", extra: [
+            _ = try core.insertBase(db, table: "diagram_drawing_text", extra: [
                 "element_uuid": elementUuid,
                 "markdown": p.markdown,
                 "width": p.width,
@@ -1185,7 +1185,7 @@ struct DiagramRepository {
                 "background_color": p.backgroundColor,
             ])
         case .connector(let p):
-            _ = try store.insertBase(db, table: "diagram_connector", extra: [
+            _ = try core.insertBase(db, table: "diagram_connector", extra: [
                 "element_uuid": elementUuid,
                 "target_element_uuid": p.targetElementUuid,
                 "stroke_color": p.strokeColor,
@@ -1197,7 +1197,7 @@ struct DiagramRepository {
                 "label": p.label,
             ])
         case .umlNode(let p):
-            _ = try store.insertBase(db, table: "diagram_uml_node", extra: [
+            _ = try core.insertBase(db, table: "diagram_uml_node", extra: [
                 "element_uuid": elementUuid,
                 "node_kind": p.nodeKind.rawValue,
                 "width": p.width,
@@ -1210,12 +1210,12 @@ struct DiagramRepository {
                 "fill_color": p.fillColor,
             ])
         case .dopeScopePersistenceLayer(let p):
-            _ = try store.insertBase(db, table: "diagram_dope_scope_persistence_layer", extra: [
+            _ = try core.insertBase(db, table: "diagram_dope_scope_persistence_layer", extra: [
                 "element_uuid": elementUuid,
                 "dope_scope_code": p.dopeScopeCode,
             ])
         case .dopeEntity(let p):
-            _ = try store.insertBase(db, table: "diagram_dope_entity", extra: [
+            _ = try core.insertBase(db, table: "diagram_dope_entity", extra: [
                 "element_uuid": elementUuid,
                 "entity_code": p.entityCode,
             ])
@@ -1337,7 +1337,7 @@ struct DiagramRepository {
                 "y": vertex.y,
             ]
             if withPressure { extra["pressure"] = vertex.pressure }
-            _ = try store.insertBase(db, table: table, extra: extra)
+            _ = try core.insertBase(db, table: table, extra: extra)
         }
     }
 

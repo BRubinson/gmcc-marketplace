@@ -12,7 +12,7 @@ import GRDB
 
 extension Store {
     public func pathsGet() throws -> PathsGetResponse {
-        try dbQueue.read { db in try ConfigRepository(db: db, store: self).pathsGet() }
+        try dbQueue.read { db in try ConfigRepository(db: db, core: core).pathsGet() }
     }
 
     public func configSet(_ req: ConfigSetRequest) throws -> ConfigSetResponse {
@@ -21,18 +21,18 @@ extension Store {
             throw StoreError.badRequest(detail: "config value is empty")
         }
         return try dbQueue.write { db in
-            try ConfigRepository(db: db, store: self).configSet(req, value: value)
+            try ConfigRepository(db: db, core: core).configSet(req, value: value)
         }
     }
 
     /// The watcher's root, read outside a request cycle. nil until config
     /// exists (a daemon booted before m0002 seeded it simply has no watcher).
     public func configValue(_ key: ConfigKey) throws -> String? {
-        try dbQueue.read { db in try ConfigRepository(db: db, store: self).configValue(key) }
+        try dbQueue.read { db in try ConfigRepository(db: db, core: core).configValue(key) }
     }
 
     /// MemoryWatcher's reverse lookup: prompt by its ckfs folder path.
     public func promptUuid(byStoragePath path: String) throws -> String? {
-        try dbQueue.read { db in try ConfigRepository(db: db, store: self).promptUuid(byStoragePath: path) }
+        try dbQueue.read { db in try ConfigRepository(db: db, core: core).promptUuid(byStoragePath: path) }
     }
 }

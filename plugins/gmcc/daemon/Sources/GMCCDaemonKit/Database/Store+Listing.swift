@@ -9,20 +9,30 @@ import GRDB
 
 extension Store {
     public func listProjects() throws -> ProjectListResponse {
-        try dbQueue.read { db in try ListingRepository(db: db, store: self).listProjects() }
+        try dbQueue.read { db in try ListingRepository(db: db, core: core).listProjects() }
     }
 
     public func listInstances(_ req: InstanceListRequest) throws -> InstanceListResponse {
-        try dbQueue.read { db in try ListingRepository(db: db, store: self).listInstances(req) }
+        try dbQueue.read { db in try ListingRepository(db: db, core: core).listInstances(req) }
     }
 
     public func listSessions(_ req: SessionListRequest) throws -> SessionListResponse {
-        try dbQueue.read { db in try ListingRepository(db: db, store: self).listSessions(req) }
+        try dbQueue.read { db in try ListingRepository(db: db, core: core).listSessions(req) }
     }
 
     /// Shared SessionStub materializer for listSessions and
     /// INSTANCE_CURRENT_SESSION (both select the same column list).
-    func sessionStub(from row: Row) -> SessionStub {
+    ///
+    /// `static` because repositories call it and can no longer name a Store
+    /// VALUE. A static is a namespace, not coupling: it cannot return a Store,
+    /// cannot reach dbQueue, and cannot re-enter a transaction. It reads no
+    /// instance state, so this is a keyword change and nothing more.
+    ///
+    /// It stays a hand mapper deliberately: last_activity_at is a computed
+    /// MAX() across session/prompt/file_change, not a column on any table, so
+    /// SessionRecord.wireRow() cannot synthesize it. Half 1 replaces the body
+    /// with SessionStubRecord.
+    static func sessionStub(from row: Row) -> SessionStub {
         SessionStub(
             uuid: row["uuid"],
             version: row["version"],

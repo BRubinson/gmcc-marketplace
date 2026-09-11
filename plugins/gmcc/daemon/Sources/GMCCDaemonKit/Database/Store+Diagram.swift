@@ -22,15 +22,15 @@ extension Store {
     // MARK: - Verbs (bodies in DiagramRepository; these wrappers own the transaction)
 
     public func diagramInit(_ req: DiagramInitRequest) throws -> DiagramResponse {
-        try dbQueue.write { db in try DiagramRepository(db: db, store: self).diagramInit(req) }
+        try dbQueue.write { db in try DiagramRepository(db: db, core: core).diagramInit(req) }
     }
 
     public func diagramList(_ req: DiagramListRequest) throws -> DiagramListResponse {
-        try dbQueue.read { db in try DiagramRepository(db: db, store: self).diagramList(req) }
+        try dbQueue.read { db in try DiagramRepository(db: db, core: core).diagramList(req) }
     }
 
     public func diagramGet(_ req: DiagramGetRequest) throws -> DiagramGetResponse {
-        try dbQueue.read { db in try DiagramRepository(db: db, store: self).diagramGet(req) }
+        try dbQueue.read { db in try DiagramRepository(db: db, core: core).diagramGet(req) }
     }
 
     public func diagramBatchApply(_ req: DiagramBatchApplyRequest) throws -> DiagramBatchApplyResponse {
@@ -38,7 +38,7 @@ extension Store {
             throw StoreError.badRequest(detail: "batch-apply carried no mutations")
         }
         return try dbQueue.write { db in
-            try DiagramRepository(db: db, store: self).diagramBatchApply(req)
+            try DiagramRepository(db: db, core: core).diagramBatchApply(req)
         }
     }
 
@@ -47,24 +47,24 @@ extension Store {
     func validateDiagramScopeBinding(
         _ db: Database, owner: DiagramOwner, code: String
     ) throws {
-        try DiagramRepository(db: db, store: self)
+        try DiagramRepository(db: db, core: core)
             .validateDiagramScopeBinding(owner: owner, code: code)
     }
 
     func fetchDiagram(_ db: Database, uuid: String) throws -> DiagramRow? {
-        try DiagramRepository(db: db, store: self).fetchDiagram(uuid: uuid)
+        try DiagramRepository(db: db, core: core).fetchDiagram(uuid: uuid)
     }
 
     @discardableResult
     func bumpDiagramRevision(_ db: Database, diagramUuid: String) throws -> Int64 {
-        try DiagramRepository(db: db, store: self).bumpDiagramRevision(diagramUuid: diagramUuid)
+        try DiagramRepository(db: db, core: core).bumpDiagramRevision(diagramUuid: diagramUuid)
     }
 
     func recordDiagramChange(
         _ db: Database, diagram: DiagramRow, action: String,
         elementUuid: String?, mutationCount: Int?, revision: Int64
     ) throws {
-        try DiagramRepository(db: db, store: self).recordDiagramChange(
+        try DiagramRepository(db: db, core: core).recordDiagramChange(
             diagram: diagram, action: action, elementUuid: elementUuid,
             mutationCount: mutationCount, revision: revision)
     }
@@ -73,35 +73,35 @@ extension Store {
         _ db: Database, projectUuid: String?, instanceUuid: String?,
         sessionUuid: String?, promptUuid: String?
     ) throws -> DiagramOwner {
-        try DiagramRepository(db: db, store: self).resolveDiagramOwner(
+        try DiagramRepository(db: db, core: core).resolveDiagramOwner(
             projectUuid: projectUuid, instanceUuid: instanceUuid,
             sessionUuid: sessionUuid, promptUuid: promptUuid)
     }
 
     func diagramOwnerStoragePath(_ db: Database, diagram: DiagramRow) throws -> String? {
-        try DiagramRepository(db: db, store: self).diagramOwnerStoragePath(diagram: diagram)
+        try DiagramRepository(db: db, core: core).diagramOwnerStoragePath(diagram: diagram)
     }
 
     func fetchDiagramTree(_ db: Database, diagram: DiagramRow) throws -> DiagramTree {
-        try DiagramRepository(db: db, store: self).fetchDiagramTree(diagram: diagram)
+        try DiagramRepository(db: db, core: core).fetchDiagramTree(diagram: diagram)
     }
 
     func resolveDiagramBindings(
         _ db: Database, diagram: DiagramRow, tree: DiagramTree
     ) throws -> [DiagramBindingResolution] {
-        try DiagramRepository(db: db, store: self)
+        try DiagramRepository(db: db, core: core)
             .resolveDiagramBindings(diagram: diagram, tree: tree)
     }
 
     func fetchElementInfo(_ db: Database, uuid: String) throws -> ElementRowInfo {
-        try DiagramRepository(db: db, store: self).fetchElementInfo(uuid: uuid)
+        try DiagramRepository(db: db, core: core).fetchElementInfo(uuid: uuid)
     }
 
     func validateDiagramElementShape(
         _ db: Database, diagramUuid: String, type: DiagramElementType,
         parent: ElementRowInfo?, payload: DiagramElementPayload
     ) throws {
-        try DiagramRepository(db: db, store: self).validateDiagramElementShape(
+        try DiagramRepository(db: db, core: core).validateDiagramElementShape(
             diagramUuid: diagramUuid, type: type, parent: parent, payload: payload)
     }
 
@@ -109,7 +109,7 @@ extension Store {
         _ db: Database, diagramUuid: String, referrerUuid: String,
         parentOfReferrer: String?, targetUuid: String
     ) throws {
-        try DiagramRepository(db: db, store: self).validateConnectorTarget(
+        try DiagramRepository(db: db, core: core).validateConnectorTarget(
             diagramUuid: diagramUuid, referrerUuid: referrerUuid,
             parentOfReferrer: parentOfReferrer, targetUuid: targetUuid)
     }
@@ -117,7 +117,7 @@ extension Store {
     func insertSubtypeRow(
         _ db: Database, elementUuid: String, payload: DiagramElementPayload
     ) throws {
-        try DiagramRepository(db: db, store: self)
+        try DiagramRepository(db: db, core: core)
             .insertSubtypeRow(elementUuid: elementUuid, payload: payload)
     }
 
