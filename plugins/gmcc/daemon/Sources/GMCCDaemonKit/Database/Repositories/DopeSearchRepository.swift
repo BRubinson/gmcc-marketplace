@@ -52,11 +52,11 @@ struct DopeSearchRepository: RepositoryContext {
                 baseRows = try dope.dopeScopeCandidates(
                     sessionUuid: sessionUuid, scopeType: baseTier, code: scope.code)
             } else {
-                baseRows = try Row.fetchAll(db, sql: """
+                baseRows = try DopeScopeRecord.fetchAll(db, sql: """
                     SELECT * FROM dope_scope
                      WHERE project_uuid = ? AND scope_type = ? AND code = ?
                     """, arguments: [scope.projectUuid, baseTier.rawValue, scope.code])
-                    .map(Store.dopeScopeRow)
+                    .map { $0.wireRow() }
             }
             let baseTree = try baseRows.first.map { try dope.fetchDopeTree(scope: $0) }
             let merged = DopeOverlay.resolve(base: baseTree, overlay: overlayTree)
@@ -94,12 +94,12 @@ struct DopeSearchRepository: RepositoryContext {
             ) else {
                 throw StoreError.notFound(entity: "prompt", key: promptUuid)
             }
-            return try Row.fetchAll(db, sql: """
+            return try DopeScopeRecord.fetchAll(db, sql: """
                 SELECT * FROM dope_scope
                  WHERE (session_uuid = ? AND scope_type = 'SESSION_INSTANCE')
                     OR (prompt_uuid = ? AND scope_type = 'SESSION_INSTANCE_ITEM')
                  ORDER BY code
-                """, arguments: [sessionUuid, promptUuid]).map(Store.dopeScopeRow)
+                """, arguments: [sessionUuid, promptUuid]).map { $0.wireRow() }
         case .session:
             guard let sessionUuid = req.sessionUuid else {
                 throw StoreError.badRequest(detail: "--scope session requires --session-uuid")
@@ -108,9 +108,9 @@ struct DopeSearchRepository: RepositoryContext {
                                    arguments: [sessionUuid]) != nil else {
                 throw StoreError.notFound(entity: "session", key: sessionUuid)
             }
-            return try Row.fetchAll(db, sql: """
+            return try DopeScopeRecord.fetchAll(db, sql: """
                 SELECT * FROM dope_scope WHERE session_uuid = ? ORDER BY code
-                """, arguments: [sessionUuid]).map(Store.dopeScopeRow)
+                """, arguments: [sessionUuid]).map { $0.wireRow() }
         case .project:
             guard let projectUuid = req.projectUuid else {
                 throw StoreError.badRequest(detail: "--scope project requires --project-uuid")
@@ -119,9 +119,9 @@ struct DopeSearchRepository: RepositoryContext {
                                    arguments: [projectUuid]) != nil else {
                 throw StoreError.notFound(entity: "project", key: projectUuid)
             }
-            return try Row.fetchAll(db, sql: """
+            return try DopeScopeRecord.fetchAll(db, sql: """
                 SELECT * FROM dope_scope WHERE project_uuid = ? ORDER BY code
-                """, arguments: [projectUuid]).map(Store.dopeScopeRow)
+                """, arguments: [projectUuid]).map { $0.wireRow() }
         }
     }
 

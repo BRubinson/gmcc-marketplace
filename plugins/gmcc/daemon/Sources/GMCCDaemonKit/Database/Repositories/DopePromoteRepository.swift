@@ -75,10 +75,10 @@ struct DopePromoteRepository: RepositoryContext {
             let sourceCounts = try Int.fetchOne(db, sql: """
                 SELECT COUNT(*) FROM dope_persistence WHERE dope_scope_uuid = ?
                 """, arguments: [source.uuid]) ?? 0
-            let base = try Row.fetchOne(db, sql: """
+            let base = try DopeScopeRecord.fetchOne(db, sql: """
                 SELECT * FROM dope_scope
                  WHERE project_uuid = ? AND scope_type = 'BASE_PROJECT' AND code = ?
-                """, arguments: [projectUuid, source.code]).map(Store.dopeScopeRow)
+                """, arguments: [projectUuid, source.code]).map { $0.wireRow() }
 
             if let base {
                 let hwRevision = try Int64.fetchOne(db, sql: """

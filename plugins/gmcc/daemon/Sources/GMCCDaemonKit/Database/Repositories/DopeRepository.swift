@@ -29,8 +29,8 @@ struct DopeRepository: RepositoryContext {
     // MARK: - Row + scope helpers
 
     func fetchDopeScope(uuid: String) throws -> DopeScopeRow? {
-        try Row.fetchOne(db, sql: "SELECT * FROM dope_scope WHERE uuid = ?", arguments: [uuid])
-            .map(Store.dopeScopeRow)
+        try DopeScopeRecord.fetchOne(db, sql: "SELECT * FROM dope_scope WHERE uuid = ?", arguments: [uuid])
+            .map { $0.wireRow() }
     }
 
 
@@ -116,11 +116,11 @@ struct DopeRepository: RepositoryContext {
                 JOIN dope_scope s ON s.uuid = d.dope_scope_uuid WHERE o.uuid = ?
                 """
         }
-        guard let row = try Row.fetchOne(db, sql: sql, arguments: [nodeUuid]) else {
+        guard let row = try DopeScopeRecord.fetchOne(db, sql: sql, arguments: [nodeUuid]) else {
             throw StoreError.notFound(
                 entity: DopeLevelSpec.spec(for: level).table, key: nodeUuid)
         }
-        return Store.dopeScopeRow(row)
+        return row.wireRow()
     }
 
     // internal: the promotion machine emits DOPE_CHANGE too.
@@ -193,8 +193,8 @@ struct DopeRepository: RepositoryContext {
         let existingArgs: StatementArguments = req.promptUuid == nil
             ? [req.sessionUuid, req.code]
             : [req.sessionUuid, req.promptUuid, req.code]
-        if let row = try Row.fetchOne(db, sql: existingSql, arguments: existingArgs) {
-            return DopeScopeResponse(scope: Store.dopeScopeRow(row), created: false)
+        if let row = try DopeScopeRecord.fetchOne(db, sql: existingSql, arguments: existingArgs) {
+            return DopeScopeResponse(scope: row.wireRow(), created: false)
         }
 
         // The chain-non-null tier ladder: a session-tier scope fills its
@@ -227,14 +227,14 @@ struct DopeRepository: RepositoryContext {
                 throw StoreError.badRequest(
                     detail: "--clone-from-session-base is only meaningful for a PROMPT scope")
             }
-            guard let baseRow = try Row.fetchOne(db, sql: """
+            guard let baseRow = try DopeScopeRecord.fetchOne(db, sql: """
                 SELECT * FROM dope_scope
                 WHERE session_uuid = ? AND scope_type = 'SESSION_INSTANCE' AND code = ?
                 """, arguments: [req.sessionUuid, req.code]) else {
                 throw StoreError.badRequest(
                     detail: "no SESSION_INSTANCE scope with code '\(req.code)' to clone from")
             }
-            _ = try copyDopeTree(from: Store.dopeScopeRow(baseRow), into: uuid)
+            _ = try copyDopeTree(from: baseRow.wireRow(), into: uuid)
         }
 
         guard let scope = try fetchDopeScope(uuid: uuid) else {
@@ -288,8 +288,8 @@ struct DopeRepository: RepositoryContext {
             args.append(code)
         }
         sql += " ORDER BY code"
-        return try Row.fetchAll(db, sql: sql, arguments: StatementArguments(args))
-            .map(Store.dopeScopeRow)
+        return try DopeScopeRecord.fetchAll(db, sql: sql, arguments: StatementArguments(args))
+            .map { $0.wireRow() }
     }
 
     /// Project-tier scope candidates — the rung the ladder never had.
@@ -317,8 +317,8 @@ struct DopeRepository: RepositoryContext {
             args.append(code)
         }
         sql += " ORDER BY code"
-        return try Row.fetchAll(db, sql: sql, arguments: StatementArguments(args))
-            .map(Store.dopeScopeRow)
+        return try DopeScopeRecord.fetchAll(db, sql: sql, arguments: StatementArguments(args))
+            .map { $0.wireRow() }
     }
 
     // MARK: - List (v12; picker enumeration — never a PROMPT/SESSION_INSTANCE union)
@@ -428,12 +428,12 @@ struct DopeRepository: RepositoryContext {
                 sessionUuid: try scope.requireSessionUuid(), scopeType: baseTier,
                 code: scope.code)
         } else {
-            baseRows = try Row.fetchAll(db, sql: """
+            baseRows = try DopeScopeRecord.fetchAll(db, sql: """
                 SELECT * FROM dope_scope
                  WHERE project_uuid = ? AND scope_type = ? AND code = ?
                  ORDER BY code
                 """, arguments: [scope.projectUuid, baseTier.rawValue, scope.code])
-                .map(Store.dopeScopeRow)
+                .map { $0.wireRow() }
         }
         let baseTree = try baseRows.first.map { try fetchDopeTree(scope: $0) }
         let merged = DopeOverlay.resolve(base: baseTree, overlay: tree)

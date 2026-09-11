@@ -271,14 +271,14 @@ struct DopeCogRepository: RepositoryContext {
     // MARK: - Helpers
 
     private func cogOwningScope(cogUuid: String) throws -> DopeScopeRow {
-        guard let row = try Row.fetchOne(db, sql: """
+        guard let row = try DopeScopeRecord.fetchOne(db, sql: """
             SELECT s.* FROM dope_scope s
             JOIN dope_cog c ON c.dope_scope_uuid = s.uuid
             WHERE c.uuid = ?
             """, arguments: [cogUuid]) else {
             throw StoreError.notFound(entity: "dope_cog", key: cogUuid)
         }
-        return Store.dopeScopeRow(row)
+        return row.wireRow()
     }
 
     private func owningCogUuid(elementUuid: String) throws -> String {
@@ -291,7 +291,7 @@ struct DopeCogRepository: RepositoryContext {
     }
 
     private func elementOwningScope(elementUuid: String) throws -> DopeScopeRow {
-        guard let row = try Row.fetchOne(db, sql: """
+        guard let row = try DopeScopeRecord.fetchOne(db, sql: """
             SELECT s.* FROM dope_scope s
             JOIN dope_cog c ON c.dope_scope_uuid = s.uuid
             JOIN dope_cog_element e ON e.dope_cog_uuid = c.uuid
@@ -299,7 +299,7 @@ struct DopeCogRepository: RepositoryContext {
             """, arguments: [elementUuid]) else {
             throw StoreError.notFound(entity: "dope_cog_element", key: elementUuid)
         }
-        return Store.dopeScopeRow(row)
+        return row.wireRow()
     }
 
     private func hydrateCog(row: Row) throws -> DopeCogNode {

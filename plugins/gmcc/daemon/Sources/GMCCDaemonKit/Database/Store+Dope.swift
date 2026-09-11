@@ -7,16 +7,8 @@ import GRDB
 
 extension Store {
 
-    // internal, not private: the promotion machine builds scope rows too.
-    static func dopeScopeRow(_ row: Row) -> DopeScopeRow {
-        DopeScopeRow(
-            uuid: row["uuid"], version: row["version"],
-            projectUuid: row["project_uuid"], instanceUuid: row["instance_uuid"],
-            sessionUuid: row["session_uuid"], promptUuid: row["prompt_uuid"],
-            scopeType: row["scope_type"], code: row["code"], name: row["name"],
-            description: row["description"], revision: row["revision"],
-            deletedOn: row["deleted_on"],
-            createdAt: row["created_at"], updatedAt: row["updated_at"])
+    static func dopeScopeRow(_ row: Row) throws -> DopeScopeRow {
+        try DopeScopeRecord(row: row).wireRow()
     }
 
     // MARK: - Verbs
