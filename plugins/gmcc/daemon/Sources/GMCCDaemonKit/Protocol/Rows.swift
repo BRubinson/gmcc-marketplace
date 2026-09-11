@@ -166,7 +166,7 @@ public struct SessionRow: Codable, Hashable, Sendable {
         goal: String,
         createdAt: String,
         updatedAt: String,
-        activations: [PromptActivationRow]? = nil
+        activations: [PromptActivationRow]?
     ) {
         self.uuid = uuid
         self.version = version
@@ -1217,7 +1217,7 @@ public struct DopeScopeRow: Codable, Hashable, Sendable {
         uuid: String,
         version: Int64,
         projectUuid: String = "",
-        instanceUuid: String? = nil,
+        instanceUuid: String?,
         sessionUuid: String?,
         promptUuid: String?,
         scopeType: String,
@@ -1225,7 +1225,7 @@ public struct DopeScopeRow: Codable, Hashable, Sendable {
         name: String,
         description: String,
         revision: Int64,
-        deletedOn: String? = nil,
+        deletedOn: String?,
         createdAt: String,
         updatedAt: String
     ) {
@@ -1321,7 +1321,7 @@ public struct DiagramRow: Codable, Hashable, Sendable {
         name: String,
         description: String,
         gmccDiagramPath: String?,
-        dopeScopeCode: String? = nil,
+        dopeScopeCode: String?,
         revision: Int64,
         visibility: String = DiagramVisibility.private.rawValue,
         createdAt: String,
