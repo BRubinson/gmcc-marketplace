@@ -38,3 +38,15 @@ struct KbiteKeywordJunctionRecord: BaseRecordFields {
     var kbiteUuid: String
     var keywordUuid: String
 }
+
+extension KbiteRecord {
+    /// db → wire. Replicates the retired hand mapper exactly.
+    func wireRow() -> KbiteRow {
+        KbiteRow(
+            uuid: uuid,
+            version: version,
+            code: code,
+            createdAt: createdAt,
+            updatedAt: updatedAt)
+    }
+}

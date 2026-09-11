@@ -31,25 +31,16 @@ struct EventRepository {
         }
         let whereClause = conditions.isEmpty ? "" : "WHERE " + conditions.joined(separator: " AND ")
         let limit = min(max(req.limit ?? 200, 1), 10_000)
-        let events = try Row.fetchAll(
+        let events = try DaemonEventRecord.fetchAll(
             db,
             sql: """
-                SELECT id, kind, subject_uuid, payload, created_at
-                FROM daemon_event
+                SELECT * FROM daemon_event
                 \(whereClause)
                 ORDER BY id
                 LIMIT \(limit)
                 """,
             arguments: StatementArguments(arguments)
-        ).map { row in
-            EventNotification(
-                id: row["id"],
-                kind: row["kind"],
-                subjectUuid: row["subject_uuid"],
-                payload: row["payload"],
-                createdAt: row["created_at"]
-            )
-        }
+        ).map { $0.wireNotification() }
         return EventListResponse(events: events)
     }
 

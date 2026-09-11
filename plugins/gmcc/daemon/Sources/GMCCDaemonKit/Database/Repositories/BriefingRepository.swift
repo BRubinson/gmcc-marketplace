@@ -386,33 +386,9 @@ struct BriefingRepository: RepositoryContext {
     private func fetchBriefings(
         where condition: String, arguments: StatementArguments
     ) throws -> [AgentBriefingRow] {
-        try Row.fetchAll(
-            db,
-            sql: """
-                SELECT uuid, version, session_uuid, prompt_uuid, briefing_for_step, status,
-                       body, dope_refs, kbite_refs, dope_scope_uuid, dope_scope_revision,
-                       created_at, updated_at
-                FROM agent_briefing
-                WHERE \(condition)
-                ORDER BY briefing_for_step, created_at
-                """,
-            arguments: arguments
-        ).map { row in
-            AgentBriefingRow(
-                uuid: row["uuid"],
-                version: row["version"],
-                sessionUuid: row["session_uuid"],
-                promptUuid: row["prompt_uuid"],
-                briefingForStep: row["briefing_for_step"],
-                status: row["status"],
-                body: row["body"],
-                dopeRefs: row["dope_refs"],
-                kbiteRefs: row["kbite_refs"],
-                dopeScopeUuid: row["dope_scope_uuid"],
-                dopeScopeRevision: row["dope_scope_revision"],
-                createdAt: row["created_at"],
-                updatedAt: row["updated_at"]
-            )
-        }
+        try AgentBriefingRecord.fetchAll(
+            db, where: condition, arguments: arguments,
+            orderBy: "briefing_for_step, created_at"
+        ).map { $0.wireRow() }
     }
 }

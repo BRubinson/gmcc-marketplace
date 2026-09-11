@@ -25,3 +25,23 @@ struct AgentBriefingRecord: BaseRecordFields {
     var dopeScopeUuid: String?
     var dopeScopeRevision: Int64?
 }
+
+extension AgentBriefingRecord {
+    /// db → wire. Replicates the retired hand mapper exactly.
+    func wireRow() -> AgentBriefingRow {
+        AgentBriefingRow(
+            uuid: uuid,
+            version: version,
+            sessionUuid: sessionUuid,
+            promptUuid: promptUuid,
+            briefingForStep: briefingForStep,
+            status: status,
+            body: body,
+            dopeRefs: dopeRefs,
+            kbiteRefs: kbiteRefs,
+            dopeScopeUuid: dopeScopeUuid,
+            dopeScopeRevision: dopeScopeRevision,
+            createdAt: createdAt,
+            updatedAt: updatedAt)
+    }
+}

@@ -75,20 +75,12 @@ struct KbiteResourceRepository: RepositoryContext {
     }
 
     func getKbite(_ req: KbiteGetRequest) throws -> KbiteGetResponse {
-        guard let kbiteRow = try Row.fetchOne(
-            db,
-            sql: "SELECT uuid, version, code, created_at, updated_at FROM kbite WHERE code = ?",
-            arguments: [req.code]
+        guard let kbiteRecord = try KbiteRecord.fetchOne(
+            db, where: "code = ?", arguments: [req.code]
         ) else {
             throw StoreError.notFound(entity: "kbite", key: req.code)
         }
-        let kbite = KbiteRow(
-            uuid: kbiteRow["uuid"],
-            version: kbiteRow["version"],
-            code: kbiteRow["code"],
-            createdAt: kbiteRow["created_at"],
-            updatedAt: kbiteRow["updated_at"]
-        )
+        let kbite = kbiteRecord.wireRow()
         var resources: [KbiteResourceRow] = []
         for row in try KbiteResourceRecord.fetchAll(
             db, where: "kbite_uuid = ?", arguments: [kbite.uuid],
@@ -115,22 +107,12 @@ struct KbiteResourceRepository: RepositoryContext {
 
     /// The targeted load replacing "cat the chewed file".
     func getKbiteFile(_ req: KbiteFileGetRequest) throws -> KbiteFileGetResponse {
-        guard let row = try Row.fetchOne(db, sql: """
-            SELECT uuid, kbite_resource_uuid, resource_file_name, resource_file_summary,
-                   resource_file_content, created_at
-            FROM kbite_resource_file WHERE uuid = ?
-            """, arguments: [req.fileUuid]
-        ) else {
+        // The one read that SHOULD load resource_file_content: a single file
+        // by uuid. The stub listing above must never widen to this.
+        guard let row = try KbiteResourceFileRecord.fetch(db, uuid: req.fileUuid) else {
             throw StoreError.notFound(entity: "kbite_resource_file", key: req.fileUuid)
         }
-        return KbiteFileGetResponse(file: KbiteResourceFileRow(
-            uuid: row["uuid"],
-            kbiteResourceUuid: row["kbite_resource_uuid"],
-            resourceFileName: row["resource_file_name"],
-            resourceFileSummary: row["resource_file_summary"],
-            resourceFileContent: row["resource_file_content"],
-            createdAt: row["created_at"]
-        ))
+        return KbiteFileGetResponse(file: row.wireRow())
     }
 
     /// FTS5 query, bm25-ranked (name ≫ summary ≫ content, smaller = better),

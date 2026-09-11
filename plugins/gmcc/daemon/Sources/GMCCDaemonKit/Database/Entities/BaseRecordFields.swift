@@ -63,6 +63,19 @@ extension BaseRecordFields {
         return row
     }
 
+    /// Single-row twin of `fetchAll(where:)`, for a lookup keyed by something
+    /// other than uuid (`fetch(_:uuid:)` covers that case).
+    static func fetchOne(
+        _ db: Database,
+        where condition: String,
+        arguments: StatementArguments = StatementArguments()
+    ) throws -> Self? {
+        try fetchOne(
+            db,
+            sql: "SELECT * FROM \(databaseTableName) WHERE \(condition)",
+            arguments: arguments)
+    }
+
     /// `SELECT * FROM <table> [WHERE …] [ORDER BY …]`, so a converted fetch
     /// does not re-type the table name the protocol already owns.
     ///
@@ -81,3 +94,38 @@ extension BaseRecordFields {
         return try fetchAll(db, sql: sql, arguments: arguments)
     }
 }
+
+// MARK: - Records not on the decode path
+//
+// Final accounting for the Records-as-decode-path conversion. Every record in
+// Entities/ is either consumed by a repository read or named here with the
+// reason it is not. RecordSchemaTests still proves ALL of them against the live
+// schema, so an unconsumed record is dead weight but never silently wrong.
+//
+//   DaemonConfigRecord
+//     daemon_config is read as a two-column key/value projection folded into a
+//     [String: String]. There is no wire row and no field mapping, so a typed
+//     decoder would add a SELECT * and buy nothing.
+//
+//   FileChangeRecord, FileChangeRangeRecord, SessionFileRecord
+//     FileChangeRepository.list is a PROJECTION join: it folds file_change,
+//     session_file and file_change_range into one heterogeneous output, taking
+//     sf.relative_path alongside fc.*. session_file is otherwise only probed
+//     for a uuid. Not expressible as a single-table record.
+//
+//   DopeCogHullRecord, DopeCogPersistenceOwnerRecord
+//     The cog subtype tables. hydrateElement picks BOTH the table and the
+//     column at runtime from a DopeCogElementSpec, which is the one genuine
+//     floor of this conversion and the last hasColumn() in the layer.
+//
+//   KeywordRecord
+//     keyword is read as `String.fetchAll` of a single column through a
+//     junction; the wire shape is [String].
+//
+//   InstanceActiveKbiteRecord, ProjectActiveKbiteRecord,
+//   SessionActiveKbiteRecord, PromptActiveKbiteRecord,
+//   KbiteKeywordJunctionRecord, ResourceFileKeywordJunctionRecord
+//     Junction tables. They are written through insertBase and read only as
+//     EXISTS probes (`SELECT 1 …`) or as joins that project the PARENT table's
+//     columns. No read ever materializes a junction row, so these records
+//     exist for schema-drift coverage via RecordSchemaTests, not for decoding.

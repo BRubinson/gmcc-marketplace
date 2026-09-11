@@ -252,7 +252,7 @@ struct DopeCogRepository: RepositoryContext {
             args.append(code)
         }
         sql += " ORDER BY sort_order, code"
-        let cogs = try Row.fetchAll(db, sql: sql, arguments: StatementArguments(args))
+        let cogs = try DopeCogRecord.fetchAll(db, sql: sql, arguments: StatementArguments(args))
         return DopeCogGetResponse(cogs: try cogs.map { row in
             try hydrateCog(row: row)
         })
@@ -262,9 +262,9 @@ struct DopeCogRepository: RepositoryContext {
     /// transaction — the repo write path needs cogs alongside the
     /// persistence tree. Extracted from dopeCogGet rather than duplicated.
     func fetchDopeCogs(scopeUuid: String) throws -> [DopeCogNode] {
-        let rows = try Row.fetchAll(db, sql: """
-            SELECT * FROM dope_cog WHERE dope_scope_uuid = ? ORDER BY sort_order, code
-            """, arguments: [scopeUuid])
+        let rows = try DopeCogRecord.fetchAll(
+            db, where: "dope_scope_uuid = ?", arguments: [scopeUuid],
+            orderBy: "sort_order, code")
         return try rows.map { try hydrateCog(row: $0) }
     }
 
@@ -302,46 +302,50 @@ struct DopeCogRepository: RepositoryContext {
         return row.wireRow()
     }
 
-    private func hydrateCog(row: Row) throws -> DopeCogNode {
-        let elements = try Row.fetchAll(db, sql: """
-            SELECT * FROM dope_cog_element WHERE dope_cog_uuid = ?
-            ORDER BY sort_order, code
-            """, arguments: [row["uuid"] as String])
+    private func hydrateCog(row: DopeCogRecord) throws -> DopeCogNode {
+        let elements = try DopeCogElementRecord.fetchAll(
+            db, where: "dope_cog_uuid = ?", arguments: [row.uuid],
+            orderBy: "sort_order, code")
         return DopeCogNode(
-            uuid: row["uuid"], version: row["version"], code: row["code"], name: row["name"],
-            description: row["description"], sortOrder: row["sort_order"],
-            deletedOn: row["deleted_on"],
+            uuid: row.uuid, version: row.version, code: row.code, name: row.name,
+            description: row.description, sortOrder: Int(row.sortOrder),
+            deletedOn: row.deletedOn,
             elements: try elements.map { try hydrateElement(row: $0) })
     }
 
-    private func hydrateElement(row: Row) throws -> DopeCogElementNode {
-        let spec = try DopeCogElementSpec.spec(for: row["element_type"] as String)
+    private func hydrateElement(row: DopeCogElementRecord) throws -> DopeCogElementNode {
+        let spec = try DopeCogElementSpec.spec(for: row.elementType)
         // Spec-driven, like the writer: the subtype table's columns differ
         // per type, so selecting primary_path unconditionally would throw
         // "no such column" the moment a second type existed.
+        //
+        // THIS one stays on Row, and it is the documented floor of the Record
+        // conversion: both the table (spec.subtypeTable) and the column
+        // (field.dbColumn) are computed at runtime from the cog spec, which no
+        // static Record type can express. It is the last hasColumn() in the
+        // Database layer.
         let subtype = try Row.fetchOne(db, sql: """
             SELECT * FROM \(spec.subtypeTable) WHERE element_uuid = ?
-            """, arguments: [row["uuid"] as String])
+            """, arguments: [row.uuid])
         func subtypeValue(_ field: DopeCogField) -> String? {
             guard spec.ownedFields.contains(field), let subtype,
                   subtype.hasColumn(field.dbColumn) else { return nil }
             return subtype[field.dbColumn]
         }
         return DopeCogElementNode(
-            uuid: row["uuid"], version: row["version"], elementType: row["element_type"],
-            code: row["code"], name: row["name"], description: row["description"],
-            sortOrder: row["sort_order"], parentElementUuid: row["parent_element_uuid"],
-            dopeScopeCode: row["dope_scope_code"],
+            uuid: row.uuid, version: row.version, elementType: row.elementType,
+            code: row.code, name: row.name, description: row.description,
+            sortOrder: Int(row.sortOrder), parentElementUuid: row.parentElementUuid,
+            dopeScopeCode: row.dopeScopeCode,
             primaryPath: subtypeValue(.primaryPath),
             dopePersistenceCode: subtypeValue(.dopePersistenceCode),
-            deletedOn: row["deleted_on"])
+            deletedOn: row.deletedOn)
     }
 
     private func fetchCogResponse(
         uuid: String, revision: Int64
     ) throws -> DopeCogResponse {
-        guard let row = try Row.fetchOne(db, sql: "SELECT * FROM dope_cog WHERE uuid = ?",
-                                         arguments: [uuid]) else {
+        guard let row = try DopeCogRecord.fetch(db, uuid: uuid) else {
             throw StoreError.notFound(entity: "dope_cog", key: uuid)
         }
         return DopeCogResponse(cog: try hydrateCog(row: row), revision: revision)
@@ -350,9 +354,7 @@ struct DopeCogRepository: RepositoryContext {
     private func fetchCogElementResponse(
         uuid: String, revision: Int64
     ) throws -> DopeCogElementResponse {
-        guard let row = try Row.fetchOne(db, sql: """
-            SELECT * FROM dope_cog_element WHERE uuid = ?
-            """, arguments: [uuid]) else {
+        guard let row = try DopeCogElementRecord.fetch(db, uuid: uuid) else {
             throw StoreError.notFound(entity: "dope_cog_element", key: uuid)
         }
         return DopeCogElementResponse(element: try hydrateElement(row: row),
