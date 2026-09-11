@@ -1,99 +1,99 @@
 {
-  "base_composable_ref": "base.base_entity",
-  "code": "file_change",
-  "description": "One recorded modification of a session file, optionally prompt-attributed",
-  "entity_type": "MODEL",
-  "name": "File Change",
-  "properties": [
+  "base_composable_ref" : "base.base_entity",
+  "code" : "file_change",
+  "description" : "One recorded modification of a session file, optionally prompt-attributed",
+  "entity_type" : "MODEL",
+  "name" : "File Change",
+  "properties" : [
     {
-      "base_origin_ref": "base.base_entity.uuid",
-      "code": "uuid",
-      "data_type": "uuid",
-      "description": "Stable external identifier (base entity)",
-      "is_unique": true,
-      "name": "UUID",
-      "nullable": false,
-      "sort_order": 2
+      "base_origin_ref" : "base.base_entity.uuid",
+      "code" : "uuid",
+      "data_type" : "uuid",
+      "description" : "Stable external identifier (base entity)",
+      "is_unique" : true,
+      "name" : "UUID",
+      "nullable" : false,
+      "sort_order" : 2
     },
     {
-      "code": "session_file_uuid",
-      "data_type": "relationship",
-      "description": "The file this change belongs to",
-      "is_unique": false,
-      "name": "Session File",
-      "nullable": false,
-      "relationship_target_ref": "agentics.session_file.uuid",
-      "sort_order": 6
+      "code" : "session_file_uuid",
+      "data_type" : "relationship",
+      "description" : "The file this change belongs to",
+      "is_unique" : false,
+      "name" : "Session File",
+      "nullable" : false,
+      "relationship_target_ref" : "agentics.session_file.uuid",
+      "sort_order" : 6
     },
     {
-      "code": "session_uuid",
-      "data_type": "relationship",
-      "description": "Owning session, denormalized",
-      "is_unique": false,
-      "name": "Session",
-      "nullable": false,
-      "relationship_target_ref": "project.session.uuid",
-      "sort_order": 7
+      "code" : "session_uuid",
+      "data_type" : "relationship",
+      "description" : "Owning session, denormalized",
+      "is_unique" : false,
+      "name" : "Session",
+      "nullable" : false,
+      "relationship_target_ref" : "project.session.uuid",
+      "sort_order" : 7
     },
     {
-      "code": "prompt_uuid",
-      "data_type": "relationship",
-      "description": "Prompt attribution; drives implementation-state comparison",
-      "is_unique": false,
-      "name": "Prompt",
-      "nullable": true,
-      "relationship_target_ref": "project.prompt.uuid",
-      "sort_order": 8
+      "code" : "prompt_uuid",
+      "data_type" : "relationship",
+      "description" : "Prompt attribution; drives implementation-state comparison",
+      "is_unique" : false,
+      "name" : "Prompt",
+      "nullable" : true,
+      "relationship_target_ref" : "project.prompt.uuid",
+      "sort_order" : 8
     },
     {
-      "code": "change_kind",
-      "data_type": "enum",
-      "description": "edit, create, delete, rename",
-      "enum_ref": "agentics.enums.file_change_kind",
-      "is_unique": false,
-      "name": "Change Kind",
-      "nullable": false,
-      "sort_order": 9
+      "code" : "change_kind",
+      "data_type" : "enum",
+      "description" : "edit, create, delete, rename",
+      "enum_ref" : "agentics.enums.file_change_kind",
+      "is_unique" : false,
+      "name" : "Change Kind",
+      "nullable" : false,
+      "sort_order" : 9
     },
     {
-      "code": "agent_id",
-      "data_type": "text",
-      "description": "Self-reported agent id (ClientKey cannot distinguish sibling subagents; hook leaves NULL)",
-      "is_unique": false,
-      "name": "Agent Id",
-      "nullable": true,
-      "sort_order": 10
+      "code" : "agent_id",
+      "data_type" : "text",
+      "description" : "Self-reported agent id (ClientKey cannot distinguish sibling subagents; hook leaves NULL)",
+      "is_unique" : false,
+      "name" : "Agent Id",
+      "nullable" : true,
+      "sort_order" : 10
     },
     {
-      "code": "agent_name",
-      "data_type": "text",
-      "description": "Self-reported agent/persona name",
-      "is_unique": false,
-      "name": "Agent Name",
-      "nullable": true,
-      "sort_order": 11
+      "code" : "agent_name",
+      "data_type" : "text",
+      "description" : "Self-reported agent/persona name",
+      "is_unique" : false,
+      "name" : "Agent Name",
+      "nullable" : true,
+      "sort_order" : 11
     },
     {
-      "code": "workflow_phase",
-      "data_type": "text",
-      "description": "Stamped SERVER-SIDE from the attributed prompt's active bot_workflow — the writer cannot mis-stamp",
-      "is_unique": false,
-      "name": "Workflow Phase",
-      "nullable": true,
-      "sort_order": 12
+      "code" : "workflow_phase",
+      "data_type" : "text",
+      "description" : "Stamped SERVER-SIDE from the attributed prompt's active bot_workflow — the writer cannot mis-stamp",
+      "is_unique" : false,
+      "name" : "Workflow Phase",
+      "nullable" : true,
+      "sort_order" : 12
     },
     {
-      "code": "origin",
-      "data_type": "enum",
-      "description": "hook|manual|reconcile (default hook) — provenance honesty: reconciliation rows never masquerade as hook rows",
-      "enum_ref": "agentics.enums.file_change_origin",
-      "is_unique": false,
-      "name": "Origin",
-      "nullable": false,
-      "sort_order": 13
+      "code" : "origin",
+      "data_type" : "enum",
+      "description" : "hook|manual|reconcile (default hook) — provenance honesty: reconciliation rows never masquerade as hook rows",
+      "enum_ref" : "agentics.enums.file_change_origin",
+      "is_unique" : false,
+      "name" : "Origin",
+      "nullable" : false,
+      "sort_order" : 13
     }
   ],
-  "repo_representative_file": "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
-  "sort_order": 13,
-  "version": 759
+  "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
+  "sort_order" : 13,
+  "version" : 763
 }
