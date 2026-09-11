@@ -324,6 +324,16 @@ final class Server: @unchecked Sendable {
                 return try PromptUpdateContentHandler.handle(line: line, head: head, store: store)
             case .promptSetStatus:
                 return try PromptSetStatusHandler.handle(line: line, head: head, store: store)
+            case .promptStart:
+                return try PromptStartHandler.handle(line: line, head: head, store: store)
+            case .promptResume:
+                return try PromptResumeHandler.handle(line: line, head: head, store: store)
+            case .botNext:
+                return try BotNextHandler.handle(line: line, head: head, store: store)
+            case .botGet:
+                return try BotGetHandler.handle(line: line, head: head, store: store)
+            case .botSetBaseline:
+                return try BotSetBaselineHandler.handle(line: line, head: head, store: store)
 
             case .artifactAdd:
                 return try ArtifactAddHandler.handle(line: line, head: head, store: store)
@@ -369,8 +379,10 @@ final class Server: @unchecked Sendable {
 
             case .clarifyOpen:
                 return try ClarifyOpenHandler.handle(line: line, head: head, store: store)
-            case .clarifyAsk:
-                return try ClarifyAskHandler.handle(line: line, head: head, store: store)
+            case .clarifyQuestionAdd:
+                return try ClarifyQuestionAddHandler.handle(line: line, head: head, store: store)
+            case .clarifyNoteAdd:
+                return try ClarifyNoteAddHandler.handle(line: line, head: head, store: store)
             case .clarifySeal:
                 return try ClarifySealHandler.handle(line: line, head: head, store: store)
             case .clarifyAnswer:
@@ -381,6 +393,15 @@ final class Server: @unchecked Sendable {
                 return try ClarifyFinalizeHandler.handle(line: line, head: head, store: store)
             case .clarifyGet:
                 return try ClarifyGetHandler.handle(line: line, head: head, store: store)
+
+            case .carePackageOpen:
+                return try CarePackageOpenHandler.handle(line: line, head: head, store: store)
+            case .carePackageRefAdd:
+                return try CarePackageRefAddHandler.handle(line: line, head: head, store: store)
+            case .carePackageComplete:
+                return try CarePackageCompleteHandler.handle(line: line, head: head, store: store)
+            case .carePackageGet:
+                return try CarePackageGetHandler.handle(line: line, head: head, store: store)
 
             case .archOpen:
                 return try ArchOpenHandler.handle(line: line, head: head, store: store)
@@ -400,6 +421,10 @@ final class Server: @unchecked Sendable {
                 return try ArchReviseHandler.handle(line: line, head: head, store: store)
             case .archGet:
                 return try ArchGetHandler.handle(line: line, head: head, store: store)
+            case .archOptionAdd:
+                return try ArchOptionAddHandler.handle(line: line, head: head, store: store)
+            case .archDecide:
+                return try ArchDecideHandler.handle(line: line, head: head, store: store)
 
             case .exploreOpen:
                 return try ExploreOpenHandler.handle(line: line, head: head, store: store)

@@ -91,15 +91,17 @@ final class BriefingTests: XCTestCase {
 
         _ = try store.briefingComplete(BriefingCompleteRequest(
             briefingUuid: first.briefing.uuid,
-            expectedVersion: first.briefing.version, body: "the body"))
+            expectedVersion: first.briefing.version,
+            dopeRefs: ["agentics.agent_briefing"]))
 
         let second = try store.briefingOpen(
             BriefingOpenRequest(promptUuid: "prompt-a", briefingForStep: "initial"))
         XCTAssertFalse(second.created)
         XCTAssertEqual(second.briefing.uuid, first.briefing.uuid)
         XCTAssertEqual(second.briefing.status, "building")
-        // Content survives the reset for wholesale replacement at complete.
-        XCTAssertEqual(second.briefing.body, "the body")
+        // m0025: reset TRUNCATES the ref children — a step's briefing is its
+        // CURRENT briefing, stale refs must not leak into the rebuilt one.
+        XCTAssertTrue(second.briefing.dopeRefs.isEmpty)
     }
 
     func testExactlyOneOwnerIsEnforced() throws {
@@ -146,9 +148,10 @@ final class BriefingTests: XCTestCase {
                     db, sessionUuid: "sess-1", clientKey: "test-instance-open"),
                 "prompt-a")
         }
-        // Task-owned opens claim nothing (no prompt to claim).
+        // Task-owned opens claim nothing (no prompt to claim). (Task rows
+        // coexist with prompt rows on the same step via the partial pair.)
         _ = try store.briefingOpen(BriefingOpenRequest(
-            sessionUuid: "sess-1", briefingForStep: "pre_architecture",
+            sessionUuid: "sess-1", briefingForStep: "initial",
             clientKey: "test-instance-task"))
         try store.dbQueue.read { db in
             let keys = try self.store.fetchActivations(db, sessionUuid: "sess-1")
@@ -188,7 +191,6 @@ final class BriefingTests: XCTestCase {
         let ready = try store.briefingComplete(BriefingCompleteRequest(
             briefingUuid: open.briefing.uuid,
             expectedVersion: open.briefing.version,
-            body: "distilled context",
             dopeRefs: ["agentics.agent_briefing", "agentics.vanished_entity"]))
         XCTAssertEqual(ready.briefing.status, "ready")
         XCTAssertEqual(ready.briefing.dopeScopeUuid, "scope-1")
@@ -208,12 +210,15 @@ final class BriefingTests: XCTestCase {
         XCTAssertEqual(stale.staleness.currentRevision, 9)
     }
 
-    func testCompleteRefusesEmptyBodyAndGetAbsentIsTyped() throws {
+    func testCompleteRefusesDanglingFileChangeRefAndGetAbsentIsTyped() throws {
         let open = try store.briefingOpen(
             BriefingOpenRequest(promptUuid: "prompt-a", briefingForStep: "initial"))
+        // A file-change child carries a REAL FK — a dangling ref is a typed
+        // refusal (unlike kbite refs, which drop ghost-tolerantly).
         XCTAssertThrowsError(try store.briefingComplete(BriefingCompleteRequest(
             briefingUuid: open.briefing.uuid,
-            expectedVersion: open.briefing.version, body: "   ")))
+            expectedVersion: open.briefing.version,
+            fileChangeRefs: ["no-such-change"])))
 
         XCTAssertThrowsError(
             try store.briefingGet(BriefingGetRequest(promptUuid: "prompt-b"))
@@ -280,11 +285,13 @@ final class BriefingTests: XCTestCase {
         let a = try store.briefingOpen(
             BriefingOpenRequest(promptUuid: "prompt-a", briefingForStep: "initial"))
         _ = try store.briefingComplete(BriefingCompleteRequest(
-            briefingUuid: a.briefing.uuid, expectedVersion: a.briefing.version, body: "for A"))
+            briefingUuid: a.briefing.uuid, expectedVersion: a.briefing.version,
+            dopeRefs: ["for.a"]))
         let b = try store.briefingOpen(
             BriefingOpenRequest(promptUuid: "prompt-b", briefingForStep: "initial"))
         _ = try store.briefingComplete(BriefingCompleteRequest(
-            briefingUuid: b.briefing.uuid, expectedVersion: b.briefing.version, body: "for B"))
+            briefingUuid: b.briefing.uuid, expectedVersion: b.briefing.version,
+            dopeRefs: ["for.b"]))
         try store.dbQueue.write { db in
             try self.store.claimActivation(
                 db, sessionUuid: "sess-1", promptUuid: "prompt-a", clientKey: "test-instance-one")
@@ -294,20 +301,21 @@ final class BriefingTests: XCTestCase {
         // Each instance's zero-uuid lookup lands on ITS prompt's briefing.
         let forA = try store.briefingGet(BriefingGetRequest(
             sessionUuid: "sess-1", step: "initial", clientKey: "test-instance-one"))
-        XCTAssertEqual(forA.briefing.body, "for A")
+        XCTAssertEqual(forA.briefing.dopeRefs.map(\.dopeCode), ["for.a"])
         let forB = try store.briefingGet(BriefingGetRequest(
             sessionUuid: "sess-1", step: "initial", clientKey: "test-instance-two"))
-        XCTAssertEqual(forB.briefing.body, "for B")
+        XCTAssertEqual(forB.briefing.dopeRefs.map(\.dopeCode), ["for.b"])
 
         // An unclaimed instance with ambiguous claims falls to the task row.
         let task = try store.briefingOpen(
             BriefingOpenRequest(sessionUuid: "sess-1", briefingForStep: "initial"))
         _ = try store.briefingComplete(BriefingCompleteRequest(
             briefingUuid: task.briefing.uuid,
-            expectedVersion: task.briefing.version, body: "task-owned"))
+            expectedVersion: task.briefing.version,
+            dopeRefs: ["task.owned"]))
         let fallback = try store.briefingGet(BriefingGetRequest(
             sessionUuid: "sess-1", step: "initial", clientKey: "test-instance-three"))
-        XCTAssertEqual(fallback.briefing.body, "task-owned")
+        XCTAssertEqual(fallback.briefing.uuid, task.briefing.uuid)
     }
 
     func testStubIsInstanceScopedAndHookSafe() throws {
@@ -320,7 +328,8 @@ final class BriefingTests: XCTestCase {
             BriefingOpenRequest(promptUuid: "prompt-a", briefingForStep: "initial"))
         _ = try store.briefingComplete(BriefingCompleteRequest(
             briefingUuid: open.briefing.uuid,
-            expectedVersion: open.briefing.version, body: "headline line\nrest"))
+            expectedVersion: open.briefing.version,
+            dopeRefs: ["agentics.agent_briefing"]))
         try store.dbQueue.write { db in
             try self.store.claimActivation(
                 db, sessionUuid: "sess-1", promptUuid: "prompt-a", clientKey: "test-instance-one")

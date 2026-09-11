@@ -78,6 +78,7 @@ struct ReviewRepository: RepositoryContext {
             "line_start": req.lineStart,
             "line_end": req.lineEnd,
             "agent_name": agentName,
+            "agent_id": req.agentId,
             "finding_rating": req.rating,
             "status": ReviewFindingStatus.open.rawValue,
         ])

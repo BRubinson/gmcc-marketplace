@@ -1,98 +1,90 @@
 {
-  "base_composable_ref" : "base.base_entity",
-  "code" : "agent_briefing",
-  "description" : "A point-in-time context package a doper agent assembles for a prompt (or /gm_task session) step, pulled by spawned agents at start. One CURRENT row per (owner, step): prompt-owned rows unique on (prompt_uuid, step), task-owned rows (NULL prompt) unique on (session_uuid, step) — a partial unique index pair. Refs are dot-paths/file-uuids stored as TEXT JSON (point-in-time, deliberately non-normalized); staleness evidence is a server-stamped dope scope revision compared live at read (warn, never block)",
-  "entity_type" : "MODEL",
-  "name" : "Agent Briefing",
-  "properties" : [
+  "base_composable_ref": "base.base_entity",
+  "code": "agent_briefing",
+  "description": "A point-in-time OPINION-FREE ref pre-selection a doper assembles per (owner, step); open on an existing pair RESETS to building and truncates the ref children. m0025 retired body and the TEXT-JSON ref columns — refs are typed child rows (dope children carry ghost-legal dot-path CODES; kbite/file-change children carry uuid FKs). Staleness = server-stamped scope revision, compared live at read (warn, never block)",
+  "entity_type": "MODEL",
+  "name": "Agent Briefing",
+  "properties": [
     {
-      "code" : "session_uuid",
-      "data_type" : "relationship",
-      "description" : "Owning session; always populated (daemon-derived when prompt-owned); attribution anchor",
-      "is_unique" : false,
-      "name" : "Session",
-      "nullable" : false,
-      "relationship_target_ref" : "project.session.uuid",
-      "sort_order" : 1
+      "base_origin_ref": "base.base_entity.uuid",
+      "code": "uuid",
+      "data_type": "uuid",
+      "description": "Stable external identifier (base entity)",
+      "is_unique": true,
+      "name": "UUID",
+      "nullable": false,
+      "sort_order": 0
     },
     {
-      "code" : "prompt_uuid",
-      "data_type" : "relationship",
-      "description" : "NULL when a /gm_task run owns the briefing",
-      "is_unique" : false,
-      "name" : "Prompt",
-      "nullable" : true,
-      "relationship_target_ref" : "project.prompt.uuid",
-      "sort_order" : 2
+      "code": "session_uuid",
+      "data_type": "relationship",
+      "description": "Owning session; always populated (daemon-derived when prompt-owned); attribution anchor",
+      "is_unique": false,
+      "name": "Session",
+      "nullable": false,
+      "relationship_target_ref": "project.session.uuid",
+      "sort_order": 1
     },
     {
-      "code" : "briefing_for_step",
-      "data_type" : "enum",
-      "description" : "Which phase consumes this briefing; registry-governed, no db CHECK",
-      "enum_ref" : "agentics.enums.briefing_step",
-      "is_unique" : false,
-      "name" : "Briefing For Step",
-      "nullable" : false,
-      "sort_order" : 3
+      "code": "prompt_uuid",
+      "data_type": "relationship",
+      "description": "NULL when a /gm_task run owns the briefing",
+      "is_unique": false,
+      "name": "Prompt",
+      "nullable": true,
+      "relationship_target_ref": "project.prompt.uuid",
+      "sort_order": 2
     },
     {
-      "code" : "status",
-      "data_type" : "enum",
-      "description" : "building until complete; ready when consumable",
-      "enum_ref" : "agentics.enums.briefing_status",
-      "is_unique" : false,
-      "name" : "Status",
-      "nullable" : false,
-      "sort_order" : 4
+      "code": "briefing_for_step",
+      "data_type": "enum",
+      "description": "Which phase consumes this briefing; registry-governed, no db CHECK",
+      "enum_ref": "agentics.enums.briefing_step",
+      "is_unique": false,
+      "name": "Briefing For Step",
+      "nullable": false,
+      "sort_order": 3
     },
     {
-      "code" : "body",
-      "data_type" : "text",
-      "description" : "Distilled briefing prose the doper composed; Swift-guarded non-empty at ready",
-      "is_unique" : false,
-      "name" : "Body",
-      "nullable" : false,
-      "sort_order" : 5
+      "code": "status",
+      "data_type": "enum",
+      "description": "building until complete; ready when consumable",
+      "enum_ref": "agentics.enums.briefing_status",
+      "is_unique": false,
+      "name": "Status",
+      "nullable": false,
+      "sort_order": 4
     },
     {
-      "code" : "dope_refs",
-      "data_type" : "text",
-      "description" : "JSON array of DOT-PATHS, never uuids; dangling paths report as ghosts at read",
-      "is_unique" : false,
-      "name" : "Dope Refs",
-      "nullable" : false,
-      "sort_order" : 6
+      "code": "dope_scope_uuid",
+      "data_type": "relationship",
+      "description": "Stamped SERVER-SIDE at complete; the agent cannot mis-stamp",
+      "is_unique": false,
+      "name": "Dope Scope",
+      "nullable": true,
+      "relationship_target_ref": "doped.dope_scope.uuid",
+      "sort_order": 8
     },
     {
-      "code" : "kbite_refs",
-      "data_type" : "text",
-      "description" : "JSON array of {file_uuid, brief}; daemon denormalizes briefs at complete",
-      "is_unique" : false,
-      "name" : "KBite Refs",
-      "nullable" : false,
-      "sort_order" : 7
+      "code": "dope_scope_revision",
+      "data_type": "int",
+      "description": "Staleness evidence; GET compares to live revision, warns with drift count",
+      "is_unique": false,
+      "name": "Dope Scope Revision",
+      "nullable": true,
+      "sort_order": 9
     },
     {
-      "code" : "dope_scope_uuid",
-      "data_type" : "relationship",
-      "description" : "Stamped SERVER-SIDE at complete; the agent cannot mis-stamp",
-      "is_unique" : false,
-      "name" : "Dope Scope",
-      "nullable" : true,
-      "relationship_target_ref" : "doped.dope_scope.uuid",
-      "sort_order" : 8
-    },
-    {
-      "code" : "dope_scope_revision",
-      "data_type" : "int",
-      "description" : "Staleness evidence; GET compares to live revision, warns with drift count",
-      "is_unique" : false,
-      "name" : "Dope Scope Revision",
-      "nullable" : true,
-      "sort_order" : 9
+      "code": "agent_id",
+      "data_type": "text",
+      "description": "Doper self-reported agent id (agent-abc123) for dedup/behavior tracking",
+      "is_unique": false,
+      "name": "Agent Id",
+      "nullable": true,
+      "sort_order": 10
     }
   ],
-  "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Store+Briefing.swift",
-  "sort_order" : 21,
-  "version" : 758
+  "repo_representative_file": "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Store+Briefing.swift",
+  "sort_order": 21,
+  "version": 759
 }

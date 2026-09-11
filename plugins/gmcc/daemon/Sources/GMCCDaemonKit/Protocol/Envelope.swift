@@ -67,7 +67,18 @@ public enum GMCCWireProtocol {
     /// DiagramConnectorHead vocabulary, ConnectorPayload.routingKind /
     /// tailKind, and diagram.visibility. A pre-v23 peer never reaches the
     /// decoders these would crash — the handshake rejects it at the door.
-    public static let version = 23
+    /// v23 → v24: the dynamic-workflows train (m0025). New message families
+    /// — PROMPT_START / PROMPT_RESUME / BOT_NEXT / BOT_GET,
+    /// CLARIFY_QUESTION_ADD / CLARIFY_NOTE_ADD (CLARIFY_ASK retired; ANSWER
+    /// retooled in place), CARE_PACKAGE_OPEN/REF_ADD/COMPLETE/GET,
+    /// ARCH_OPTION_ADD / ARCH_DECIDE — force the bump, and the honest row
+    /// reshapes ride the same fence: ExplorationSummaryRow +agentType
+    /// (per-agent rows), the merged finding/file pair (EXPLORE_RANK now
+    /// prompt-scoped), AgentBriefingRow's typed ref children riding
+    /// BRIEFING_COMPLETE (body gone), the slimmed ClarificationSummaryRow,
+    /// and SearchKind's retired clarification/key-file cases. Reconcile is
+    /// CLIENT-side over FILE_CHANGE_ADD — no message of its own.
+    public static let version = 24
 }
 
 /// Discriminator for every NDJSON message on the socket. One case per spec
@@ -108,6 +119,16 @@ public enum MessageType: String, Codable, Hashable, CaseIterable, Sendable {
     case promptGet = "PROMPT_GET"
     case promptUpdateContent = "PROMPT_UPDATE_CONTENT"
     case promptSetStatus = "PROMPT_SET_STATUS"
+    // Bot workflow machine (v24): the daemon-held state machine. START
+    // creates the workflow row on a draft prompt (no status change — the
+    // set-status door is untouched); RESUME adopts existing evidence; NEXT
+    // computes the phase from db state and serves instructions + uuids;
+    // GET is the raw row.
+    case promptStart = "PROMPT_START"
+    case promptResume = "PROMPT_RESUME"
+    case botNext = "BOT_NEXT"
+    case botGet = "BOT_GET"
+    case botSetBaseline = "BOT_SET_BASELINE"
     // Artifacts
     case artifactAdd = "ARTIFACT_ADD"
     case artifactList = "ARTIFACT_LIST"
@@ -137,14 +158,21 @@ public enum MessageType: String, Codable, Hashable, CaseIterable, Sendable {
     case catalogSearch = "CATALOG_SEARCH"
     // Full-text search over prompt/clarification/architecture text (v8)
     case search = "SEARCH"
-    // Clarification machine (v7)
+    // Clarification machine (v24: the m0025 split — questions/notes/care
+    // package; CLARIFY_ASK retired with the legacy single-table model)
     case clarifyOpen = "CLARIFY_OPEN"
-    case clarifyAsk = "CLARIFY_ASK"
+    case clarifyQuestionAdd = "CLARIFY_QUESTION_ADD"
+    case clarifyNoteAdd = "CLARIFY_NOTE_ADD"
     case clarifySeal = "CLARIFY_SEAL"
     case clarifyAnswer = "CLARIFY_ANSWER"
     case clarifyReopen = "CLARIFY_REOPEN"
     case clarifyFinalize = "CLARIFY_FINALIZE"
     case clarifyGet = "CLARIFY_GET"
+    // Care package (v24): the standalone clarified-intent bundle.
+    case carePackageOpen = "CARE_PACKAGE_OPEN"
+    case carePackageRefAdd = "CARE_PACKAGE_REF_ADD"
+    case carePackageComplete = "CARE_PACKAGE_COMPLETE"
+    case carePackageGet = "CARE_PACKAGE_GET"
     // Architecture machine (v7)
     case archOpen = "ARCH_OPEN"
     case archSummarize = "ARCH_SUMMARIZE"
@@ -155,6 +183,10 @@ public enum MessageType: String, Codable, Hashable, CaseIterable, Sendable {
     case archApprove = "ARCH_APPROVE"
     case archRevise = "ARCH_REVISE"
     case archGet = "ARCH_GET"
+    // Architecture options (v24): the architect pen inversion — option rows
+    // written by architect agents; DECIDE selects one and rejects siblings.
+    case archOptionAdd = "ARCH_OPTION_ADD"
+    case archDecide = "ARCH_DECIDE"
     // Exploration report machine (v9)
     case exploreOpen = "EXPLORE_OPEN"
     case exploreKeyFileAdd = "EXPLORE_KEY_FILE_ADD"

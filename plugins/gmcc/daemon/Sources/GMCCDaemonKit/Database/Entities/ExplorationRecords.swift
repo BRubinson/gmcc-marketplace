@@ -8,7 +8,9 @@
 import Foundation
 import GRDB
 
-/// Read-side mirror of the `exploration_summary` table. Columns map via convertFromSnakeCase.
+/// Read-side mirror of the `exploration_summary` table (m0025: literal
+/// per-agent rows keyed UNIQUE(prompt_uuid, agent_type); the prompt-level
+/// synthesis/seal is the row with agent_type='synthesis').
 struct ExplorationSummaryRecord: BaseRecordFields {
     static let databaseTableName = "exploration_summary"
     var uuid: String
@@ -16,11 +18,15 @@ struct ExplorationSummaryRecord: BaseRecordFields {
     var createdAt: String
     var updatedAt: String
     var promptUuid: String
+    var agentType: String
+    var agentId: String?
     var status: String
     var overview: String
 }
 
-/// Read-side mirror of the `exploration_finding` table. Columns map via convertFromSnakeCase.
+/// Read-side mirror of the `exploration_finding` table (m0025: absorbed
+/// exploration_key_file — a key file is a finding of kind 'key_file' with
+/// file_path set).
 struct ExplorationFindingRecord: BaseRecordFields {
     static let databaseTableName = "exploration_finding"
     var uuid: String
@@ -31,42 +37,25 @@ struct ExplorationFindingRecord: BaseRecordFields {
     var kind: String
     var title: String
     var body: String
+    var filePath: String?
     var agentName: String
+    var agentId: String?
     var findingRating: Int64?
 }
 
-/// Read-side mirror of the `exploration_key_file` table. Columns map via convertFromSnakeCase.
-struct ExplorationKeyFileRecord: BaseRecordFields {
-    static let databaseTableName = "exploration_key_file"
-    var uuid: String
-    var version: Int64
-    var createdAt: String
-    var updatedAt: String
-    var explorationSummaryUuid: String
-    var filePath: String
-}
-
 extension ExplorationSummaryRecord {
-    /// db → wire. Replicates the retired hand mapper exactly.
+    /// db → wire.
     func wireRow() -> ExplorationSummaryRow {
         ExplorationSummaryRow(
             uuid: uuid, version: version, promptUuid: promptUuid,
+            agentType: agentType, agentId: agentId,
             status: status, overview: overview,
             createdAt: createdAt, updatedAt: updatedAt)
     }
 }
 
-extension ExplorationKeyFileRecord {
-    /// db → wire. Replicates the retired hand mapper exactly.
-    func wireRow() -> ExplorationKeyFileRow {
-        ExplorationKeyFileRow(
-            uuid: uuid, version: version,
-            explorationSummaryUuid: explorationSummaryUuid, filePath: filePath)
-    }
-}
-
 extension ExplorationFindingRecord {
-    /// db → wire. Replicates the retired hand mapper exactly.
+    /// db → wire.
     ///
     /// findingRating narrows Int64 (the column type) to the wire's Int. The
     /// old `row["finding_rating"]` subscript inferred Int straight from the
@@ -75,7 +64,8 @@ extension ExplorationFindingRecord {
         ExplorationFindingRow(
             uuid: uuid, version: version,
             explorationSummaryUuid: explorationSummaryUuid,
-            kind: kind, title: title, body: body, agentName: agentName,
+            kind: kind, title: title, body: body, filePath: filePath,
+            agentName: agentName, agentId: agentId,
             findingRating: findingRating.map(Int.init))
     }
 }

@@ -202,16 +202,36 @@ extension DaemonClient {
         try request(type: .clarifyOpen, payload: req, responseType: ClarifySummaryResponse.self)
     }
 
-    public func clarifyAsk(_ req: ClarifyAskRequest) throws -> ClarificationRowResponse {
-        try request(type: .clarifyAsk, payload: req, responseType: ClarificationRowResponse.self)
+    public func clarifyQuestionAdd(_ req: ClarifyQuestionAddRequest) throws -> ClarifyQuestionRowResponse {
+        try request(type: .clarifyQuestionAdd, payload: req, responseType: ClarifyQuestionRowResponse.self)
+    }
+
+    public func clarifyNoteAdd(_ req: ClarifyNoteAddRequest) throws -> ClarifyNoteRowResponse {
+        try request(type: .clarifyNoteAdd, payload: req, responseType: ClarifyNoteRowResponse.self)
     }
 
     public func clarifySeal(_ req: ClarifySealRequest) throws -> ClarifySummaryResponse {
         try request(type: .clarifySeal, payload: req, responseType: ClarifySummaryResponse.self)
     }
 
-    public func clarifyAnswer(_ req: ClarifyAnswerRequest) throws -> ClarificationRowResponse {
-        try request(type: .clarifyAnswer, payload: req, responseType: ClarificationRowResponse.self)
+    public func clarifyAnswer(_ req: ClarifyAnswerRequest) throws -> ClarifyQuestionRowResponse {
+        try request(type: .clarifyAnswer, payload: req, responseType: ClarifyQuestionRowResponse.self)
+    }
+
+    public func carePackageOpen(_ req: CarePackageOpenRequest) throws -> CarePackageResponse {
+        try request(type: .carePackageOpen, payload: req, responseType: CarePackageResponse.self)
+    }
+
+    public func carePackageRefAdd(_ req: CarePackageRefAddRequest) throws -> CarePackageResponse {
+        try request(type: .carePackageRefAdd, payload: req, responseType: CarePackageResponse.self)
+    }
+
+    public func carePackageComplete(_ req: CarePackageCompleteRequest) throws -> CarePackageResponse {
+        try request(type: .carePackageComplete, payload: req, responseType: CarePackageResponse.self)
+    }
+
+    public func carePackageGet(_ req: CarePackageGetRequest) throws -> CarePackageResponse {
+        try request(type: .carePackageGet, payload: req, responseType: CarePackageResponse.self)
     }
 
     public func clarifyReopen(_ req: ClarifyReopenRequest) throws -> ClarifySummaryResponse {
@@ -348,6 +368,34 @@ extension DaemonClient {
 
     public func archRevise(_ req: ArchReviseRequest) throws -> ArchSummaryResponse {
         try request(type: .archRevise, payload: req, responseType: ArchSummaryResponse.self)
+    }
+
+    public func archOptionAdd(_ req: ArchOptionAddRequest) throws -> ArchOptionRowResponse {
+        try request(type: .archOptionAdd, payload: req, responseType: ArchOptionRowResponse.self)
+    }
+
+    public func archDecide(_ req: ArchDecideRequest) throws -> ArchDecideResponse {
+        try request(type: .archDecide, payload: req, responseType: ArchDecideResponse.self)
+    }
+
+    public func promptStart(_ req: PromptStartRequest) throws -> BotWorkflowResponse {
+        try request(type: .promptStart, payload: req, responseType: BotWorkflowResponse.self)
+    }
+
+    public func promptResume(_ req: PromptResumeRequest) throws -> BotWorkflowResponse {
+        try request(type: .promptResume, payload: req, responseType: BotWorkflowResponse.self)
+    }
+
+    public func botNext(_ req: BotNextRequest) throws -> BotNextResponse {
+        try request(type: .botNext, payload: req, responseType: BotNextResponse.self)
+    }
+
+    public func botGet(_ req: BotGetRequest) throws -> BotWorkflowResponse {
+        try request(type: .botGet, payload: req, responseType: BotWorkflowResponse.self)
+    }
+
+    public func botSetBaseline(_ req: BotSetBaselineRequest) throws -> BotWorkflowResponse {
+        try request(type: .botSetBaseline, payload: req, responseType: BotWorkflowResponse.self)
     }
 
     public func archGet(_ req: ArchGetRequest) throws -> ArchGetResponse {

@@ -189,13 +189,20 @@ struct SessionRepository: RepositoryContext {
                 ? ""
                 : "WHERE cs.prompt_uuid IN (SELECT uuid FROM prompt WHERE session_uuid = ?)"
             let scopeArgs: StatementArguments = sessionUuid.map { [$0] } ?? []
+            // m0025: questions/notes are the split children; the care
+            // package flag surfaces the clarified-intent artifact.
             for row in try Row.fetchAll(db, sql: """
                 SELECT cs.prompt_uuid, cs.uuid, cs.version, cs.status,
-                       cs.refined_goal, cs.backstory_note,
-                       COUNT(c.uuid) AS q_count,
-                       COALESCE(SUM(c.status = 'open'), 0) AS open_count
+                       COUNT(q.uuid) AS q_count,
+                       COALESCE(SUM(q.status = 'open'), 0) AS open_count,
+                       (SELECT COUNT(*) FROM internal_clarification_note n
+                        WHERE n.clarification_summary_uuid = cs.uuid) AS note_count,
+                       EXISTS(SELECT 1 FROM care_package cp
+                              WHERE cp.clarification_summary_uuid = cs.uuid
+                                AND cp.status = 'ready') AS package_ready
                 FROM clarification_summary cs
-                LEFT JOIN clarification c ON c.clarification_summary_uuid = cs.uuid
+                LEFT JOIN user_clarification_question q
+                    ON q.clarification_summary_uuid = cs.uuid
                 \(scope)
                 GROUP BY cs.uuid
                 """, arguments: scopeArgs) {
@@ -203,10 +210,10 @@ struct SessionRepository: RepositoryContext {
                     summaryUuid: row["uuid"],
                     version: row["version"],
                     status: row["status"],
-                    refinedGoal: row["refined_goal"],
-                    backstoryNote: row["backstory_note"],
                     questionCount: row["q_count"],
-                    openQuestionCount: row["open_count"]
+                    openQuestionCount: row["open_count"],
+                    noteCount: row["note_count"],
+                    carePackageReady: (row["package_ready"] as Int64) != 0
                 )
             }
             for row in try Row.fetchAll(db, sql: """
@@ -226,25 +233,46 @@ struct SessionRepository: RepositoryContext {
                     generalChangeCount: row["g_count"]
                 )
             }
+            // m0025: summaries are per-agent — the stub aggregates the
+            // PROMPT: counts span every summary; the representative row is
+            // the synthesis (seal) row when present. key_file findings are
+            // path anchors — counted separately, excluded from ranking math.
             for row in try Row.fetchAll(db, sql: """
-                SELECT cs.prompt_uuid, cs.uuid, cs.version, cs.status,
-                       (SELECT COUNT(*) FROM exploration_key_file kf
-                        WHERE kf.exploration_summary_uuid = cs.uuid) AS kf_count,
-                       COUNT(f.uuid) AS f_count,
-                       COALESCE(SUM(f.finding_rating < 100), 0) AS sub100_count,
-                       -- COUNT ignores NULLs, so this is real rows minus ranked
-                       -- rows; a bare SUM(finding_rating IS NULL) would count
-                       -- the LEFT JOIN's null-extended row on empty summaries.
-                       COUNT(f.uuid) - COUNT(f.finding_rating) AS unranked_count
+                SELECT cs.prompt_uuid,
+                       COALESCE(
+                           MAX(CASE WHEN cs.agent_type = 'synthesis' THEN cs.uuid END),
+                           MIN(cs.uuid)) AS rep_uuid,
+                       COALESCE(
+                           MAX(CASE WHEN cs.agent_type = 'synthesis' THEN cs.version END),
+                           0) AS rep_version,
+                       COALESCE(
+                           MAX(CASE WHEN cs.agent_type = 'synthesis' THEN cs.status END),
+                           'exploring') AS rep_status,
+                       (SELECT COALESCE(SUM(f.kind = 'key_file'), 0)
+                        FROM exploration_finding f
+                        JOIN exploration_summary es ON es.uuid = f.exploration_summary_uuid
+                        WHERE es.prompt_uuid = cs.prompt_uuid) AS kf_count,
+                       (SELECT COUNT(*)
+                        FROM exploration_finding f
+                        JOIN exploration_summary es ON es.uuid = f.exploration_summary_uuid
+                        WHERE es.prompt_uuid = cs.prompt_uuid AND f.kind != 'key_file') AS f_count,
+                       (SELECT COALESCE(SUM(f.finding_rating < 100), 0)
+                        FROM exploration_finding f
+                        JOIN exploration_summary es ON es.uuid = f.exploration_summary_uuid
+                        WHERE es.prompt_uuid = cs.prompt_uuid AND f.kind != 'key_file') AS sub100_count,
+                       (SELECT COUNT(*)
+                        FROM exploration_finding f
+                        JOIN exploration_summary es ON es.uuid = f.exploration_summary_uuid
+                        WHERE es.prompt_uuid = cs.prompt_uuid AND f.kind != 'key_file'
+                          AND f.finding_rating IS NULL) AS unranked_count
                 FROM exploration_summary cs
-                LEFT JOIN exploration_finding f ON f.exploration_summary_uuid = cs.uuid
                 \(scope)
-                GROUP BY cs.uuid
+                GROUP BY cs.prompt_uuid
                 """, arguments: scopeArgs) {
                 explore[row["prompt_uuid"]] = ExplorationReportStub(
-                    summaryUuid: row["uuid"],
-                    version: row["version"],
-                    status: row["status"],
+                    summaryUuid: row["rep_uuid"],
+                    version: row["rep_version"],
+                    status: row["rep_status"],
                     keyFileCount: row["kf_count"],
                     findingCount: row["f_count"],
                     sub100FindingCount: row["sub100_count"],

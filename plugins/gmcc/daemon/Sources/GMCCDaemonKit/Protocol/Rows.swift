@@ -396,28 +396,30 @@ public struct ClarificationReportStub: Codable, Hashable, Sendable {
     public let summaryUuid: String
     public let version: Int64
     public let status: String
-    public let refinedGoal: String
-    public let backstoryNote: String
     public let questionCount: Int
     /// Resume signal: >0 means the clarification stalled mid-answering.
     public let openQuestionCount: Int
+    /// m0025: internal notes replace the retired summary text fields.
+    public let noteCount: Int
+    /// m0025: whether a ready care package exists (the clarified intent).
+    public let carePackageReady: Bool
 
     public init(
         summaryUuid: String,
         version: Int64,
         status: String,
-        refinedGoal: String,
-        backstoryNote: String,
         questionCount: Int,
-        openQuestionCount: Int
+        openQuestionCount: Int,
+        noteCount: Int = 0,
+        carePackageReady: Bool = false
     ) {
         self.summaryUuid = summaryUuid
         self.version = version
         self.status = status
-        self.refinedGoal = refinedGoal
-        self.backstoryNote = backstoryNote
         self.questionCount = questionCount
         self.openQuestionCount = openQuestionCount
+        self.noteCount = noteCount
+        self.carePackageReady = carePackageReady
     }
 }
 
@@ -528,6 +530,13 @@ public struct FileChangeRow: Codable, Hashable, Sendable {
     public let promptUuid: String?
     public let relativePath: String
     public let changeKind: String
+    /// m0025 attribution axis (all OPTIONAL — additive decode both ways).
+    public let agentId: String?
+    public let agentName: String?
+    /// Server-stamped from the attributed prompt's active bot_workflow.
+    public let workflowPhase: String?
+    /// hook|manual|reconcile — provenance honesty (defaulted 'hook').
+    public let origin: String?
     public let createdAt: String
     public let ranges: [ChangeRangeRow]
 
@@ -537,6 +546,10 @@ public struct FileChangeRow: Codable, Hashable, Sendable {
         promptUuid: String?,
         relativePath: String,
         changeKind: String,
+        agentId: String? = nil,
+        agentName: String? = nil,
+        workflowPhase: String? = nil,
+        origin: String? = nil,
         createdAt: String,
         ranges: [ChangeRangeRow]
     ) {
@@ -545,6 +558,10 @@ public struct FileChangeRow: Codable, Hashable, Sendable {
         self.promptUuid = promptUuid
         self.relativePath = relativePath
         self.changeKind = changeKind
+        self.agentId = agentId
+        self.agentName = agentName
+        self.workflowPhase = workflowPhase
+        self.origin = origin
         self.createdAt = createdAt
         self.ranges = ranges
     }
@@ -710,16 +727,13 @@ public struct PromptChangeSummary: Codable, Hashable, Sendable {
     }
 }
 
-// MARK: - Clarification (v7)
+// MARK: - Clarification (m0025 split)
 
 public struct ClarificationSummaryRow: Codable, Hashable, Sendable {
     public let uuid: String
     public let version: Int64
     public let promptUuid: String
     public let status: String
-    public let backstoryNote: String
-    public let refinedGoal: String
-    public let refinedDetail: String
     public let createdAt: String
     public let updatedAt: String
 
@@ -730,9 +744,6 @@ public struct ClarificationSummaryRow: Codable, Hashable, Sendable {
         version: Int64,
         promptUuid: String,
         status: String,
-        backstoryNote: String,
-        refinedGoal: String,
-        refinedDetail: String,
         createdAt: String,
         updatedAt: String
     ) {
@@ -740,45 +751,205 @@ public struct ClarificationSummaryRow: Codable, Hashable, Sendable {
         self.version = version
         self.promptUuid = promptUuid
         self.status = status
-        self.backstoryNote = backstoryNote
-        self.refinedGoal = refinedGoal
-        self.refinedDetail = refinedDetail
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
 }
 
-public struct ClarificationRow: Codable, Hashable, Sendable {
+/// A user-facing clarification question. The selected answer(s) live in
+/// `selectedOptionUuids` (junction rows) — empty + non-nil answerText means
+/// the user typed a free answer; both may coexist (select AND elaborate).
+public struct ClarificationQuestionRow: Codable, Hashable, Sendable {
     public let uuid: String
     public let version: Int64
     public let clarificationSummaryUuid: String
     public let seq: Int64
-    public let category: String
     public let question: String
-    public let answer: String?
-    public let answerSource: String?
     public let status: String
+    public let answerText: String?
+    public let agentId: String?
+    public let agentName: String?
+    public let options: [ClarificationOptionRow]
+    public let selectedOptionUuids: [String]
 
     public init(
         uuid: String,
         version: Int64,
         clarificationSummaryUuid: String,
         seq: Int64,
-        category: String,
         question: String,
-        answer: String?,
-        answerSource: String?,
-        status: String
+        status: String,
+        answerText: String?,
+        agentId: String?,
+        agentName: String?,
+        options: [ClarificationOptionRow],
+        selectedOptionUuids: [String]
     ) {
         self.uuid = uuid
         self.version = version
         self.clarificationSummaryUuid = clarificationSummaryUuid
         self.seq = seq
-        self.category = category
         self.question = question
-        self.answer = answer
-        self.answerSource = answerSource
         self.status = status
+        self.answerText = answerText
+        self.agentId = agentId
+        self.agentName = agentName
+        self.options = options
+        self.selectedOptionUuids = selectedOptionUuids
+    }
+}
+
+public struct ClarificationOptionRow: Codable, Hashable, Sendable {
+    public let uuid: String
+    public let seq: Int64
+    public let body: String
+
+    public init(uuid: String, seq: Int64, body: String) {
+        self.uuid = uuid
+        self.seq = seq
+        self.body = body
+    }
+}
+
+/// An agent-authored internal note clarifying something that confused
+/// exploration or the clarifier itself. weight uses the finding_rating
+/// polarity: 0 = critical, 999 = ignore.
+public struct ClarificationNoteRow: Codable, Hashable, Sendable {
+    public let uuid: String
+    public let version: Int64
+    public let clarificationSummaryUuid: String
+    public let body: String
+    public let confusedEntityUuid: String?
+    public let confusedEntityType: String?
+    public let weight: Int?
+    public let questionUuid: String?
+    public let agentId: String?
+    public let agentName: String?
+
+    public init(
+        uuid: String,
+        version: Int64,
+        clarificationSummaryUuid: String,
+        body: String,
+        confusedEntityUuid: String?,
+        confusedEntityType: String?,
+        weight: Int?,
+        questionUuid: String?,
+        agentId: String?,
+        agentName: String?
+    ) {
+        self.uuid = uuid
+        self.version = version
+        self.clarificationSummaryUuid = clarificationSummaryUuid
+        self.body = body
+        self.confusedEntityUuid = confusedEntityUuid
+        self.confusedEntityType = confusedEntityType
+        self.weight = weight
+        self.questionUuid = questionUuid
+        self.agentId = agentId
+        self.agentName = agentName
+    }
+}
+
+// MARK: - Care package (m0025)
+
+/// The standalone clarified-intent bundle on a clarification summary.
+/// NEVER written back to the prompt row — the prompt triple is human input.
+public struct CarePackageRow: Codable, Hashable, Sendable {
+    public let uuid: String
+    public let version: Int64
+    public let clarificationSummaryUuid: String
+    public let clarifiedIntent: String
+    public let status: String
+    public let dopeScopeUuid: String?
+    public let dopeScopeRevision: Int64?
+    public let dopeRefs: [CarePackageDopeRefRow]
+    public let kbiteRefs: [CarePackageKbiteRefRow]
+    public let explorationRefs: [CarePackageExplorationRefRow]
+    public let createdAt: String
+    public let updatedAt: String
+
+    public init(
+        uuid: String,
+        version: Int64,
+        clarificationSummaryUuid: String,
+        clarifiedIntent: String,
+        status: String,
+        dopeScopeUuid: String?,
+        dopeScopeRevision: Int64?,
+        dopeRefs: [CarePackageDopeRefRow],
+        kbiteRefs: [CarePackageKbiteRefRow],
+        explorationRefs: [CarePackageExplorationRefRow],
+        createdAt: String,
+        updatedAt: String
+    ) {
+        self.uuid = uuid
+        self.version = version
+        self.clarificationSummaryUuid = clarificationSummaryUuid
+        self.clarifiedIntent = clarifiedIntent
+        self.status = status
+        self.dopeScopeUuid = dopeScopeUuid
+        self.dopeScopeRevision = dopeScopeRevision
+        self.dopeRefs = dopeRefs
+        self.kbiteRefs = kbiteRefs
+        self.explorationRefs = explorationRefs
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+}
+
+public struct CarePackageDopeRefRow: Codable, Hashable, Sendable {
+    public let uuid: String
+    public let dopeCode: String
+    public let note: String?
+    public let seq: Int
+
+    public init(uuid: String, dopeCode: String, note: String?, seq: Int) {
+        self.uuid = uuid
+        self.dopeCode = dopeCode
+        self.note = note
+        self.seq = seq
+    }
+}
+
+public struct CarePackageKbiteRefRow: Codable, Hashable, Sendable {
+    public let uuid: String
+    public let kbiteResourceFileUuid: String
+    public let brief: String?
+    public let seq: Int
+
+    public init(uuid: String, kbiteResourceFileUuid: String, brief: String?, seq: Int) {
+        self.uuid = uuid
+        self.kbiteResourceFileUuid = kbiteResourceFileUuid
+        self.brief = brief
+        self.seq = seq
+    }
+}
+
+/// A curated COPY of exploration output (never re-explored); the soft
+/// provenance ref survives source pruning via SET NULL.
+public struct CarePackageExplorationRefRow: Codable, Hashable, Sendable {
+    public let uuid: String
+    public let curatedTitle: String
+    public let curatedBody: String
+    public let filePath: String?
+    public let sourceFindingUuid: String?
+    public let seq: Int
+
+    public init(
+        uuid: String,
+        curatedTitle: String,
+        curatedBody: String,
+        filePath: String?,
+        sourceFindingUuid: String?,
+        seq: Int
+    ) {
+        self.uuid = uuid
+        self.curatedTitle = curatedTitle
+        self.curatedBody = curatedBody
+        self.filePath = filePath
+        self.sourceFindingUuid = sourceFindingUuid
+        self.seq = seq
     }
 }
 
@@ -790,6 +961,8 @@ public struct ArchitectureSummaryRow: Codable, Hashable, Sendable {
     public let promptUuid: String
     public let body: String
     public let status: String
+    /// m0025: why the selected option won (empty when no options flow ran).
+    public let decisionRationale: String?
     public let createdAt: String
     public let updatedAt: String
 
@@ -801,6 +974,7 @@ public struct ArchitectureSummaryRow: Codable, Hashable, Sendable {
         promptUuid: String,
         body: String,
         status: String,
+        decisionRationale: String? = nil,
         createdAt: String,
         updatedAt: String
     ) {
@@ -809,6 +983,7 @@ public struct ArchitectureSummaryRow: Codable, Hashable, Sendable {
         self.promptUuid = promptUuid
         self.body = body
         self.status = status
+        self.decisionRationale = decisionRationale
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -840,6 +1015,12 @@ public struct ArchPersistenceFieldChangeRow: Codable, Hashable, Sendable {
     public let isForeignKey: Bool
     public let fkTarget: String?
     public let isIndexed: Bool
+    /// m0025: add|modify|rename|delete.
+    public let changeKind: String?
+    /// m0025: old field name when changeKind == rename.
+    public let renamedFrom: String?
+    /// m0025: domain.entity.property dot-path CODE (ghost-legal).
+    public let dopePropertyRef: String?
 
     public init(
         uuid: String,
@@ -851,7 +1032,10 @@ public struct ArchPersistenceFieldChangeRow: Codable, Hashable, Sendable {
         nullable: Bool,
         isForeignKey: Bool,
         fkTarget: String?,
-        isIndexed: Bool
+        isIndexed: Bool,
+        changeKind: String? = nil,
+        renamedFrom: String? = nil,
+        dopePropertyRef: String? = nil
     ) {
         self.uuid = uuid
         self.seq = seq
@@ -863,6 +1047,9 @@ public struct ArchPersistenceFieldChangeRow: Codable, Hashable, Sendable {
         self.isForeignKey = isForeignKey
         self.fkTarget = fkTarget
         self.isIndexed = isIndexed
+        self.changeKind = changeKind
+        self.renamedFrom = renamedFrom
+        self.dopePropertyRef = dopePropertyRef
     }
 }
 
@@ -872,6 +1059,10 @@ public struct ArchPersistenceChangeRow: Codable, Hashable, Sendable {
     public let className: String
     public let filePath: String
     public let reasonBrief: String
+    /// m0025: add|modify|rename|delete — negative changes are first-class.
+    public let changeKind: String?
+    /// m0025: domain.entity dot-path CODE (ghost-legal), never a uuid.
+    public let dopeRef: String?
     public let fields: [ArchPersistenceFieldChangeRow]
     public let implementation: ChangeImplementationState
 
@@ -881,6 +1072,8 @@ public struct ArchPersistenceChangeRow: Codable, Hashable, Sendable {
         className: String,
         filePath: String,
         reasonBrief: String,
+        changeKind: String? = nil,
+        dopeRef: String? = nil,
         fields: [ArchPersistenceFieldChangeRow],
         implementation: ChangeImplementationState
     ) {
@@ -889,8 +1082,91 @@ public struct ArchPersistenceChangeRow: Codable, Hashable, Sendable {
         self.className = className
         self.filePath = filePath
         self.reasonBrief = reasonBrief
+        self.changeKind = changeKind
+        self.dopeRef = dopeRef
         self.fields = fields
         self.implementation = implementation
+    }
+}
+
+/// One methodology's persisted architecture proposal (m0025 pen inversion —
+/// the first architect pen). Only the SELECTED option expands into change
+/// rows; losers persist as feature-graft offers.
+public struct ArchitectureOptionRow: Codable, Hashable, Sendable {
+    public let uuid: String
+    public let version: Int64
+    public let architectureSummaryUuid: String
+    public let agentName: String
+    public let agentId: String?
+    public let body: String
+    public let status: String
+    public let createdAt: String
+    public let updatedAt: String
+
+    public init(
+        uuid: String,
+        version: Int64,
+        architectureSummaryUuid: String,
+        agentName: String,
+        agentId: String?,
+        body: String,
+        status: String,
+        createdAt: String,
+        updatedAt: String
+    ) {
+        self.uuid = uuid
+        self.version = version
+        self.architectureSummaryUuid = architectureSummaryUuid
+        self.agentName = agentName
+        self.agentId = agentId
+        self.body = body
+        self.status = status
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+}
+
+// MARK: - Bot workflow (m0025)
+
+/// The daemon-held workflow state machine row. Phase is DERIVED from db
+/// evidence at every BOT_NEXT; lastServedPhase is observability only.
+public struct BotWorkflowRow: Codable, Hashable, Sendable {
+    public let uuid: String
+    public let version: Int64
+    public let sessionUuid: String
+    public let promptUuid: String
+    public let variant: String
+    public let status: String
+    public let clientKey: String?
+    public let lastServedPhase: String?
+    public let reconcileGitHead: String?
+    public let createdAt: String
+    public let updatedAt: String
+
+    public init(
+        uuid: String,
+        version: Int64,
+        sessionUuid: String,
+        promptUuid: String,
+        variant: String,
+        status: String,
+        clientKey: String?,
+        lastServedPhase: String?,
+        reconcileGitHead: String?,
+        createdAt: String,
+        updatedAt: String
+    ) {
+        self.uuid = uuid
+        self.version = version
+        self.sessionUuid = sessionUuid
+        self.promptUuid = promptUuid
+        self.variant = variant
+        self.status = status
+        self.clientKey = clientKey
+        self.lastServedPhase = lastServedPhase
+        self.reconcileGitHead = reconcileGitHead
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
     }
 }
 
@@ -947,6 +1223,10 @@ public struct ExplorationSummaryRow: Codable, Hashable, Sendable {
     public let uuid: String
     public let version: Int64
     public let promptUuid: String
+    /// m0025: aggressive|conservative|pragmatic|alternative|general|synthesis.
+    /// The synthesis-type row is the prompt-level seal/synthesis home.
+    public let agentType: String
+    public let agentId: String?
     public let status: String
     public let overview: String
     public let createdAt: String
@@ -958,6 +1238,8 @@ public struct ExplorationSummaryRow: Codable, Hashable, Sendable {
         uuid: String,
         version: Int64,
         promptUuid: String,
+        agentType: String,
+        agentId: String?,
         status: String,
         overview: String,
         createdAt: String,
@@ -966,6 +1248,8 @@ public struct ExplorationSummaryRow: Codable, Hashable, Sendable {
         self.uuid = uuid
         self.version = version
         self.promptUuid = promptUuid
+        self.agentType = agentType
+        self.agentId = agentId
         self.status = status
         self.overview = overview
         self.createdAt = createdAt
@@ -973,9 +1257,9 @@ public struct ExplorationSummaryRow: Codable, Hashable, Sendable {
     }
 }
 
-/// One agent briefing (v21): the context package a doper agent assembles for
-/// a phase. `kbiteRefs` is the denormalized {file_uuid, brief} JSON the
-/// daemon wrote at complete; `dopeRefs` is a JSON array of dot-paths.
+/// One agent briefing (m0025 shape): an opinion-free ref pre-selection a
+/// doper agent assembles for a phase. The old body/dope_refs/kbite_refs TEXT
+/// columns are gone — refs are typed child rows.
 public struct AgentBriefingRow: Codable, Hashable, Sendable {
     public let uuid: String
     public let version: Int64
@@ -984,13 +1268,12 @@ public struct AgentBriefingRow: Codable, Hashable, Sendable {
     public let promptUuid: String?
     public let briefingForStep: String
     public let status: String
-    public let body: String
-    /// JSON array of DOT-PATH strings.
-    public let dopeRefs: String
-    /// JSON array of {"file_uuid", "brief"} objects.
-    public let kbiteRefs: String
+    public let agentId: String?
     public let dopeScopeUuid: String?
     public let dopeScopeRevision: Int64?
+    public let dopeRefs: [AgentBriefingDopeRefRow]
+    public let kbiteRefs: [AgentBriefingKbiteRefRow]
+    public let fileChangeRefs: [AgentBriefingFileChangeRefRow]
     public let createdAt: String
     public let updatedAt: String
 
@@ -1001,11 +1284,12 @@ public struct AgentBriefingRow: Codable, Hashable, Sendable {
         promptUuid: String?,
         briefingForStep: String,
         status: String,
-        body: String,
-        dopeRefs: String,
-        kbiteRefs: String,
+        agentId: String?,
         dopeScopeUuid: String?,
         dopeScopeRevision: Int64?,
+        dopeRefs: [AgentBriefingDopeRefRow],
+        kbiteRefs: [AgentBriefingKbiteRefRow],
+        fileChangeRefs: [AgentBriefingFileChangeRefRow],
         createdAt: String,
         updatedAt: String
     ) {
@@ -1015,13 +1299,55 @@ public struct AgentBriefingRow: Codable, Hashable, Sendable {
         self.promptUuid = promptUuid
         self.briefingForStep = briefingForStep
         self.status = status
-        self.body = body
-        self.dopeRefs = dopeRefs
-        self.kbiteRefs = kbiteRefs
+        self.agentId = agentId
         self.dopeScopeUuid = dopeScopeUuid
         self.dopeScopeRevision = dopeScopeRevision
+        self.dopeRefs = dopeRefs
+        self.kbiteRefs = kbiteRefs
+        self.fileChangeRefs = fileChangeRefs
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+    }
+}
+
+/// Dope refs are dot-path CODES, never uuids (ghost-binding precedent).
+public struct AgentBriefingDopeRefRow: Codable, Hashable, Sendable {
+    public let uuid: String
+    public let dopeCode: String
+    public let brief: String?
+    public let seq: Int
+
+    public init(uuid: String, dopeCode: String, brief: String?, seq: Int) {
+        self.uuid = uuid
+        self.dopeCode = dopeCode
+        self.brief = brief
+        self.seq = seq
+    }
+}
+
+public struct AgentBriefingKbiteRefRow: Codable, Hashable, Sendable {
+    public let uuid: String
+    public let kbiteResourceFileUuid: String
+    public let brief: String?
+    public let seq: Int
+
+    public init(uuid: String, kbiteResourceFileUuid: String, brief: String?, seq: Int) {
+        self.uuid = uuid
+        self.kbiteResourceFileUuid = kbiteResourceFileUuid
+        self.brief = brief
+        self.seq = seq
+    }
+}
+
+public struct AgentBriefingFileChangeRefRow: Codable, Hashable, Sendable {
+    public let uuid: String
+    public let fileChangeUuid: String
+    public let seq: Int
+
+    public init(uuid: String, fileChangeUuid: String, seq: Int) {
+        self.uuid = uuid
+        self.fileChangeUuid = fileChangeUuid
+        self.seq = seq
     }
 }
 
@@ -1046,7 +1372,10 @@ public struct ExplorationFindingRow: Codable, Hashable, Sendable {
     public let kind: String
     public let title: String
     public let body: String
+    /// m0025: the merged key-file half of the finding/file pair.
+    public let filePath: String?
     public let agentName: String
+    public let agentId: String?
     /// nil = unranked (work-in-progress; blocks COMPLETE).
     public let findingRating: Int?
 
@@ -1057,7 +1386,9 @@ public struct ExplorationFindingRow: Codable, Hashable, Sendable {
         kind: String,
         title: String,
         body: String,
+        filePath: String?,
         agentName: String,
+        agentId: String?,
         findingRating: Int?
     ) {
         self.uuid = uuid
@@ -1066,7 +1397,9 @@ public struct ExplorationFindingRow: Codable, Hashable, Sendable {
         self.kind = kind
         self.title = title
         self.body = body
+        self.filePath = filePath
         self.agentName = agentName
+        self.agentId = agentId
         self.findingRating = findingRating
     }
 }
@@ -1098,6 +1431,8 @@ public struct ReviewSummaryRow: Codable, Hashable, Sendable {
     public let status: String
     public let verdict: String?
     public let overview: String
+    /// m0025 agent_id sweep (additive optional).
+    public let agentId: String?
     public let createdAt: String
     public let updatedAt: String
 
@@ -1110,6 +1445,7 @@ public struct ReviewSummaryRow: Codable, Hashable, Sendable {
         status: String,
         verdict: String?,
         overview: String,
+        agentId: String? = nil,
         createdAt: String,
         updatedAt: String
     ) {
@@ -1119,6 +1455,7 @@ public struct ReviewSummaryRow: Codable, Hashable, Sendable {
         self.status = status
         self.verdict = verdict
         self.overview = overview
+        self.agentId = agentId
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -1135,6 +1472,8 @@ public struct ReviewFindingRow: Codable, Hashable, Sendable {
     public let lineStart: Int?
     public let lineEnd: Int?
     public let agentName: String
+    /// m0025 agent_id sweep (additive optional).
+    public let agentId: String?
     public let findingRating: Int?
     public let status: String
 
@@ -1149,6 +1488,7 @@ public struct ReviewFindingRow: Codable, Hashable, Sendable {
         lineStart: Int?,
         lineEnd: Int?,
         agentName: String,
+        agentId: String? = nil,
         findingRating: Int?,
         status: String
     ) {
@@ -1162,6 +1502,7 @@ public struct ReviewFindingRow: Codable, Hashable, Sendable {
         self.lineStart = lineStart
         self.lineEnd = lineEnd
         self.agentName = agentName
+        self.agentId = agentId
         self.findingRating = findingRating
         self.status = status
     }

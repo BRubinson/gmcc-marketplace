@@ -16,8 +16,28 @@ extension Store {
         try dbQueue.write { db in try ClarificationRepository(db: db, core: core).open(req) }
     }
 
-    public func clarifyAsk(_ req: ClarifyAskRequest) throws -> ClarificationRowResponse {
-        try dbQueue.write { db in try ClarificationRepository(db: db, core: core).ask(req) }
+    public func clarifyQuestionAdd(_ req: ClarifyQuestionAddRequest) throws -> ClarifyQuestionRowResponse {
+        try dbQueue.write { db in try ClarificationRepository(db: db, core: core).questionAdd(req) }
+    }
+
+    public func clarifyNoteAdd(_ req: ClarifyNoteAddRequest) throws -> ClarifyNoteRowResponse {
+        try dbQueue.write { db in try ClarificationRepository(db: db, core: core).noteAdd(req) }
+    }
+
+    public func carePackageOpen(_ req: CarePackageOpenRequest) throws -> CarePackageResponse {
+        try dbQueue.write { db in try ClarificationRepository(db: db, core: core).packageOpen(req) }
+    }
+
+    public func carePackageRefAdd(_ req: CarePackageRefAddRequest) throws -> CarePackageResponse {
+        try dbQueue.write { db in try ClarificationRepository(db: db, core: core).packageRefAdd(req) }
+    }
+
+    public func carePackageComplete(_ req: CarePackageCompleteRequest) throws -> CarePackageResponse {
+        try dbQueue.write { db in try ClarificationRepository(db: db, core: core).packageComplete(req) }
+    }
+
+    public func carePackageGet(_ req: CarePackageGetRequest) throws -> CarePackageResponse {
+        try dbQueue.read { db in try ClarificationRepository(db: db, core: core).packageGet(req) }
     }
 
     public func clarifySeal(_ req: ClarifySealRequest) throws -> ClarifySummaryResponse {
@@ -36,7 +56,7 @@ extension Store {
         }
     }
 
-    public func clarifyAnswer(_ req: ClarifyAnswerRequest) throws -> ClarificationRowResponse {
+    public func clarifyAnswer(_ req: ClarifyAnswerRequest) throws -> ClarifyQuestionRowResponse {
         try dbQueue.write { db in try ClarificationRepository(db: db, core: core).answer(req) }
     }
 

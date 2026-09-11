@@ -20,16 +20,19 @@ import GRDB
 /// migration. The role map is what lets `gm briefing stub` resolve an agent
 /// type to its step without the hook script knowing anything.
 public enum BriefingStepSpec {
-    public static let steps: [String] = ["initial", "pre_architecture"]
+    /// m0025: pre_architecture is RETIRED — the care package replaced it
+    /// (existing rows were retagged to initial by the migration). A future
+    /// step is still a registry entry, never a migration.
+    public static let steps: [String] = ["initial"]
     public static let statuses: [String] = ["building", "ready"]
 
     /// agent role (plugin-scoped name with or without the `gmcc:` prefix) →
     /// the step that role consumes. Roles absent here get no briefing line in
-    /// their stub — deliberately, not an error.
+    /// their stub — deliberately, not an error. code-architect dropped out
+    /// with pre_architecture: architects load the care package instead.
     public static let roleStepMap: [String: String] = [
         "doper": "initial",
         "code-explorer": "initial",
-        "code-architect": "pre_architecture",
     ]
 
     public static func validateStep(_ raw: String) throws -> String {

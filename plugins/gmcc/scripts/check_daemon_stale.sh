@@ -14,7 +14,7 @@ GMCC_BIN="${GMCC_ROOT:-$HOME/gmcc}/bin"
 # No daemon package in this plugin build — nothing to check.
 [ -f "$DAEMON_PKG/Package.swift" ] || exit 0
 
-if [ ! -x "$GMCC_BIN/gmcc_daemon" ] || [ ! -x "$GMCC_BIN/gm" ]; then
+if [ ! -x "$GMCC_BIN/gmcc_daemon" ] || [ ! -x "$GMCC_BIN/gm" ] || [ ! -x "$GMCC_BIN/gmcc_mcp" ]; then
     echo "[GMB] gmcc daemon binaries not installed — run /gmcc_daemon build"
     exit 0
 fi

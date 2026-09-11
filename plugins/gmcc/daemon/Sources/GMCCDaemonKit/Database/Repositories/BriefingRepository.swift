@@ -1,8 +1,13 @@
 import Foundation
 import GRDB
 
-/// BRIEFING_* (v21) data access — the agent-briefing machine. Runs INSIDE a
+/// BRIEFING_* data access — the agent-briefing machine. Runs INSIDE a
 /// Store-owned transaction; holds no dbQueue and never self-transacts.
+///
+/// m0025 model: a briefing is an OPINION-FREE ref pre-selection. The old
+/// body/dope_refs/kbite_refs TEXT columns are gone; refs are typed child
+/// rows (dope children carry dot-path CODES — ghost-legal at read; kbite
+/// and file-change children carry uuid FKs).
 struct BriefingRepository: RepositoryContext {
     let db: Database
     let core: StoreCore
@@ -53,8 +58,10 @@ struct BriefingRepository: RepositoryContext {
         if let existing = try fetchBriefingRow(
             ownerPrompt: promptUuid, ownerSession: sessionUuid, step: step
         ) {
-            // Reset, never duplicate: content is kept for wholesale
-            // replacement at complete (the reopen-preserves precedent).
+            // Reset, never duplicate — and since refs are child rows now,
+            // reset TRUNCATES them: a step's briefing is its CURRENT
+            // briefing, stale refs must not leak into the rebuilt one.
+            try deleteChildren(briefingUuid: existing.uuid)
             try core.updateBase(
                 db, table: "agent_briefing", uuid: existing.uuid,
                 expectedVersion: existing.version,
@@ -77,9 +84,6 @@ struct BriefingRepository: RepositoryContext {
             "prompt_uuid": promptUuid,
             "briefing_for_step": step,
             "status": "building",
-            "body": "",
-            "dope_refs": "[]",
-            "kbite_refs": "[]",
         ])
         try core.appendEvent(
             db, kind: .briefingChange, subjectUuid: uuid,
@@ -95,29 +99,53 @@ struct BriefingRepository: RepositoryContext {
     }
 
     /// building → ready. The daemon stamps the staleness evidence ITSELF
-    /// (the writing agent cannot mis-stamp) and denormalizes kbite briefs.
+    /// (the writing agent cannot mis-stamp) and denormalizes kbite briefs
+    /// into the child rows.
     func complete(_ req: BriefingCompleteRequest) throws -> BriefingRowResponse {
         guard let existing = try fetchBriefing(uuid: req.briefingUuid) else {
             throw StoreError.notFound(entity: "agent_briefing", key: req.briefingUuid)
         }
-        let body = try Store.validatedOverview(req.body, entity: "briefing")
 
-        let dopeRefs = req.dopeRefs ?? []
-        let dopeRefsJson = try Store.encodeJsonArray(dopeRefs)
+        // Wholesale replacement (the open-resets precedent): a re-complete
+        // replaces the whole ref set, never appends to it.
+        try deleteChildren(briefingUuid: req.briefingUuid)
 
-        // {file_uuid, brief} denormalized from the kbite tables at write
-        // time: point-in-time by design, ghost-tolerant by design — an
-        // unknown file uuid rides along with a null brief (kbites can be
-        // re-digested; refs must not break the write).
-        var kbiteEntries: [[String: String?]] = []
-        for fileUuid in req.kbiteRefs ?? [] {
-            let brief = try String.fetchOne(
+        for (i, code) in (req.dopeRefs ?? []).enumerated() {
+            try core.insertBase(db, table: "agent_briefing_dope_persistence", extra: [
+                "agent_briefing_uuid": req.briefingUuid,
+                "dope_code": code,
+                "seq": i,
+            ])
+        }
+        // Briefs denormalized from the kbite tables at write time:
+        // point-in-time by design, ghost-tolerant by design — an unknown
+        // file uuid is DROPPED (the child carries a real FK now; a ref to a
+        // vanished file cannot be stored, and must not break the write).
+        for (i, fileUuid) in (req.kbiteRefs ?? []).enumerated() {
+            guard let brief = try Row.fetchOne(
                 db,
                 sql: "SELECT resource_file_summary FROM kbite_resource_file WHERE uuid = ?",
-                arguments: [fileUuid])
-            kbiteEntries.append(["file_uuid": fileUuid, "brief": brief])
+                arguments: [fileUuid]
+            ) else { continue }
+            try core.insertBase(db, table: "agent_briefing_dope_kbite", extra: [
+                "agent_briefing_uuid": req.briefingUuid,
+                "kbite_resource_file_uuid": fileUuid,
+                "brief": brief["resource_file_summary"] as String?,
+                "seq": i,
+            ])
         }
-        let kbiteRefsJson = try Store.encodeJsonObjectArray(kbiteEntries)
+        for (i, changeUuid) in (req.fileChangeRefs ?? []).enumerated() {
+            guard try Row.fetchOne(
+                db, sql: "SELECT 1 FROM file_change WHERE uuid = ?", arguments: [changeUuid]
+            ) != nil else {
+                throw StoreError.notFound(entity: "file_change", key: changeUuid)
+            }
+            try core.insertBase(db, table: "agent_session_file_change", extra: [
+                "agent_briefing_uuid": req.briefingUuid,
+                "file_change_uuid": changeUuid,
+                "seq": i,
+            ])
+        }
 
         // Server-side staleness stamp from the session's SESSION_INSTANCE
         // scope. No scope is a legal state (nil stamp, staleness unknown).
@@ -130,9 +158,7 @@ struct BriefingRepository: RepositoryContext {
             expectedVersion: req.expectedVersion,
             set: [
                 "status": "ready",
-                "body": body,
-                "dope_refs": dopeRefsJson,
-                "kbite_refs": kbiteRefsJson,
+                "agent_id": req.agentId,
                 "dope_scope_uuid": scope?.uuid,
                 "dope_scope_revision": scope?.revision,
             ])
@@ -208,11 +234,10 @@ struct BriefingRepository: RepositoryContext {
                 session: session, step: step, clientKey: req.clientKey)
             if let row {
                 let staleness = try computeStaleness(briefing: row)
-                let head = row.body
-                    .split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: true)
-                    .first.map(String.init) ?? ""
                 lines.append("briefing_uuid: \(row.uuid) (step: \(row.briefingForStep), status: \(row.status))")
-                if !head.isEmpty { lines.append("briefing_head: \(head.prefix(200))") }
+                lines.append(
+                    "refs: \(row.dopeRefs.count) dope, \(row.kbiteRefs.count) kbite, "
+                    + "\(row.fileChangeRefs.count) file-change")
                 if staleness.drifted {
                     lines.append(
                         "WARNING: briefing is STALE — dope scope moved "
@@ -305,11 +330,10 @@ struct BriefingRepository: RepositoryContext {
         }()
 
         var ghosts: [String] = []
-        if let scopeUuid = briefing.dopeScopeUuid,
-           let data = briefing.dopeRefs.data(using: .utf8),
-           let paths = try? JSONDecoder().decode([String].self, from: data) {
-            for path in paths where try !dopeDotPathExists(scopeUuid: scopeUuid, path: path) {
-                ghosts.append(path)
+        if let scopeUuid = briefing.dopeScopeUuid {
+            for ref in briefing.dopeRefs
+            where try !dopeDotPathExists(scopeUuid: scopeUuid, path: ref.dopeCode) {
+                ghosts.append(ref.dopeCode)
             }
         }
         return BriefingStaleness(
@@ -364,6 +388,18 @@ struct BriefingRepository: RepositoryContext {
 
     // MARK: - Fetch helpers
 
+    private func deleteChildren(briefingUuid: String) throws {
+        for table in [
+            "agent_briefing_dope_persistence",
+            "agent_briefing_dope_kbite",
+            "agent_session_file_change",
+        ] {
+            try db.execute(
+                sql: "DELETE FROM \(table) WHERE agent_briefing_uuid = ?",
+                arguments: [briefingUuid])
+        }
+    }
+
     private func fetchBriefingRow(
         ownerPrompt: String?, ownerSession: String, step: String
     ) throws -> AgentBriefingRow? {
@@ -389,6 +425,18 @@ struct BriefingRepository: RepositoryContext {
         try AgentBriefingRecord.fetchAll(
             db, where: condition, arguments: arguments,
             orderBy: "briefing_for_step, created_at"
-        ).map { $0.wireRow() }
+        ).map { record in
+            let dopeRefs = try AgentBriefingDopePersistenceRecord.fetchAll(
+                db, where: "agent_briefing_uuid = ?", arguments: [record.uuid], orderBy: "seq"
+            ).map { $0.wireRow() }
+            let kbiteRefs = try AgentBriefingDopeKbiteRecord.fetchAll(
+                db, where: "agent_briefing_uuid = ?", arguments: [record.uuid], orderBy: "seq"
+            ).map { $0.wireRow() }
+            let fileChangeRefs = try AgentSessionFileChangeRecord.fetchAll(
+                db, where: "agent_briefing_uuid = ?", arguments: [record.uuid], orderBy: "seq"
+            ).map { $0.wireRow() }
+            return record.wireRow(
+                dopeRefs: dopeRefs, kbiteRefs: kbiteRefs, fileChangeRefs: fileChangeRefs)
+        }
     }
 }

@@ -59,6 +59,7 @@ enum ReportKindStyle {
         case .existingFunctionality: ("Existing", .teal)
         case .scopeCreepRisk: ("Scope Risk", .orange)
         case .generalRelevantChange: ("Change", .purple)
+        case .keyFile: ("Key File", .mint)
         case .other: ("Other", .gray)
         case .none: (raw, .gray)
         }

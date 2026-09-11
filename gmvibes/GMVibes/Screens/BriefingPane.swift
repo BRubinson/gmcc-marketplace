@@ -58,36 +58,35 @@ struct BriefingPane: View {
                 Spacer()
             }
 
-            // Body is non-empty only once ready; while building the doper is
-            // still composing — absence isn't an error.
-            if !briefing.body.isEmpty {
-                Text(briefing.body)
-                    .font(.callout)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(10)
-                    .background(.teal.opacity(0.06), in: .rect(cornerRadius: 8))
-            }
-
-            let dopePaths = decodeDopeRefs(briefing.dopeRefs)
+            // m0025: briefings are opinion-free ref sets — typed child
+            // rows, no body. Refs are legitimately empty while building.
+            let dopePaths = briefing.dopeRefs.map(\.dopeCode)
             if !dopePaths.isEmpty {
                 sectionHeader("Dope Refs")
                 chipFlow(dopePaths, ghosts: Set(item.staleness.ghostDotPaths))
             }
 
-            let kbites = decodeKbiteRefs(briefing.kbiteRefs)
-            if !kbites.isEmpty {
+            if !briefing.kbiteRefs.isEmpty {
                 sectionHeader("KBites")
-                ForEach(kbites, id: \.fileUuid) { ref in
+                ForEach(briefing.kbiteRefs, id: \.uuid) { ref in
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Image(systemName: "text.book.closed")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        Text(ref.brief.isEmpty ? ref.fileUuid : ref.brief)
+                        Text((ref.brief?.isEmpty ?? true) ? ref.kbiteResourceFileUuid : ref.brief!)
                             .font(.caption)
                             .textSelection(.enabled)
                         Spacer()
                     }
+                }
+            }
+
+            if !briefing.fileChangeRefs.isEmpty {
+                sectionHeader("File Changes")
+                ForEach(briefing.fileChangeRefs, id: \.uuid) { ref in
+                    Text(ref.fileChangeUuid)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
                 }
             }
         }
@@ -128,26 +127,6 @@ struct BriefingPane: View {
     }
 
     // MARK: Refs
-
-    private struct KbiteRef: Decodable {
-        let fileUuid: String
-        let brief: String
-
-        enum CodingKeys: String, CodingKey {
-            case fileUuid = "file_uuid"
-            case brief
-        }
-    }
-
-    private func decodeDopeRefs(_ json: String) -> [String] {
-        guard let data = json.data(using: .utf8) else { return [] }
-        return (try? JSONDecoder().decode([String].self, from: data)) ?? []
-    }
-
-    private func decodeKbiteRefs(_ json: String) -> [KbiteRef] {
-        guard let data = json.data(using: .utf8) else { return [] }
-        return (try? JSONDecoder().decode([KbiteRef].self, from: data)) ?? []
-    }
 
     private func chipFlow(_ paths: [String], ghosts: Set<String>) -> some View {
         // Simple wrapping-free flow: dot-paths are short and few; a vertical

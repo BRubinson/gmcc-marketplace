@@ -192,11 +192,11 @@ absent backing row fails the gate.
    Never split, infer, or author these fields. Then
    `mkdir -p prompts/{seq}_{name}/memory/`.
 2. **clarifying** — enter with `gm prompt set-status ... --status
-   clarifying` (locks content; the daemon creates the summary). Then
-   the goal and detail suites (`--category goal|detail`); `gm clarify
-   seal`; user answers via `gm clarify answer`; `gm clarify finalize
-   --refined-goal ... --refined-detail ...` (the daemon copies the refined
-   goal into `prompt.goal`; `detail` stays verbatim — STAY TRUE).
+   clarifying` (locks content; the daemon creates the summary). Then the
+   m0025 split machine: `gm clarify question-add` (+ option rows) and
+   `note-add`; `gm clarify seal`; user answers via `gm clarify answer`
+   (--select / --answer); optional care package; `gm clarify finalize` is
+   a PURE GATE — nothing ever writes prompt content past draft (STAY TRUE).
 3. **architecting → implementing → reviewing → done** — `gm arch`
    authoring (persistence rows first) → propose/approve → implement
    (file changes always `--prompt-uuid`) → optional review → done,

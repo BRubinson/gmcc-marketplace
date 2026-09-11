@@ -2,9 +2,11 @@ import SwiftUI
 import GMCCDaemonKit
 
 /// Read-only clarification section — the app's render of the db-native
-/// clarification (CLARIFY_GET). Refined goal/detail lead: they supersede the
-/// fields the Brief freezes on leaving draft, and this is the one surface
-/// built to show them. All clarify writes stay bot/CLI-side.
+/// clarification (CLARIFY_GET, m0025 split): user questions with option/
+/// selection children, weighted internal notes, and the care package (the
+/// standalone clarified-intent bundle — nothing writes prompt content).
+/// All clarify writes stay bot/CLI-side; the data model is shaped so a
+/// future GMVibes surface can answer questions through these same rows.
 struct ClarificationPane: View {
     let phase: PromptPhaseStore.Phase<ClarifyGetResponse>
 
@@ -35,85 +37,94 @@ struct ClarificationPane: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 8) {
                 statusChip(response.summary.clarificationStatus)
-                if !response.summary.backstoryNote.isEmpty {
-                    Text(response.summary.backstoryNote)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                }
                 Spacer()
             }
 
-            if !response.summary.refinedGoal.isEmpty {
-                refinedBlock("Refined Goal", text: response.summary.refinedGoal)
-            }
-            if !response.summary.refinedDetail.isEmpty {
-                refinedBlock("Refined Detail", text: response.summary.refinedDetail)
+            if let package = response.carePackage {
+                carePackageBlock(package)
             }
 
-            ForEach(ClarificationCategory.allCases, id: \.rawValue) { category in
-                let rows = response.clarifications
-                    .filter { $0.category == category.rawValue }
-                    .sorted { $0.seq < $1.seq }
-                if !rows.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(categoryTitle(category))
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                        ForEach(rows, id: \.uuid) { row in
-                            questionRow(row)
-                        }
-                    }
-                }
-            }
-
-            // Forward compat: a category string the kit enum doesn’t
-            // know must not silently vanish from an audit surface — this is
-            // the one place an unknown wire value would otherwise lose data.
-            let others = response.clarifications
-                .filter { ClarificationCategory(rawValue: $0.category) == nil }
-                .sorted { $0.seq < $1.seq }
-            if !others.isEmpty {
+            if !response.questions.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Other")
+                    Text("Questions")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.secondary)
-                    ForEach(others, id: \.uuid) { row in
-                        questionRow(row)
+                    ForEach(response.questions, id: \.uuid) { question in
+                        questionRow(question)
+                    }
+                }
+            }
+
+            if !response.notes.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Internal Notes")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    ForEach(response.notes, id: \.uuid) { note in
+                        noteRow(note)
                     }
                 }
             }
         }
     }
 
-    private func refinedBlock(_ title: String, text: String) -> some View {
+    // MARK: Care package
+
+    @ViewBuilder
+    private func carePackageBlock(_ package: CarePackageRow) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(title).font(.subheadline.weight(.semibold))
-            Text(text)
-                .font(.callout)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(10)
-                .background(.blue.opacity(0.06), in: .rect(cornerRadius: 8))
+            HStack(spacing: 8) {
+                Text("Care Package")
+                    .font(.subheadline.weight(.semibold))
+                packageChip(package.status)
+                Spacer()
+            }
+            if !package.clarifiedIntent.isEmpty {
+                Text(package.clarifiedIntent)
+                    .font(.callout)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(10)
+                    .background(.blue.opacity(0.06), in: .rect(cornerRadius: 8))
+            }
+            let refCount = package.dopeRefs.count + package.kbiteRefs.count
+                + package.explorationRefs.count
+            if refCount > 0 {
+                Text("\(package.dopeRefs.count) dope · \(package.kbiteRefs.count) kbite · \(package.explorationRefs.count) exploration refs")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
-    private func questionRow(_ row: ClarificationRow) -> some View {
+    // MARK: Questions
+
+    private func questionRow(_ question: ClarificationQuestionRow) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                rowStatusIcon(row)
-                Text(row.question)
+                rowStatusIcon(question.status)
+                Text(question.question)
                     .font(.callout.weight(.medium))
                     .textSelection(.enabled)
             }
-            if let answer = row.answer, !answer.isEmpty {
+            ForEach(question.options, id: \.uuid) { option in
+                let selected = question.selectedOptionUuids.contains(option.uuid)
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Image(systemName: row.answerSource == AnswerSource.botInferred.rawValue
-                          ? "cpu" : "person.fill")
+                    Image(systemName: selected ? "checkmark.square.fill" : "square")
+                        .font(.caption2)
+                        .foregroundStyle(selected ? Color.green : Color.secondary)
+                    Text(option.body)
+                        .font(.callout)
+                        .foregroundStyle(selected ? .primary : .secondary)
+                        .textSelection(.enabled)
+                }
+                .padding(.leading, 18)
+            }
+            if let answer = question.answerText, !answer.isEmpty {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Image(systemName: "person.fill")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
-                        .help(row.answerSource == AnswerSource.botInferred.rawValue
-                              ? "Resolved by the bot" : "Answered by you")
                     Text(answer)
                         .font(.callout)
                         .foregroundStyle(.secondary)
@@ -125,9 +136,32 @@ struct ClarificationPane: View {
         .padding(.vertical, 2)
     }
 
+    // MARK: Notes
+
+    private func noteRow(_ note: ClarificationNoteRow) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Image(systemName: "note.text")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+            if let weight = note.weight {
+                Text("w\(weight)")
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(weight < 100 ? .orange : .secondary)
+            }
+            Text(note.body)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+            Spacer()
+        }
+        .padding(.vertical, 2)
+    }
+
+    // MARK: Chips
+
     @ViewBuilder
-    private func rowStatusIcon(_ row: ClarificationRow) -> some View {
-        switch ClarificationRowStatus(rawValue: row.status) {
+    private func rowStatusIcon(_ status: String) -> some View {
+        switch ClarificationRowStatus(rawValue: status) {
         case .answered:
             Image(systemName: "checkmark.circle.fill").font(.caption).foregroundStyle(.green)
         case .skipped:
@@ -137,11 +171,15 @@ struct ClarificationPane: View {
         }
     }
 
-    private func categoryTitle(_ category: ClarificationCategory) -> String {
-        switch category {
-        case .goal: return "Goal"
-        case .detail: return "Detail"
-        }
+    @ViewBuilder
+    private func packageChip(_ status: String) -> some View {
+        let (label, color): (String, Color) = status == "ready"
+            ? ("Ready", .green) : ("Building", .orange)
+        Text(label)
+            .font(.caption2.weight(.medium))
+            .padding(.horizontal, 7).padding(.vertical, 2)
+            .background(color.opacity(0.18), in: .capsule)
+            .foregroundStyle(color)
     }
 
     @ViewBuilder

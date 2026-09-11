@@ -99,13 +99,12 @@ extension SearchKind {
     var label: String {
         switch self {
         case .prompt: "Prompt"
-        case .clarification: "Clarification"
-        case .clarificationSummary: "Clarify Summary"
+        case .clarificationQuestion: "Clarify · Question"
+        case .clarificationNote: "Clarify · Note"
         case .architectureSummary: "Architecture"
         case .architectureGeneralChange: "Arch · General"
         case .architecturePersistenceChange: "Arch · Persistence"
         case .explorationSummary: "Exploration"
-        case .explorationKeyFile: "Explore · Key File"
         case .explorationFinding: "Explore · Finding"
         case .reviewSummary: "Review"
         case .reviewFinding: "Review · Finding"
@@ -114,13 +113,12 @@ extension SearchKind {
     var systemImage: String {
         switch self {
         case .prompt: "doc.text"
-        case .clarification: "questionmark.bubble"
-        case .clarificationSummary: "checklist"
+        case .clarificationQuestion: "questionmark.bubble"
+        case .clarificationNote: "note.text"
         case .architectureSummary: "square.stack.3d.up"
         case .architectureGeneralChange: "square.and.pencil"
         case .architecturePersistenceChange: "cylinder.split.1x2"
         case .explorationSummary: "binoculars"
-        case .explorationKeyFile: "doc.text.magnifyingglass"
         case .explorationFinding: "sparkle.magnifyingglass"
         case .reviewSummary: "checkmark.seal"
         case .reviewFinding: "exclamationmark.bubble"
@@ -129,9 +127,9 @@ extension SearchKind {
     var tint: Color {
         switch self {
         case .prompt: .teal
-        case .clarification, .clarificationSummary: .blue
+        case .clarificationQuestion, .clarificationNote: .blue
         case .architectureSummary, .architectureGeneralChange, .architecturePersistenceChange: .purple
-        case .explorationSummary, .explorationKeyFile, .explorationFinding: .indigo
+        case .explorationSummary, .explorationFinding: .indigo
         case .reviewSummary, .reviewFinding: .pink
         }
     }

@@ -34,6 +34,15 @@ struct FileChange: ParsableCommand {
         @Flag(name: .long, help: "Without --prompt-uuid, attribute to the session's active prompt (the PostToolUse hook's flag). Opt-in: omitting it keeps the plain session-scoped semantic.")
         var autoAttribute = false
 
+        @Option(name: .long, help: "Self-reported agent id (agent-abc123) for dedup/tracking.")
+        var agentId: String?
+
+        @Option(name: .long, help: "Self-reported agent/persona name.")
+        var agentName: String?
+
+        @Option(name: .long, help: "hook|manual|reconcile (default hook). workflow_phase is stamped daemon-side, never passed.")
+        var origin: String?
+
         func run() throws {
             if content != nil && range.count != 1 {
                 throw ValidationError("--content requires exactly one --range")
@@ -49,7 +58,10 @@ struct FileChange: ParsableCommand {
                 changeKind: kind,
                 ranges: ranges,
                 autoAttribute: autoAttribute ? true : nil,
-                clientKey: autoAttribute ? ClientKey.resolve() : nil
+                clientKey: autoAttribute ? ClientKey.resolve() : nil,
+                agentId: agentId,
+                agentName: agentName,
+                origin: origin
             )
             let response = try withClient { client in
                 try client.addFileChange(payload)

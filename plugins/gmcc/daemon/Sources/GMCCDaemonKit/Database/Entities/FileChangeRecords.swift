@@ -19,6 +19,10 @@ struct FileChangeRecord: BaseRecordFields {
     var sessionUuid: String
     var promptUuid: String?
     var changeKind: String
+    var agentId: String?
+    var agentName: String?
+    var workflowPhase: String?
+    var origin: String
 }
 
 /// Read-side mirror of the `file_change_range` table. Columns map via convertFromSnakeCase.

@@ -39,7 +39,7 @@ fi
 needs_build=0
 if [ "$1" = "--force" ]; then
     needs_build=1
-elif [ ! -x "$GMCC_BIN/gmcc_daemon" ] || [ ! -x "$GMCC_BIN/gm" ]; then
+elif [ ! -x "$GMCC_BIN/gmcc_daemon" ] || [ ! -x "$GMCC_BIN/gm" ] || [ ! -x "$GMCC_BIN/gmcc_mcp" ]; then
     needs_build=1
 elif [ -n "$(find "$DAEMON_PKG/Sources" "$DAEMON_PKG/Package.swift" -newer "$GMCC_BIN/gmcc_daemon" -print -quit 2>/dev/null)" ]; then
     needs_build=1
@@ -77,14 +77,16 @@ BIN_DIR="$(swift build -c release --package-path "$DAEMON_PKG" --show-bin-path)"
 # code-signature cache pointing at the old inode contents, and the next exec
 # of the binary dies with SIGKILL (exit 137, no output). Fresh inodes only.
 mkdir -p "$GMCC_BIN"
-rm -f "$GMCC_BIN/gm" "$GMCC_BIN/gmcc_daemon"
+rm -f "$GMCC_BIN/gm" "$GMCC_BIN/gmcc_daemon" "$GMCC_BIN/gmcc_mcp"
 cp "$BIN_DIR/gm" "$GMCC_BIN/gm"
 cp "$BIN_DIR/gmcc_daemon" "$GMCC_BIN/gmcc_daemon"
-chmod +x "$GMCC_BIN/gm" "$GMCC_BIN/gmcc_daemon"
+cp "$BIN_DIR/gmcc_mcp" "$GMCC_BIN/gmcc_mcp"
+chmod +x "$GMCC_BIN/gm" "$GMCC_BIN/gmcc_daemon" "$GMCC_BIN/gmcc_mcp"
 
 echo "[GMB] installed:"
 echo "  $GMCC_BIN/gm"
 echo "  $GMCC_BIN/gmcc_daemon"
+echo "  $GMCC_BIN/gmcc_mcp"
 echo ""
 echo "[GMB] a running daemon (if any) is now stale — run: $GMCC_BIN/gm daemon restart"
 echo "      (the protocol handshake auto-retires it only across a wire-version bump)"

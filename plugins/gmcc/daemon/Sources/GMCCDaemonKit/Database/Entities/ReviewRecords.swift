@@ -19,6 +19,7 @@ struct ReviewSummaryRecord: BaseRecordFields {
     var status: String
     var verdict: String?
     var overview: String
+    var agentId: String?
 }
 
 /// Read-side mirror of the `review_finding` table. Columns map via convertFromSnakeCase.
@@ -36,6 +37,7 @@ struct ReviewFindingRecord: BaseRecordFields {
     var lineStart: Int64?
     var lineEnd: Int64?
     var agentName: String
+    var agentId: String?
     var findingRating: Int64?
     var status: String
 }
@@ -45,7 +47,7 @@ extension ReviewSummaryRecord {
     func wireRow() -> ReviewSummaryRow {
         ReviewSummaryRow(
             uuid: uuid, version: version, promptUuid: promptUuid,
-            status: status, verdict: verdict, overview: overview,
+            status: status, verdict: verdict, overview: overview, agentId: agentId,
             createdAt: createdAt, updatedAt: updatedAt)
     }
 }

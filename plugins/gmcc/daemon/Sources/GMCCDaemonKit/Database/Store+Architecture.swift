@@ -61,6 +61,14 @@ extension Store {
         }
     }
 
+    public func archOptionAdd(_ req: ArchOptionAddRequest) throws -> ArchOptionRowResponse {
+        try dbQueue.write { db in try ArchitectureRepository(db: db, core: core).optionAdd(req) }
+    }
+
+    public func archDecide(_ req: ArchDecideRequest) throws -> ArchDecideResponse {
+        try dbQueue.write { db in try ArchitectureRepository(db: db, core: core).decide(req) }
+    }
+
     public func archGet(_ req: ArchGetRequest) throws -> ArchGetResponse {
         try dbQueue.read { db in try ArchitectureRepository(db: db, core: core).get(req) }
     }

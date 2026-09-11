@@ -106,7 +106,8 @@ extension Store {
     }
 
     static func validatedFindingText(
-        title: String, body: String, agentName: String
+        title: String, body: String, agentName: String,
+        allowEmptyBody: Bool = false
     ) throws -> (title: String, body: String, agentName: String) {
         let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
         // Normalized at write, forward-only (no backfill — history is
@@ -114,7 +115,8 @@ extension Store {
         // ("Aggressive" vs "aggressive") that fracture per-agent queries.
         let agentName = Store.normalizedAgentName(agentName)
         guard !title.isEmpty else { throw StoreError.badRequest(detail: "finding title is empty") }
-        guard !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        // key_file findings (m0025) are path-anchored with no narrative.
+        guard allowEmptyBody || !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw StoreError.badRequest(detail: "finding body is empty")
         }
         guard !agentName.isEmpty else { throw StoreError.badRequest(detail: "agent_name is empty") }

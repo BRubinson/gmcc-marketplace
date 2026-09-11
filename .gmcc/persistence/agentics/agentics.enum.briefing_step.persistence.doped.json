@@ -1,21 +1,15 @@
 {
-  "code" : "briefing_step",
-  "description" : "Which phase consumes a briefing. Registry-governed in Swift (BriefingStepSpec); deliberately carries NO db CHECK so a new step is a registry entry, never a migration",
-  "name" : "Briefing Step",
-  "options" : [
+  "code": "briefing_step",
+  "description": "Which phase consumes a briefing. Registry-governed in Swift (BriefingStepSpec); no db CHECK. m0025 retired the second step — the care package replaced it (historical rows were retagged to initial by the migration)",
+  "name": "Briefing Step",
+  "options": [
     {
-      "code" : "initial",
-      "description" : "Pre-exploration briefing assembled at prompt open",
-      "name" : "Initial",
-      "sort_order" : 1
-    },
-    {
-      "code" : "pre_architecture",
-      "description" : "Post-clarify briefing folding in clarify outcome + exploration overview pointers",
-      "name" : "Pre-Architecture",
-      "sort_order" : 2
+      "code": "initial",
+      "description": "Pre-exploration briefing assembled at prompt open",
+      "name": "Initial",
+      "sort_order": 1
     }
   ],
-  "sort_order" : 14,
-  "version" : 758
+  "sort_order": 14,
+  "version": 759
 }

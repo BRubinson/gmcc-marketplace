@@ -43,43 +43,60 @@ struct Cheatsheet: ParsableCommand {
       gm prompt get --prompt-uuid U
       gm prompt update-content --prompt-uuid U --expected-version V [--backstory B] [--goal G] [--detail D | --detail-file P]   (draft-only; CONTENT_LOCKED after)
       gm prompt set-status --prompt-uuid U --expected-version V --status clarifying|architecting|implementing|reviewing|done
-    CLARIFY (summary: building → answering → complete; reopen: complete → answering)
+      gm prompt start --prompt-uuid U --variant bot|rpi|team   (enter the workflow machine from draft: creates the active bot_workflow row + claims the activation; task deliberately has NO row)
+      gm prompt resume --prompt-uuid U [--variant V]   (fetch-or-create the workflow row; phase recomputed — resume IS first-run; --variant only when the prompt predates the machine)
+    BOT (the daemon-held workflow machine, m0025: phase DERIVED from db evidence every next; set-status stays the only prompt door; zero-uuid = caller's active workflow -> activation prompt -> session's single workflow; every verb keeps --prompt-uuid)
+      gm bot next [--prompt-uuid U]   (current phase + compiled-in instructions + uuid bundle + gate blockers)
+      gm bot get [--prompt-uuid U]   (the raw workflow row)
+      gm bot status [--prompt-uuid U]   (row + derived phase + blockers)
+      gm bot current_prompt [--prompt-uuid U]   (the workflow prompt's row — agents read the prompt with zero uuid plumbing)
+      gm bot briefing [--prompt-uuid U] [--step S]   (the workflow prompt's briefing — a thin wrapper over the briefing family's get)
+      gm bot summary --agent-type T [--agent-id A] [--prompt-uuid U]   (fetch-or-open the caller's per-agent exploration summary — identity is self-reported)
+      gm bot reconcile [--prompt-uuid U] [--dry-run]   (completeness channel: tree-diff against the workflow's baseline snapshot — records only PROMPT-ERA hook-invisible writes with real delete/rename kinds, then advances the baseline; pre-existing dirt is excluded; run at phase gates)
+    CLARIFY (summary: building → answering → complete; reopen: complete → answering. m0025 split: user questions + option/selection children, internal notes, care package. FINALIZE IS A PURE GATE — nothing ever writes prompt content past draft)
       gm clarify open --prompt-uuid U
-      gm clarify ask --summary-uuid S --category goal|detail --question Q [--answer A] [--source user|bot_inferred]
+      gm clarify question-add --summary-uuid S --question Q [--option TEXT]... [--agent-name A] [--agent-id I]   (building only; options are ordered child rows)
+      gm clarify note-add --summary-uuid S (--body B | --body-file P) [--confused-entity-uuid U --confused-entity-type exploration_finding|briefing|question|other] [--weight 0-999] [--question-uuid Q] [--agent-name A] [--agent-id I]   (any state; weight polarity 0=critical)
       gm clarify seal --summary-uuid S --expected-version V
-      gm clarify answer --clarification-uuid C --expected-version V [--answer A | --answer-file P] [--source user|bot_inferred] [--skip]
+      gm clarify answer --question-uuid Q --expected-version V [--answer A | --answer-file P] [--select OPTION_UUID]... [--skip]   (answering only; --select replaces prior selections — multi-select ready; text and selection may coexist)
       gm clarify reopen --summary-uuid S --expected-version V
-      gm clarify finalize --summary-uuid S --expected-version V (--refined-goal G | --refined-goal-file P) (--refined-detail D | --refined-detail-file P) [--backstory-note N]
-      gm clarify get --prompt-uuid U
+      gm clarify finalize --summary-uuid S --expected-version V   (pure gate: every question answered/skipped + care package ready where one exists; NEVER writes prompt.goal)
+      gm clarify get --prompt-uuid U   (summary + questions + weighted notes + care package)
+      gm clarify package-open --summary-uuid S   (create-or-return; multi-agent flows — bot skips it)
+      gm clarify package-add --package-uuid P --kind dope|kbite|exploration [--dope-code C --note N] [--kbite-file-uuid U] [--title T (--body B | --body-file F) --file-path FP --source-finding-uuid U]   (building only; exploration entries are curated COPIES — never re-explore)
+      gm clarify package-complete --package-uuid P --expected-version V (--intent TEXT | --intent-file F)   (building -> ready; the clarified intent lives ONLY here)
+      gm clarify package-get --prompt-uuid U
     ARCH (summary: drafting → proposed → approved; revise: proposed → drafting; persistence rows first, always)
       gm arch open --prompt-uuid U
       gm arch summarize --summary-uuid S --expected-version V (--body B | --body-file P)
-      gm arch persist-add --summary-uuid S --class-name C --file-path P --reason R
-      gm arch field-add --persistence-uuid PC --field-name F --data-type T --reason R --purpose P --nullable|--no-nullable [--foreign-key --fk-target table.col] [--indexed]
+      gm arch persist-add --summary-uuid S --class-name C --file-path P --reason R [--change-kind add|modify|rename|delete] [--dope-ref domain.entity]   (change-kind default modify; dope refs are ghost-legal CODES)
+      gm arch field-add --persistence-uuid PC --field-name F --data-type T --reason R --purpose P --nullable|--no-nullable [--foreign-key --fk-target table.col] [--indexed] [--change-kind K] [--renamed-from OLD] [--dope-property-ref domain.entity.property]
       gm arch general-add --summary-uuid S --file-path P [--class-name C] --reason R --depth pseudo|draft|actual (--code CODE | --code-file P)
+      gm arch option-add --summary-uuid S --agent-name A [--agent-id I] (--body B | --body-file P)   (the architect pen, team flows: one Option row per methodology; once any option exists, change rows refuse until decide)
+      gm arch decide --option-uuid O --expected-version V (--rationale R | --rationale-file P)   (stamps selected + rejects siblings + records why; only the selected option expands into change rows)
       gm arch propose --summary-uuid S --expected-version V
       gm arch approve --summary-uuid S --expected-version V
       gm arch revise --summary-uuid S --expected-version V
       gm arch get --prompt-uuid U
-    EXPLORE (summary: exploring → complete; reopen: complete → exploring; rating 0=critical … 999=ignore, read threshold 100; key-file-add/finding-add/rank require status exploring)
-      gm explore open --prompt-uuid U
-      gm explore key-file-add --summary-uuid S --file-path P
-      gm explore finding-add --summary-uuid S --kind persistence_model|implementation_pattern|existing_functionality|scope_creep_risk|general_relevant_change|other --title T (--body B | --body-file P) --agent-name A [--rating 0-999]
-      gm explore rank --summary-uuid S --rating <finding-uuid>:<0-999> ...   (atomic batch; re-run re-ranks; refused once complete — reopen first)
-      gm explore complete --summary-uuid S --expected-version V (--overview TEXT | --overview-file PATH)   (exactly one overview source required; refuses while any finding unranked)
+    EXPLORE (m0025: literal per-agent summaries keyed (prompt, agent_type); the synthesis-type row is the prompt-level seal; rating 0=critical … 999=ignore, read threshold 100)
+      gm explore open --prompt-uuid U [--agent-type aggressive|conservative|pragmatic|alternative|general|synthesis] [--agent-id I]   (default general; idempotent per pair)
+      gm explore key-file-add --summary-uuid S --file-path P   (a finding of kind key_file since m0025; deduped per (summary, path))
+      gm explore finding-add --summary-uuid S --kind persistence_model|implementation_pattern|existing_functionality|scope_creep_risk|general_relevant_change|key_file|other --title T (--body B | --body-file P) [--file-path FP] --agent-name A [--agent-id I] [--rating 0-999]
+      gm explore rank --prompt-uuid U --rating <finding-uuid>:<0-999> ...   (PROMPT-scoped atomic batch across every summary; re-run re-ranks; refused once the synthesis row is complete — reopen it first)
+      gm explore complete --summary-uuid S --expected-version V (--overview TEXT | --overview-file PATH)   (per summary; agents seal their OWN row; completing the synthesis row is the prompt-level seal and refuses while anything is unranked)
       gm explore reopen --summary-uuid S --expected-version V
-      gm explore get --prompt-uuid U [--full | --max-rating N | --rating-range A:B]   (mutually exclusive)
+      gm explore get --prompt-uuid U [--agent-type T] [--full | --max-rating N | --rating-range A:B]   (all summaries, synthesis first; key files computed from key_file findings)
     REVIEW (same shape as explore + resolve/verdict; the fix loop runs AFTER complete)
       gm review open --prompt-uuid U
-      gm review finding-add --summary-uuid S --kind correctness_bug|spec_deviation|regression_risk|security|simplification|other --title T (--body B | --body-file P) [--file-path P] [--line-start N [--line-end N]] --agent-name A [--rating 0-999]
+      gm review finding-add --summary-uuid S --kind correctness_bug|spec_deviation|regression_risk|security|simplification|other --title T (--body B | --body-file P) [--file-path P] [--line-start N [--line-end N]] --agent-name A [--agent-id I] [--rating 0-999]
       gm review rank --summary-uuid S --rating <finding-uuid>:<0-999> ...   (same batch contract; refused once complete — reopen first)
       gm review resolve --finding-uuid F --expected-version V --status fixed|accepted|wont_fix   (post-complete; never back to open)
       gm review complete --summary-uuid S --expected-version V (--overview TEXT | --overview-file PATH) --verdict approved|approved_with_nits|changes_requested
       gm review reopen --summary-uuid S --expected-version V
       gm review get --prompt-uuid U [--full | --max-rating N | --rating-range A:B]   (mutually exclusive)
     BRIEFING (v21 agent-briefing machine: building → ready only; open on an existing (owner, step) RESETS — a step's briefing is always its CURRENT briefing; staleness computed at every read, warns never blocks)
-      gm briefing open (--prompt-uuid U | --session-uuid U) --step initial|pre_architecture   (exactly one owner; --session-uuid alone = /gm_task-owned)
-      gm briefing complete --briefing-uuid B --expected-version V (--body TEXT | --body-file P) [--dope-ref DOT.PATH]... [--kbite-ref FILE_UUID]...   (daemon stamps the dope scope revision itself and denormalizes kbite briefs)
+      gm briefing open (--prompt-uuid U | --session-uuid U) --step initial   (exactly one owner; --session-uuid alone = /gm_task-owned; pre_architecture is RETIRED — the care package replaced it)
+      gm briefing complete --briefing-uuid B --expected-version V [--dope-ref DOT.PATH]... [--kbite-ref FILE_UUID]... [--file-change-ref UUID]... [--agent-id I]   (opinion-free ref set since m0025 — no body; refs become child rows; daemon stamps the dope scope revision itself and denormalizes kbite briefs)
       gm briefing get (--briefing-uuid B | --prompt-uuid U [--step S] | [--session-uuid U] --step S) [--wait [--timeout-seconds N]]   (row + staleness: revision drift + ghost dot-paths. The zero-uuid form `gm briefing get --step S` is DETERMINISTIC: session from cwd, instance from process ancestry, own activation claim -> single session claim -> task row; real owner, no rows -> SUMMARY_ABSENT. --wait polls until status==ready and the output IS the briefing — the primary's post-doper-spawn gate; exit 1 on timeout = treat the doper as dead)
       gm briefing list (--prompt-uuid U | --session-uuid U)   (empty is normal)
       gm briefing stub [--agent-type T]   (the SubagentStart hook's one call: compact plain-text stub ≤2KB with the exact pull command; empty + exit 0 when nothing applies)
@@ -132,7 +149,7 @@ struct Cheatsheet: ParsableCommand {
     ARTIFACT / FILE-CHANGE
       gm artifact add --prompt-uuid U --file-path P [--note N]
       gm artifact list --prompt-uuid U
-      gm file-change add --path P [--kind edit|create|delete|rename] [--range start:end]... [--content TEXT] [--prompt-uuid U] [--auto-attribute]   (--content requires exactly one --range; --auto-attribute resolves attribution via the activation registry — this Claude instance's claim first, then the session's single claim, else unattributed — the PostToolUse hook's flag)
+      gm file-change add --path P [--kind edit|create|delete|rename] [--range start:end]... [--content TEXT] [--prompt-uuid U] [--auto-attribute] [--agent-id I] [--agent-name A] [--origin hook|manual|reconcile]   (--content requires exactly one --range; --auto-attribute resolves attribution via the activation registry — this Claude instance's claim first, then the session's single claim, else unattributed — the PostToolUse hook's flag; workflow_phase is stamped daemon-side from the active workflow, never passed)
       gm file-change list [--session-uuid U] [--prompt-uuid U] [--path P] [--limit N] [--all]
     KBITE
       gm kbite list [--scope project|instance|session|prompt] [--owner-uuid U] [--all]
@@ -190,9 +207,13 @@ struct Cheatsheet: ParsableCommand {
             return "MISSING FULL-SHEET LINE: \(prefix)"
         }
         let penVerbs = [
-            "gm explore key-file-add",
+            "gm bot next",
+            "gm bot summary",
             "gm explore finding-add",
             "gm review finding-add",
+            "gm clarify question-add",
+            "gm clarify note-add",
+            "gm arch option-add",
             "gm briefing complete",
             "gm dope search",
             "gm kbite search",
@@ -204,10 +225,11 @@ struct Cheatsheet: ParsableCommand {
         FAMILIES (one line each; run gm cheatsheet --full for exact signatures)
           CORE — setup · doctor · status · ping · daemon · backup · events · paths · config
           CONTEXT/BROWSE/SEARCH — context ensure/env/get · project list/update · instance list/current-session · session list/get/update/resolve · catalog search · search
-          PROMPT — create · list [--with-reports] · get · update-content · set-status (draft → clarifying → architecting → implementing → reviewing → done; the ONLY door that moves a prompt)
-          CLARIFY — open · ask · seal · answer · reopen · finalize · get
-          ARCH — open · summarize · persist-add · field-add · general-add · propose · approve · revise · get (persistence rows first, always)
-          EXPLORE — open · key-file-add · finding-add · rank · complete · reopen · get
+          PROMPT — create · list [--with-reports] · get · update-content · set-status (the ONLY door that moves a prompt) · start · resume (the workflow machine doors)
+          BOT — next · get · status · current_prompt · briefing · summary · reconcile (phase derived from db evidence)
+          CLARIFY — open · question-add · note-add · seal · answer · reopen · finalize · get · package-open/add/complete/get
+          ARCH — open · summarize · persist-add · field-add · general-add · option-add · decide · propose · approve · revise · get (persistence rows first, always)
+          EXPLORE — open (per agent-type) · key-file-add · finding-add · rank (prompt-scoped) · complete (synthesis row = the seal) · reopen · get
           REVIEW — open · finding-add · rank · resolve · complete · reopen · get
           BRIEFING — open · complete · get · list · stub (building → ready; open on existing (owner,step) RESETS; staleness computed at read)
           DOPE — init · list · get · search · promote · scope/persistence/entity/property/enum/option add/update/delete · read-repo · write-repo · ingest · sync · merge-plan · resolve
@@ -216,7 +238,7 @@ struct Cheatsheet: ParsableCommand {
           ARTIFACT — add · list   FILE-CHANGE — add · list   KBITE — list · add · remove · maw-open · digest · get · file-get · search · keyword-tag · export · import · delete
           SANDBOX — refresh · status   OTHER — cheatsheet [--full]
         AGENT PEN VERBS (exact signatures, extracted verbatim from the full sheet — what spawned agents drive)
-          gm briefing get --step initial|pre_architecture   (zero-uuid deterministic form: session from cwd, instance from process ancestry; uuid/prompt selectors also exist)
+          gm briefing get --step initial   (zero-uuid deterministic form: session from cwd, instance from process ancestry; uuid/prompt selectors also exist)
         \(penVerbs)
           (self-rate findings 0=critical … 999=ignore, read threshold 100; NEVER call rank/complete/reopen — those are the primary's)
         \(invariants)

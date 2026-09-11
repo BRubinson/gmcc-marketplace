@@ -78,6 +78,10 @@ public enum DaemonEventKind: String, Codable, Hashable, CaseIterable, Sendable {
     // status edge, and the stamped scope revision so GMVibes can refresh a
     // briefing panel without a fetch-diff.
     case briefingChange = "BRIEFING_CHANGE"
+    // v24 — durable rows: the bot workflow machine (start/resume, derived
+    // phase transitions, done). Payload carries the variant/phase so GMVibes
+    // can render workflow progress without a fetch-diff.
+    case workflowChange = "WORKFLOW_CHANGE"
     // v22 — durable rows: the portable-kbite verbs. Export is a read and
     // never events; import/delete are content mutations.
     case kbiteImport = "KBITE_IMPORT"
@@ -164,21 +168,6 @@ public enum ClarificationStatus: String, Codable, Hashable, CaseIterable, Sendab
     }
 }
 
-/// Which section of the clarification a question belongs to: the outcome
-/// (`goal`) or the approach (`detail`).
-public enum ClarificationCategory: String, Codable, Hashable, CaseIterable, Sendable {
-    case goal
-    case detail
-}
-
-/// Who answered a clarification: the human, or the bot resolving confidently
-/// (a judgment call the prompt already grants lands pre-answered as
-/// bot_inferred).
-public enum AnswerSource: String, Codable, Hashable, CaseIterable, Sendable {
-    case user
-    case botInferred = "bot_inferred"
-}
-
 /// One clarification row's answer state.
 public enum ClarificationRowStatus: String, Codable, Hashable, CaseIterable, Sendable {
     case open
@@ -259,14 +248,30 @@ public enum ReviewSummaryStatus: String, Codable, Hashable, CaseIterable, Sendab
     }
 }
 
-/// What an exploration finding is about.
+/// What an exploration finding is about. `keyFile` (m0025) is the merged
+/// exploration_key_file shape: a path-anchored finding with empty body.
 public enum ExplorationFindingKind: String, Codable, Hashable, CaseIterable, Sendable {
     case persistenceModel = "persistence_model"
     case implementationPattern = "implementation_pattern"
     case existingFunctionality = "existing_functionality"
     case scopeCreepRisk = "scope_creep_risk"
     case generalRelevantChange = "general_relevant_change"
+    case keyFile = "key_file"
     case other
+}
+
+/// Per-agent exploration summary vocabulary (m0025). The four methodology
+/// personas plus `general` (inline/rpi runs) and `synthesis` — the
+/// prompt-level seal row the primary completes last (its complete refuses
+/// while any finding across the prompt is unranked). CHECKless in the db;
+/// this registry is the validity surface.
+public enum ExplorationAgentType: String, Codable, Hashable, CaseIterable, Sendable {
+    case aggressive
+    case conservative
+    case pragmatic
+    case alternative
+    case general
+    case synthesis
 }
 
 /// What a review finding is about.
@@ -1099,6 +1104,14 @@ public struct FileChangeAdd: Codable, Hashable, Sendable {
     /// PostToolUse bookkeeping hook is the intended caller.
     public let autoAttribute: Bool?
     public let clientKey: String?
+    /// m0025 attribution axis — all OPTIONAL/additive. agent identity is
+    /// self-reported (ClientKey cannot distinguish sibling subagents);
+    /// origin is hook|manual|reconcile (nil → hook default in the db);
+    /// workflow_phase is NEVER taken from the caller — the daemon stamps it
+    /// from the attributed prompt's active bot_workflow.
+    public let agentId: String?
+    public let agentName: String?
+    public let origin: String?
 
     public init(
         project: ProjectContext,
@@ -1109,7 +1122,10 @@ public struct FileChangeAdd: Codable, Hashable, Sendable {
         changeKind: ChangeKind,
         ranges: [ChangeRange],
         autoAttribute: Bool? = nil,
-        clientKey: String? = nil
+        clientKey: String? = nil,
+        agentId: String? = nil,
+        agentName: String? = nil,
+        origin: String? = nil
     ) {
         self.project = project
         self.instance = instance
@@ -1120,6 +1136,9 @@ public struct FileChangeAdd: Codable, Hashable, Sendable {
         self.ranges = ranges
         self.autoAttribute = autoAttribute
         self.clientKey = clientKey
+        self.agentId = agentId
+        self.agentName = agentName
+        self.origin = origin
     }
 }
 
@@ -1369,13 +1388,16 @@ public struct KbiteSearchResponse: Codable, Hashable, Sendable {
 /// explore.md/review.md deferral note.)
 public enum SearchKind: String, Codable, Hashable, CaseIterable, Sendable {
     case prompt
-    case clarification
-    case clarificationSummary = "clarification_summary"
+    /// m0025: the clarification split's searchable rows. clarification /
+    /// clarification_summary / exploration_key_file are RETIRED with their
+    /// tables (the summary lost its text columns; key files are
+    /// kind='key_file' rows inside exploration_finding).
+    case clarificationQuestion = "clarification_question"
+    case clarificationNote = "clarification_note"
     case architectureSummary = "architecture_summary"
     case architectureGeneralChange = "architecture_general_change"
     case architecturePersistenceChange = "architecture_persistence_change"
     case explorationSummary = "exploration_summary"
-    case explorationKeyFile = "exploration_key_file"
     case explorationFinding = "exploration_finding"
     case reviewSummary = "review_summary"
     case reviewFinding = "review_finding"
@@ -1668,35 +1690,79 @@ public struct ClarifySummaryResponse: Codable, Hashable, Sendable {
     }
 }
 
-/// Insert a question while the summary is `building`. A confidently-resolved
-/// detection may land pre-answered by passing answer + source bot_inferred.
-public struct ClarifyAskRequest: Codable, Hashable, Sendable {
+/// Insert a user-facing question while the summary is `building` (m0025).
+/// `options` become option child rows in order; the user answers by
+/// selection (junction rows) and/or typed text.
+public struct ClarifyQuestionAddRequest: Codable, Hashable, Sendable {
     public let summaryUuid: String
-    public let category: ClarificationCategory
     public let question: String
-    public let answer: String?
-    public let answerSource: AnswerSource?
+    public let options: [String]?
+    public let agentName: String?
+    public let agentId: String?
 
     public init(
         summaryUuid: String,
-        category: ClarificationCategory,
         question: String,
-        answer: String? = nil,
-        answerSource: AnswerSource? = nil
+        options: [String]? = nil,
+        agentName: String? = nil,
+        agentId: String? = nil
     ) {
         self.summaryUuid = summaryUuid
-        self.category = category
         self.question = question
-        self.answer = answer
-        self.answerSource = answerSource
+        self.options = options
+        self.agentName = agentName
+        self.agentId = agentId
     }
 }
 
-public struct ClarificationRowResponse: Codable, Hashable, Sendable {
-    public let clarification: ClarificationRow
+public struct ClarifyQuestionRowResponse: Codable, Hashable, Sendable {
+    public let question: ClarificationQuestionRow
 
-    public init(clarification: ClarificationRow) {
-        self.clarification = clarification
+    public init(question: ClarificationQuestionRow) {
+        self.question = question
+    }
+}
+
+/// Insert an internal clarification note (m0025): the agent's own record of
+/// what confused exploration or itself. weight uses the finding_rating
+/// polarity (0 = critical). questionUuid attaches the note to an answered
+/// user question after the fact.
+public struct ClarifyNoteAddRequest: Codable, Hashable, Sendable {
+    public let summaryUuid: String
+    public let body: String
+    public let confusedEntityUuid: String?
+    public let confusedEntityType: String?
+    public let weight: Int?
+    public let questionUuid: String?
+    public let agentName: String?
+    public let agentId: String?
+
+    public init(
+        summaryUuid: String,
+        body: String,
+        confusedEntityUuid: String? = nil,
+        confusedEntityType: String? = nil,
+        weight: Int? = nil,
+        questionUuid: String? = nil,
+        agentName: String? = nil,
+        agentId: String? = nil
+    ) {
+        self.summaryUuid = summaryUuid
+        self.body = body
+        self.confusedEntityUuid = confusedEntityUuid
+        self.confusedEntityType = confusedEntityType
+        self.weight = weight
+        self.questionUuid = questionUuid
+        self.agentName = agentName
+        self.agentId = agentId
+    }
+}
+
+public struct ClarifyNoteRowResponse: Codable, Hashable, Sendable {
+    public let note: ClarificationNoteRow
+
+    public init(note: ClarificationNoteRow) {
+        self.note = note
     }
 }
 
@@ -1711,28 +1777,30 @@ public struct ClarifySealRequest: Codable, Hashable, Sendable {
     }
 }
 
-/// Answer one clarification row (summary must be `answering`). Revives a
-/// skipped row. Pure row update — never touches the summary's version.
-/// expectedVersion targets the CLARIFICATION row. skip=true marks the row
-/// skipped instead of answered.
+/// Answer one question (summary must be `answering`). Revives a skipped
+/// row. Pure row update — never touches the summary's version.
+/// expectedVersion targets the QUESTION row. skip=true marks the row
+/// skipped instead of answered. selectedOptionUuids replace the question's
+/// junction rows wholesale; answerText carries a typed answer — either or
+/// both satisfy "answered".
 public struct ClarifyAnswerRequest: Codable, Hashable, Sendable {
-    public let clarificationUuid: String
+    public let questionUuid: String
     public let expectedVersion: Int64
-    public let answer: String?
-    public let answerSource: AnswerSource?
+    public let answerText: String?
+    public let selectedOptionUuids: [String]?
     public let skip: Bool
 
     public init(
-        clarificationUuid: String,
+        questionUuid: String,
         expectedVersion: Int64,
-        answer: String? = nil,
-        answerSource: AnswerSource? = nil,
+        answerText: String? = nil,
+        selectedOptionUuids: [String]? = nil,
         skip: Bool = false
     ) {
-        self.clarificationUuid = clarificationUuid
+        self.questionUuid = questionUuid
         self.expectedVersion = expectedVersion
-        self.answer = answer
-        self.answerSource = answerSource
+        self.answerText = answerText
+        self.selectedOptionUuids = selectedOptionUuids
         self.skip = skip
     }
 }
@@ -1749,39 +1817,26 @@ public struct ClarifyReopenRequest: Codable, Hashable, Sendable {
     }
 }
 
-/// answering → complete. Requires every non-skipped question answered and both
-/// refined fields non-empty; copies refined_goal into prompt.goal (the one
-/// daemon-synthesized write exempt from CONTENT_LOCKED — human edits stay
-/// draft-only).
+/// answering → complete. A PURE GATE since m0025: requires every question
+/// answered or skipped, validates the care package where one exists (ready,
+/// non-empty intent), and writes NOTHING to the prompt row — the old
+/// refined_goal→prompt.goal copy is retired; ZERO bot write doors to prompt
+/// content remain (backstory/goal/detail are human input only).
 public struct ClarifyFinalizeRequest: Codable, Hashable, Sendable {
     public let summaryUuid: String
     public let expectedVersion: Int64
-    public let refinedGoal: String
-    public let refinedDetail: String
-    public let backstoryNote: String?
 
-    public init(
-        summaryUuid: String,
-        expectedVersion: Int64,
-        refinedGoal: String,
-        refinedDetail: String,
-        backstoryNote: String? = nil
-    ) {
+    public init(summaryUuid: String, expectedVersion: Int64) {
         self.summaryUuid = summaryUuid
         self.expectedVersion = expectedVersion
-        self.refinedGoal = refinedGoal
-        self.refinedDetail = refinedDetail
-        self.backstoryNote = backstoryNote
     }
 }
 
 public struct ClarifyFinalizeResponse: Codable, Hashable, Sendable {
     public let summary: ClarificationSummaryRow
-    public let prompt: PromptRow
 
-    public init(summary: ClarificationSummaryRow, prompt: PromptRow) {
+    public init(summary: ClarificationSummaryRow) {
         self.summary = summary
-        self.prompt = prompt
     }
 }
 
@@ -1795,11 +1850,111 @@ public struct ClarifyGetRequest: Codable, Hashable, Sendable {
 
 public struct ClarifyGetResponse: Codable, Hashable, Sendable {
     public let summary: ClarificationSummaryRow
-    public let clarifications: [ClarificationRow]
+    public let questions: [ClarificationQuestionRow]
+    public let notes: [ClarificationNoteRow]
+    /// nil until package-open (bot-variant flows never create one).
+    public let carePackage: CarePackageRow?
 
-    public init(summary: ClarificationSummaryRow, clarifications: [ClarificationRow]) {
+    public init(
+        summary: ClarificationSummaryRow,
+        questions: [ClarificationQuestionRow],
+        notes: [ClarificationNoteRow],
+        carePackage: CarePackageRow?
+    ) {
         self.summary = summary
-        self.clarifications = clarifications
+        self.questions = questions
+        self.notes = notes
+        self.carePackage = carePackage
+    }
+}
+
+// MARK: - CARE_PACKAGE_* (m0025)
+
+/// Open (or return) the care package on a clarification summary. Multi-agent
+/// flows only by convention — the schema is variant-agnostic.
+public struct CarePackageOpenRequest: Codable, Hashable, Sendable {
+    public let summaryUuid: String
+
+    public init(summaryUuid: String) {
+        self.summaryUuid = summaryUuid
+    }
+}
+
+public struct CarePackageResponse: Codable, Hashable, Sendable {
+    public let package: CarePackageRow
+    public let created: Bool
+
+    public init(package: CarePackageRow, created: Bool = false) {
+        self.package = package
+        self.created = created
+    }
+}
+
+/// The ref kind vocabulary for CARE_REF_ADD.
+public enum CarePackageRefKind: String, Codable, Hashable, CaseIterable, Sendable {
+    case dope
+    case kbite
+    case exploration
+}
+
+/// Add one ref child while the package is `building`. Exactly the fields for
+/// the kind: dope → dopeCode (+note); kbite → kbiteFileUuid; exploration →
+/// curatedTitle + curatedBody (+filePath, +sourceFindingUuid) — a COPY,
+/// never a re-exploration.
+public struct CarePackageRefAddRequest: Codable, Hashable, Sendable {
+    public let packageUuid: String
+    public let kind: CarePackageRefKind
+    public let dopeCode: String?
+    public let note: String?
+    public let kbiteFileUuid: String?
+    public let curatedTitle: String?
+    public let curatedBody: String?
+    public let filePath: String?
+    public let sourceFindingUuid: String?
+
+    public init(
+        packageUuid: String,
+        kind: CarePackageRefKind,
+        dopeCode: String? = nil,
+        note: String? = nil,
+        kbiteFileUuid: String? = nil,
+        curatedTitle: String? = nil,
+        curatedBody: String? = nil,
+        filePath: String? = nil,
+        sourceFindingUuid: String? = nil
+    ) {
+        self.packageUuid = packageUuid
+        self.kind = kind
+        self.dopeCode = dopeCode
+        self.note = note
+        self.kbiteFileUuid = kbiteFileUuid
+        self.curatedTitle = curatedTitle
+        self.curatedBody = curatedBody
+        self.filePath = filePath
+        self.sourceFindingUuid = sourceFindingUuid
+    }
+}
+
+/// building → ready. `clarifiedIntent` is carried ONLY here (its one write
+/// path — the overview-at-complete idiom). The daemon stamps the dope scope
+/// revision itself, exactly like briefing complete.
+public struct CarePackageCompleteRequest: Codable, Hashable, Sendable {
+    public let packageUuid: String
+    public let expectedVersion: Int64
+    public let clarifiedIntent: String
+
+    public init(packageUuid: String, expectedVersion: Int64, clarifiedIntent: String) {
+        self.packageUuid = packageUuid
+        self.expectedVersion = expectedVersion
+        self.clarifiedIntent = clarifiedIntent
+    }
+}
+
+public struct CarePackageGetRequest: Codable, Hashable, Sendable {
+    public let promptUuid: String
+
+    public init(promptUuid: String) {
+        self.promptUuid = promptUuid
     }
 }
 
@@ -1842,12 +1997,25 @@ public struct ArchPersistAddRequest: Codable, Hashable, Sendable {
     public let className: String
     public let filePath: String
     public let reasonBrief: String
+    /// m0025: add|modify|rename|delete (defaults to modify at write).
+    public let changeKind: String?
+    /// m0025: domain.entity dot-path CODE, ghost-legal.
+    public let dopeRef: String?
 
-    public init(summaryUuid: String, className: String, filePath: String, reasonBrief: String) {
+    public init(
+        summaryUuid: String,
+        className: String,
+        filePath: String,
+        reasonBrief: String,
+        changeKind: String? = nil,
+        dopeRef: String? = nil
+    ) {
         self.summaryUuid = summaryUuid
         self.className = className
         self.filePath = filePath
         self.reasonBrief = reasonBrief
+        self.changeKind = changeKind
+        self.dopeRef = dopeRef
     }
 }
 
@@ -1869,6 +2037,12 @@ public struct ArchFieldAddRequest: Codable, Hashable, Sendable {
     public let isForeignKey: Bool
     public let fkTarget: String?
     public let isIndexed: Bool
+    /// m0025: add|modify|rename|delete (defaults to add at write).
+    public let changeKind: String?
+    /// m0025: old field name when changeKind == rename.
+    public let renamedFrom: String?
+    /// m0025: domain.entity.property dot-path CODE, ghost-legal.
+    public let dopePropertyRef: String?
 
     public init(
         persistenceChangeUuid: String,
@@ -1879,7 +2053,10 @@ public struct ArchFieldAddRequest: Codable, Hashable, Sendable {
         nullable: Bool,
         isForeignKey: Bool = false,
         fkTarget: String? = nil,
-        isIndexed: Bool = false
+        isIndexed: Bool = false,
+        changeKind: String? = nil,
+        renamedFrom: String? = nil,
+        dopePropertyRef: String? = nil
     ) {
         self.persistenceChangeUuid = persistenceChangeUuid
         self.fieldName = fieldName
@@ -1890,6 +2067,9 @@ public struct ArchFieldAddRequest: Codable, Hashable, Sendable {
         self.isForeignKey = isForeignKey
         self.fkTarget = fkTarget
         self.isIndexed = isIndexed
+        self.changeKind = changeKind
+        self.renamedFrom = renamedFrom
+        self.dopePropertyRef = dopePropertyRef
     }
 }
 
@@ -1984,6 +2164,8 @@ public struct ArchGetRequest: Codable, Hashable, Sendable {
 /// are invisible to it — always pass --prompt-uuid when recording.
 public struct ArchGetResponse: Codable, Hashable, Sendable {
     public let summary: ArchitectureSummaryRow
+    /// m0025: the persisted methodology options (empty outside team flows).
+    public let options: [ArchitectureOptionRow]
     public let persistenceChanges: [ArchPersistenceChangeRow]
     public let generalChanges: [ArchGeneralChangeRow]
     public let unplannedChanges: [UnplannedChangeRow]
@@ -1991,12 +2173,14 @@ public struct ArchGetResponse: Codable, Hashable, Sendable {
 
     public init(
         summary: ArchitectureSummaryRow,
+        options: [ArchitectureOptionRow] = [],
         persistenceChanges: [ArchPersistenceChangeRow],
         generalChanges: [ArchGeneralChangeRow],
         unplannedChanges: [UnplannedChangeRow],
         orderingRespected: Bool?
     ) {
         self.summary = summary
+        self.options = options
         self.persistenceChanges = persistenceChanges
         self.generalChanges = generalChanges
         self.unplannedChanges = unplannedChanges
@@ -2004,13 +2188,237 @@ public struct ArchGetResponse: Codable, Hashable, Sendable {
     }
 }
 
-// MARK: - EXPLORE_* (v9)
+// MARK: - ARCH_OPTION_* (v24: the architect pen inversion)
 
+/// One methodology's proposal written by the architect agent ITSELF — the
+/// first architect pen verb. Options are team-only by convention; zero
+/// options = the direct persist/field/general expansion stays legal.
+public struct ArchOptionAddRequest: Codable, Hashable, Sendable {
+    public let summaryUuid: String
+    public let agentName: String
+    public let agentId: String?
+    public let body: String
+
+    public init(summaryUuid: String, agentName: String, agentId: String? = nil, body: String) {
+        self.summaryUuid = summaryUuid
+        self.agentName = agentName
+        self.agentId = agentId
+        self.body = body
+    }
+}
+
+public struct ArchOptionRowResponse: Codable, Hashable, Sendable {
+    public let option: ArchitectureOptionRow
+
+    public init(option: ArchitectureOptionRow) {
+        self.option = option
+    }
+}
+
+/// Atomically select one option (rejecting its siblings) and record the
+/// decision rationale on the summary. Only after a decision may the selected
+/// option expand into persistence/field/general change rows — enforced as a
+/// store guard, not a CHECK (the m0016 cross-table rule).
+public struct ArchDecideRequest: Codable, Hashable, Sendable {
+    public let optionUuid: String
+    public let expectedVersion: Int64
+    public let rationale: String
+
+    public init(optionUuid: String, expectedVersion: Int64, rationale: String) {
+        self.optionUuid = optionUuid
+        self.expectedVersion = expectedVersion
+        self.rationale = rationale
+    }
+}
+
+public struct ArchDecideResponse: Codable, Hashable, Sendable {
+    public let summary: ArchitectureSummaryRow
+    public let options: [ArchitectureOptionRow]
+
+    public init(summary: ArchitectureSummaryRow, options: [ArchitectureOptionRow]) {
+        self.summary = summary
+        self.options = options
+    }
+}
+
+// MARK: - BOT_* (v24: the daemon-held workflow state machine)
+
+/// Workflow variants. `task` is deliberately ABSENT from the machine — its
+/// write-nothing contract means no workflow row; the registry lists it only
+/// so errors can name it.
+public enum BotVariant: String, Codable, Hashable, CaseIterable, Sendable {
+    case bot
+    case rpi
+    case team
+}
+
+/// Enter the machine from `draft`: creates the workflow row and claims it
+/// for the calling instance. Deliberately NO status change — briefing and
+/// exploration run while the prompt is still draft, exactly as the manual
+/// flow always has; gm prompt set-status stays the only door.
+public struct PromptStartRequest: Codable, Hashable, Sendable {
+    public let promptUuid: String
+    public let variant: BotVariant
+    public let clientKey: String?
+
+    public init(promptUuid: String, variant: BotVariant, clientKey: String? = nil) {
+        self.promptUuid = promptUuid
+        self.variant = variant
+        self.clientKey = clientKey
+    }
+}
+
+/// Adopt whatever evidence exists: fetch-or-create the workflow row,
+/// re-stamp the client key, change no status. Phase is recomputed at every
+/// NEXT — resume IS the first-run code path.
+public struct PromptResumeRequest: Codable, Hashable, Sendable {
+    public let promptUuid: String
+    /// Required when resume must CREATE the row (a pre-machine prompt).
+    public let variant: BotVariant?
+    public let clientKey: String?
+
+    public init(promptUuid: String, variant: BotVariant? = nil, clientKey: String? = nil) {
+        self.promptUuid = promptUuid
+        self.variant = variant
+        self.clientKey = clientKey
+    }
+}
+
+public struct BotWorkflowResponse: Codable, Hashable, Sendable {
+    public let workflow: BotWorkflowRow
+    public let created: Bool
+
+    public init(workflow: BotWorkflowRow, created: Bool = false) {
+        self.workflow = workflow
+        self.created = created
+    }
+}
+
+/// Zero-uuid form: promptUuid nil resolves through the activation registry
+/// (caller's own claim → session's single claim), exactly like briefing get.
+public struct BotNextRequest: Codable, Hashable, Sendable {
+    public let promptUuid: String?
+    public let clientKey: String?
+    public let sessionUuid: String?
+
+    public init(promptUuid: String? = nil, clientKey: String? = nil, sessionUuid: String? = nil) {
+        self.promptUuid = promptUuid
+        self.clientKey = clientKey
+        self.sessionUuid = sessionUuid
+    }
+}
+
+/// The uuid bundle NEXT serves alongside the instruction text — everything
+/// the phase needs, computed from db state at read (nothing stored).
+public struct BotPhaseUuids: Codable, Hashable, Sendable {
+    public let promptUuid: String
+    public let sessionUuid: String
+    public let briefingUuid: String?
+    public let clarificationSummaryUuid: String?
+    public let carePackageUuid: String?
+    public let architectureSummaryUuid: String?
+    public let reviewSummaryUuid: String?
+    /// (agent_type → summary uuid) for the prompt's exploration rows.
+    public let explorationSummaryUuids: [String: String]
+
+    public init(
+        promptUuid: String,
+        sessionUuid: String,
+        briefingUuid: String?,
+        clarificationSummaryUuid: String?,
+        carePackageUuid: String?,
+        architectureSummaryUuid: String?,
+        reviewSummaryUuid: String?,
+        explorationSummaryUuids: [String: String]
+    ) {
+        self.promptUuid = promptUuid
+        self.sessionUuid = sessionUuid
+        self.briefingUuid = briefingUuid
+        self.clarificationSummaryUuid = clarificationSummaryUuid
+        self.carePackageUuid = carePackageUuid
+        self.architectureSummaryUuid = architectureSummaryUuid
+        self.reviewSummaryUuid = reviewSummaryUuid
+        self.explorationSummaryUuids = explorationSummaryUuids
+    }
+}
+
+public struct BotNextResponse: Codable, Hashable, Sendable {
+    public let workflow: BotWorkflowRow
+    /// The furthest phase whose entry gate is satisfied.
+    public let phase: String
+    /// Compiled-in instruction text for (variant, phase) — the Cheatsheet
+    /// precedent; drift-guarded by WorkflowSpecTests.
+    public let instructions: String
+    /// What still blocks the NEXT phase (empty when the phase's own work is
+    /// simply not done yet).
+    public let gateBlockers: [String]
+    public let uuids: BotPhaseUuids
+
+    public init(
+        workflow: BotWorkflowRow,
+        phase: String,
+        instructions: String,
+        gateBlockers: [String],
+        uuids: BotPhaseUuids
+    ) {
+        self.workflow = workflow
+        self.phase = phase
+        self.instructions = instructions
+        self.gateBlockers = gateBlockers
+        self.uuids = uuids
+    }
+}
+
+/// Advance the reconcile baseline: the git TREE SHA of the working-tree
+/// snapshot reconcile diffs against. Written by gm prompt start/resume
+/// (excluding pre-existing dirt from the sweep) and by gm bot reconcile
+/// after each sweep. The daemon stores it verbatim — git runs client-side.
+public struct BotSetBaselineRequest: Codable, Hashable, Sendable {
+    public let promptUuid: String?
+    public let clientKey: String?
+    public let sessionUuid: String?
+    public let gitTree: String
+
+    public init(
+        promptUuid: String? = nil,
+        clientKey: String? = nil,
+        sessionUuid: String? = nil,
+        gitTree: String
+    ) {
+        self.promptUuid = promptUuid
+        self.clientKey = clientKey
+        self.sessionUuid = sessionUuid
+        self.gitTree = gitTree
+    }
+}
+
+/// The raw workflow row (zero-uuid resolved like NEXT).
+public struct BotGetRequest: Codable, Hashable, Sendable {
+    public let promptUuid: String?
+    public let clientKey: String?
+    public let sessionUuid: String?
+
+    public init(promptUuid: String? = nil, clientKey: String? = nil, sessionUuid: String? = nil) {
+        self.promptUuid = promptUuid
+        self.clientKey = clientKey
+        self.sessionUuid = sessionUuid
+    }
+}
+
+// MARK: - EXPLORE_* (v24: literal per-agent summaries)
+
+/// Open (or return) the summary for (prompt, agentType). agentType defaults
+/// to 'general'; 'synthesis' is the prompt-level seal/synthesis row the
+/// primary completes last.
 public struct ExploreOpenRequest: Codable, Hashable, Sendable {
     public let promptUuid: String
+    public let agentType: String?
+    public let agentId: String?
 
-    public init(promptUuid: String) {
+    public init(promptUuid: String, agentType: String? = nil, agentId: String? = nil) {
         self.promptUuid = promptUuid
+        self.agentType = agentType
+        self.agentId = agentId
     }
 }
 
@@ -2059,7 +2467,10 @@ public struct ExploreFindingAddRequest: Codable, Hashable, Sendable {
     public let kind: ExplorationFindingKind
     public let title: String
     public let body: String
+    /// m0025: the merged key-file half of the finding/file pair.
+    public let filePath: String?
     public let agentName: String
+    public let agentId: String?
     public let rating: Int?
 
     public init(
@@ -2067,14 +2478,18 @@ public struct ExploreFindingAddRequest: Codable, Hashable, Sendable {
         kind: ExplorationFindingKind,
         title: String,
         body: String,
+        filePath: String? = nil,
         agentName: String,
+        agentId: String? = nil,
         rating: Int? = nil
     ) {
         self.summaryUuid = summaryUuid
         self.kind = kind
         self.title = title
         self.body = body
+        self.filePath = filePath
         self.agentName = agentName
+        self.agentId = agentId
         self.rating = rating
     }
 }
@@ -2095,23 +2510,26 @@ public struct ExploreFindingRowResponse: Codable, Hashable, Sendable {
 /// never read — that IS the specified semantic — and the single-writer
 /// DatabaseQueue serializes competing batches. Re-rank = same verb again.
 public struct ExploreRankRequest: Codable, Hashable, Sendable {
-    public let summaryUuid: String
+    /// m0025: the batch is PROMPT-scoped — one atomic calibrated batch across
+    /// every summary of the prompt (cross-persona tombstoning preserved,
+    /// re-keyed from summary to prompt).
+    public let promptUuid: String
     public let ratings: [FindingRating]
 
-    public init(summaryUuid: String, ratings: [FindingRating]) {
-        self.summaryUuid = summaryUuid
+    public init(promptUuid: String, ratings: [FindingRating]) {
+        self.promptUuid = promptUuid
         self.ratings = ratings
     }
 }
 
 public struct ExploreRankResponse: Codable, Hashable, Sendable {
-    public let summary: ExplorationSummaryRow
+    public let promptUuid: String
     public let updatedCount: Int
-    /// 0 ⇒ COMPLETE will pass its rank gate.
+    /// 0 ⇒ the synthesis COMPLETE (seal) will pass its rank gate.
     public let unrankedCount: Int
 
-    public init(summary: ExplorationSummaryRow, updatedCount: Int, unrankedCount: Int) {
-        self.summary = summary
+    public init(promptUuid: String, updatedCount: Int, unrankedCount: Int) {
+        self.promptUuid = promptUuid
         self.updatedCount = updatedCount
         self.unrankedCount = unrankedCount
     }
@@ -2151,12 +2569,21 @@ public struct ExploreReopenRequest: Codable, Hashable, Sendable {
 /// full=true returns everything full; ratingMax/ratingMin shift the window.
 public struct ExploreGetRequest: Codable, Hashable, Sendable {
     public let promptUuid: String
+    /// Optional filter to one agent's summary; nil returns all of them.
+    public let agentType: String?
     public let full: Bool
     public let ratingMin: Int?
     public let ratingMax: Int?
 
-    public init(promptUuid: String, full: Bool = false, ratingMin: Int? = nil, ratingMax: Int? = nil) {
+    public init(
+        promptUuid: String,
+        agentType: String? = nil,
+        full: Bool = false,
+        ratingMin: Int? = nil,
+        ratingMax: Int? = nil
+    ) {
         self.promptUuid = promptUuid
+        self.agentType = agentType
         self.full = full
         self.ratingMin = ratingMin
         self.ratingMax = ratingMax
@@ -2164,7 +2591,11 @@ public struct ExploreGetRequest: Codable, Hashable, Sendable {
 }
 
 public struct ExploreGetResponse: Codable, Hashable, Sendable {
-    public let summary: ExplorationSummaryRow
+    /// m0025: every summary row of the prompt (or the agentType filter's
+    /// one), synthesis first, then alphabetical by agent_type.
+    public let summaries: [ExplorationSummaryRow]
+    /// COMPUTED view: findings of kind 'key_file' across those summaries —
+    /// kept as a wire array so consumers keep a stable key-file surface.
     public let keyFiles: [ExplorationKeyFileRow]
     /// Full rows: rating inside the window OR unranked, ordered unranked
     /// first, then by rating ascending.
@@ -2173,12 +2604,12 @@ public struct ExploreGetResponse: Codable, Hashable, Sendable {
     public let findingStubs: [ExplorationFindingStub]
 
     public init(
-        summary: ExplorationSummaryRow,
+        summaries: [ExplorationSummaryRow],
         keyFiles: [ExplorationKeyFileRow],
         findings: [ExplorationFindingRow],
         findingStubs: [ExplorationFindingStub]
     ) {
-        self.summary = summary
+        self.summaries = summaries
         self.keyFiles = keyFiles
         self.findings = findings
         self.findingStubs = findingStubs
@@ -2219,6 +2650,8 @@ public struct ReviewFindingAddRequest: Codable, Hashable, Sendable {
     public let lineStart: Int?
     public let lineEnd: Int?
     public let agentName: String
+    /// m0025 agent_id sweep (additive optional).
+    public let agentId: String?
     public let rating: Int?
 
     public init(
@@ -2230,6 +2663,7 @@ public struct ReviewFindingAddRequest: Codable, Hashable, Sendable {
         lineStart: Int? = nil,
         lineEnd: Int? = nil,
         agentName: String,
+        agentId: String? = nil,
         rating: Int? = nil
     ) {
         self.summaryUuid = summaryUuid
@@ -2240,6 +2674,7 @@ public struct ReviewFindingAddRequest: Codable, Hashable, Sendable {
         self.lineStart = lineStart
         self.lineEnd = lineEnd
         self.agentName = agentName
+        self.agentId = agentId
         self.rating = rating
     }
 }
@@ -2520,24 +2955,30 @@ public struct BriefingRowResponse: Codable, Hashable, Sendable {
 public struct BriefingCompleteRequest: Codable, Hashable, Sendable {
     public let briefingUuid: String
     public let expectedVersion: Int64
-    public let body: String
     /// DOT-PATH strings (domain.entity.property style), never uuids.
+    /// m0025: written as agent_briefing_dope_persistence child rows.
     public let dopeRefs: [String]?
     /// KBite file uuids; the daemon resolves each brief at write time.
     public let kbiteRefs: [String]?
+    /// file_change uuids (agent_session_file_change children).
+    public let fileChangeRefs: [String]?
+    /// Doper self-report for dedup/tracking.
+    public let agentId: String?
 
     public init(
         briefingUuid: String,
         expectedVersion: Int64,
-        body: String,
         dopeRefs: [String]? = nil,
-        kbiteRefs: [String]? = nil
+        kbiteRefs: [String]? = nil,
+        fileChangeRefs: [String]? = nil,
+        agentId: String? = nil
     ) {
         self.briefingUuid = briefingUuid
         self.expectedVersion = expectedVersion
-        self.body = body
         self.dopeRefs = dopeRefs
         self.kbiteRefs = kbiteRefs
+        self.fileChangeRefs = fileChangeRefs
+        self.agentId = agentId
     }
 }
 

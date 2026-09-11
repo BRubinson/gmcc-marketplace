@@ -108,7 +108,21 @@ public final class DaemonClient: @unchecked Sendable {
         defer { lock.unlock() }
         if fd < 0 { _ = try connectLocked() }
         let envelope = RequestEnvelope(type: type, payload: payload)
-        let response: ResponseEnvelope<Resp> = try roundTrip(envelope)
+        let response: ResponseEnvelope<Resp>
+        do {
+            response = try roundTrip(envelope)
+        } catch let error as DaemonClientError {
+            // A wire failure usually means the daemon restarted under us
+            // (EPIPE/EOF on a stale fd). One-invocation gm never noticed;
+            // long-lived clients (gmcc_mcp, GMVibes) were permanently
+            // bricked. Reset the socket and retry ONCE — the hello
+            // handshake re-runs and the directional version logic still
+            // applies; a second failure propagates.
+            guard case .wire = error else { throw error }
+            closeLocked()
+            _ = try connectLocked()
+            response = try roundTrip(envelope)
+        }
         if let error = response.error {
             if error.code == .protocolMismatch {
                 throw DaemonClientError.protocolMismatch(

@@ -68,4 +68,62 @@ struct FindingRankRepository: RepositoryContext {
             sql: "SELECT COUNT(*) FROM \(table) WHERE \(parentColumn) = ? AND finding_rating IS NULL",
             arguments: [summaryUuid]) ?? 0
     }
+
+    // MARK: - Prompt-scoped (m0025 per-agent exploration summaries)
+
+    /// The cross-summary rank batch: one atomic calibrated batch over every
+    /// finding of every exploration summary of ONE prompt (the reranker's
+    /// cross-persona tombstone contract, re-keyed from summary to prompt).
+    /// Same all-or-nothing validation as applyRankBatch; the membership check
+    /// walks the summary join instead of one parent uuid.
+    func applyPromptRankBatch(promptUuid: String, ratings: [FindingRating]) throws {
+        guard !ratings.isEmpty else {
+            throw StoreError.badRequest(detail: "rank batch is empty")
+        }
+        var seen = Set<String>()
+        for pair in ratings {
+            guard seen.insert(pair.findingUuid).inserted else {
+                throw StoreError.badRequest(detail: "duplicate finding in rank batch: \(pair.findingUuid)")
+            }
+            guard (0...999).contains(pair.rating) else {
+                throw StoreError.badRequest(
+                    detail: "finding_rating must be 0–999 (got \(pair.rating) for \(pair.findingUuid))")
+            }
+            guard try Row.fetchOne(
+                db, sql: """
+                    SELECT 1 FROM exploration_finding f
+                    JOIN exploration_summary s ON s.uuid = f.exploration_summary_uuid
+                    WHERE f.uuid = ? AND s.prompt_uuid = ?
+                    """,
+                arguments: [pair.findingUuid, promptUuid]
+            ) != nil else {
+                throw StoreError.badRequest(
+                    detail: "finding \(pair.findingUuid) does not belong to prompt \(promptUuid)")
+            }
+        }
+        for pair in ratings {
+            guard let version = try Int64.fetchOne(
+                db, sql: "SELECT version FROM exploration_finding WHERE uuid = ?",
+                arguments: [pair.findingUuid]
+            ) else {
+                throw StoreError.notFound(entity: "exploration_finding", key: pair.findingUuid)
+            }
+            try core.updateBase(
+                db, table: "exploration_finding", uuid: pair.findingUuid,
+                expectedVersion: version, set: ["finding_rating": pair.rating])
+        }
+    }
+
+    /// Unranked findings across ALL of the prompt's exploration summaries —
+    /// the synthesis-complete (seal) gate.
+    func promptUnrankedCount(promptUuid: String) throws -> Int {
+        try Int.fetchOne(
+            db, sql: """
+                SELECT COUNT(*) FROM exploration_finding f
+                JOIN exploration_summary s ON s.uuid = f.exploration_summary_uuid
+                WHERE s.prompt_uuid = ? AND f.finding_rating IS NULL
+                  AND f.kind != 'key_file'
+                """,
+            arguments: [promptUuid]) ?? 0
+    }
 }

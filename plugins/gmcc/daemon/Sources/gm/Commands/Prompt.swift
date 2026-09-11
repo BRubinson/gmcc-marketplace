@@ -9,7 +9,8 @@ import GMCCDaemonKit
 struct Prompt: ParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Create and manage prompts.",
-        subcommands: [Create.self, List.self, Get.self, UpdateContent.self, SetStatus.self]
+        subcommands: [Create.self, List.self, Get.self, UpdateContent.self, SetStatus.self,
+                      Start.self, Resume.self]
     )
 
     struct Create: ParsableCommand {
@@ -232,6 +233,66 @@ struct Prompt: ParsableCommand {
                 printJSON(response)
             } else {
                 print("[gm] prompt \(response.seq) → \(response.status) (v\(response.version))")
+            }
+        }
+    }
+
+    struct Start: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Enter the bot workflow machine from draft: creates the active workflow row and claims the activation. task deliberately has NO variant here (write-nothing contract — no workflow row).")
+
+        @OptionGroup var output: OutputOptions
+        @Option(name: .long) var promptUuid: String
+        @Option(name: .long, help: "bot | rpi | team") var variant: BotVariant
+
+        func run() throws {
+            let response = try withClient { client -> BotWorkflowResponse in
+                let started = try client.promptStart(PromptStartRequest(
+                    promptUuid: promptUuid, variant: variant,
+                    clientKey: ClientKey.resolve()))
+                // Establish the reconcile baseline NOW so pre-existing
+                // working-tree dirt is never attributed to this prompt
+                // (best effort — outside a repo the sweep just baselines on
+                // its own first run).
+                if let tree = try? GitSnapshot.workingTree() {
+                    _ = try? client.botSetBaseline(BotSetBaselineRequest(
+                        promptUuid: promptUuid, clientKey: ClientKey.resolve(),
+                        gitTree: tree))
+                }
+                return started
+            }
+            if output.json { printJSON(response) } else {
+                let w = response.workflow
+                print("[gm] workflow started [\(w.variant)]: \(w.uuid) — run gm bot next")
+            }
+        }
+    }
+
+    struct Resume: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Adopt an in-flight prompt: fetch-or-create the workflow row (pass --variant when the prompt predates the machine), re-stamp the claim. Phase is recomputed — resume IS first-run.")
+
+        @OptionGroup var output: OutputOptions
+        @Option(name: .long) var promptUuid: String
+        @Option(name: .long, help: "bot | rpi | team — required only when the prompt has no workflow yet.")
+        var variant: BotVariant?
+
+        func run() throws {
+            let response = try withClient { client -> BotWorkflowResponse in
+                let resumed = try client.promptResume(PromptResumeRequest(
+                    promptUuid: promptUuid, variant: variant,
+                    clientKey: ClientKey.resolve()))
+                if resumed.workflow.reconcileGitHead == nil,
+                   let tree = try? GitSnapshot.workingTree() {
+                    _ = try? client.botSetBaseline(BotSetBaselineRequest(
+                        promptUuid: promptUuid, clientKey: ClientKey.resolve(),
+                        gitTree: tree))
+                }
+                return resumed
+            }
+            if output.json { printJSON(response) } else {
+                let w = response.workflow
+                print("[gm] workflow \(response.created ? "created" : "resumed") [\(w.variant)]: \(w.uuid) — run gm bot next")
             }
         }
     }

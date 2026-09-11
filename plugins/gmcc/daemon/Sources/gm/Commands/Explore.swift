@@ -90,16 +90,23 @@ struct Explore: ParsableCommand {
 
     struct Open: ParsableCommand {
         static let configuration = CommandConfiguration(
-            abstract: "Create (or return) the prompt's exploration summary, status exploring. Idempotent; explicit-only (exploration runs while the prompt is draft).")
+            abstract: "Create (or return) the (prompt, agent-type) exploration summary, status exploring. Per-agent since m0025: aggressive|conservative|pragmatic|alternative|general|synthesis — the synthesis row is the prompt-level seal. Idempotent; explicit-only (exploration runs while the prompt is draft).")
 
         @OptionGroup var output: OutputOptions
         @Option(name: .long) var promptUuid: String
+        @Option(name: .long, help: "aggressive|conservative|pragmatic|alternative|general (default)|synthesis")
+        var agentType: String?
+        @Option(name: .long, help: "Self-reported agent id for dedup/tracking.")
+        var agentId: String?
 
         func run() throws {
-            let response = try withClient { try $0.exploreOpen(ExploreOpenRequest(promptUuid: promptUuid)) }
+            let response = try withClient {
+                try $0.exploreOpen(ExploreOpenRequest(
+                    promptUuid: promptUuid, agentType: agentType, agentId: agentId))
+            }
             if output.json { printJSON(response) } else {
                 let s = response.summary
-                print("[gm] exploration \(response.created ? "created" : "exists"): \(s.uuid) (\(s.status), v\(s.version))")
+                print("[gm] exploration [\(s.agentType)] \(response.created ? "created" : "exists"): \(s.uuid) (\(s.status), v\(s.version))")
             }
         }
     }
@@ -131,14 +138,18 @@ struct Explore: ParsableCommand {
 
         @OptionGroup var output: OutputOptions
         @Option(name: .long) var summaryUuid: String
-        @Option(name: .long, help: "persistence_model, implementation_pattern, existing_functionality, scope_creep_risk, general_relevant_change, or other")
+        @Option(name: .long, help: "persistence_model, implementation_pattern, existing_functionality, scope_creep_risk, general_relevant_change, key_file, or other")
         var kind: ExplorationFindingKind
         @Option(name: .long) var title: String
         @Option(name: .long) var body: String?
         @Option(name: .long, help: "Finding body from a file (the argv-quoting/budget escape hatch).")
         var bodyFile: String?
+        @Option(name: .long, help: "Repo-relative path when the finding is file-anchored (the merged key-file half).")
+        var filePath: String?
         @Option(name: .long, help: "Producing agent/persona (self-reported).")
         var agentName: String
+        @Option(name: .long, help: "Self-reported agent id for dedup/tracking.")
+        var agentId: String?
         @Option(name: .long, help: "0 (critical) … 999 (ignore); omit to insert unranked.")
         var rating: Int?
 
@@ -147,7 +158,8 @@ struct Explore: ParsableCommand {
             let response = try withClient {
                 try $0.exploreFindingAdd(ExploreFindingAddRequest(
                     summaryUuid: summaryUuid, kind: kind, title: title, body: bodyText,
-                    agentName: agentName, rating: rating))
+                    filePath: filePath, agentName: agentName, agentId: agentId,
+                    rating: rating))
             }
             if output.json { printJSON(response) } else {
                 let f = response.finding
@@ -159,10 +171,10 @@ struct Explore: ParsableCommand {
 
     struct Rank: ParsableCommand {
         static let configuration = CommandConfiguration(
-            abstract: "Batch-rank findings (summary must be exploring). Atomic: one bad pair rejects the whole batch. Re-running re-ranks (last write wins).")
+            abstract: "Batch-rank findings PROMPT-wide (m0025): one atomic calibrated batch across every summary of the prompt. Atomic: one bad pair rejects the whole batch. Re-running re-ranks (last write wins); refused once the synthesis row is complete — reopen it first.")
 
         @OptionGroup var output: OutputOptions
-        @Option(name: .long) var summaryUuid: String
+        @Option(name: .long) var promptUuid: String
         @Option(name: .long, help: "<finding-uuid>:<0-999>; repeatable.")
         var rating: [String] = []
 
@@ -172,7 +184,7 @@ struct Explore: ParsableCommand {
                 throw ValidationError("pass at least one --rating <finding-uuid>:<0-999>")
             }
             let response = try withClient {
-                try $0.exploreRank(ExploreRankRequest(summaryUuid: summaryUuid, ratings: pairs))
+                try $0.exploreRank(ExploreRankRequest(promptUuid: promptUuid, ratings: pairs))
             }
             if output.json { printJSON(response) } else {
                 print("[gm] ranked \(response.updatedCount) finding(s); \(response.unrankedCount) still unranked")
@@ -182,7 +194,7 @@ struct Explore: ParsableCommand {
 
     struct Complete: ParsableCommand {
         static let configuration = CommandConfiguration(
-            abstract: "exploring → complete: refuses while any finding is unranked. --overview is the report narrative — writable ONLY here, after the ranked findings.")
+            abstract: "exploring → complete for ONE summary. An agent seals its own summary with just the overview; completing the synthesis summary is the prompt-level seal and refuses while any finding across the prompt is unranked.")
 
         @OptionGroup var output: OutputOptions
         @Option(name: .long) var summaryUuid: String
@@ -226,21 +238,27 @@ struct Explore: ParsableCommand {
 
     struct Get: ParsableCommand {
         static let configuration = CommandConfiguration(
-            abstract: "Summary + key files + findings, partitioned at rating 100: full rows under the window (unranked always full), stubs above.")
+            abstract: "All (or one --agent-type) summaries + key files + findings, partitioned at rating 100: full rows under the window (unranked always full), stubs above. Synthesis summary leads.")
 
         @OptionGroup var output: OutputOptions
         @Option(name: .long) var promptUuid: String
+        @Option(name: .long, help: "Filter to one agent's summary.")
+        var agentType: String?
         @OptionGroup var window: RatingWindowOptions
 
         func run() throws {
             let (full, min, max) = try window.resolve()
             let response = try withClient {
                 try $0.exploreGet(ExploreGetRequest(
-                    promptUuid: promptUuid, full: full, ratingMin: min, ratingMax: max))
+                    promptUuid: promptUuid, agentType: agentType,
+                    full: full, ratingMin: min, ratingMax: max))
             }
             if output.json { printJSON(response) } else {
-                let s = response.summary
-                print("[gm] exploration \(s.status) (v\(s.version)) — \(response.keyFiles.count) key file(s), \(response.findings.count) full finding(s), \(response.findingStubs.count) stub(s)")
+                print("[gm] exploration — \(response.summaries.count) summar(ies), \(response.keyFiles.count) key file(s), \(response.findings.count) full finding(s), \(response.findingStubs.count) stub(s)")
+                for s in response.summaries {
+                    print("  [\(s.agentType)] \(s.status) (v\(s.version)) \(s.uuid)")
+                    if !s.overview.isEmpty { previewLine("overview", s.overview) }
+                }
                 for f in response.findings {
                     let ratingText = f.findingRating.map(String.init) ?? "unranked"
                     print("  [\(ratingText)] [\(f.kind)] \(f.title) (\(f.agentName)) \(f.uuid)")
@@ -249,7 +267,6 @@ struct Explore: ParsableCommand {
                     let ratingText = stub.findingRating.map(String.init) ?? "unranked"
                     print("  stub [\(ratingText)] [\(stub.kind)] \(stub.title) \(stub.uuid)")
                 }
-                if !s.overview.isEmpty { previewLine("overview", s.overview) }
             }
         }
     }

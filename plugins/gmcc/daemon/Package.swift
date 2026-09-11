@@ -20,6 +20,7 @@ let package = Package(
         .library(name: "GMCCDaemonKit", targets: ["GMCCDaemonKit"]),
         .executable(name: "gmcc_daemon", targets: ["gmcc_daemon"]),
         .executable(name: "gm", targets: ["gm"]),
+        .executable(name: "gmcc_mcp", targets: ["gmcc_mcp"]),
     ],
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0"),
@@ -42,6 +43,14 @@ let package = Package(
                 "GMCCDaemonKit",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ]
+        ),
+        // The MCP stdio server (m0025): the agent PEN surface as typed MCP
+        // tools — a THIRD thin client of the daemon socket, never a second
+        // db writer. Hand-rolled JSON-RPC (initialize/tools/list/tools/call)
+        // over GMCCDaemonKit only — no new dependencies.
+        .executableTarget(
+            name: "gmcc_mcp",
+            dependencies: ["GMCCDaemonKit"]
         ),
         // Excluded from `swift build -c release` (build_daemon.sh) and from the
         // GMVibes vendor copy (library-only manifest) — daemon/gm ship untouched.

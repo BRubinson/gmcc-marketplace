@@ -127,7 +127,8 @@ final class MigrationTests: XCTestCase {
             XCTAssertEqual(seqValue, 3)
 
             // New tables exist and daemon_config is seeded.
-            for table in ["clarification_summary", "clarification", "architecture_summary",
+            for table in ["clarification_summary", "user_clarification_question",
+                          "internal_clarification_note", "architecture_summary",
                           "architecture_persistence_change", "architecture_persistence_field_change",
                           "architecture_general_change", "daemon_config"] {
                 XCTAssertEqual(
@@ -231,7 +232,15 @@ final class MigrationTests: XCTestCase {
         try store.migrate()
 
         try store.dbQueue.write { db in
-            for table in ["exploration_summary", "exploration_key_file", "exploration_finding",
+            // m0025 merged exploration_key_file into exploration_finding —
+            // the table and its mirror must be GONE at head.
+            for retired in ["exploration_key_file", "exploration_key_file_fts"] {
+                XCTAssertEqual(
+                    try Int.fetchOne(db, sql:
+                        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?",
+                        arguments: [retired]), 0, "retired table \(retired) survived m0025")
+            }
+            for table in ["exploration_summary", "exploration_finding",
                           "review_summary", "review_finding"] {
                 XCTAssertEqual(
                     try Int.fetchOne(db, sql:
@@ -277,12 +286,15 @@ final class MigrationTests: XCTestCase {
                         'searchable finding body', 'tester', NULL);
                 """)
 
-            // The rating CHECK: out-of-range refused, NULL allowed (above).
-            XCTAssertThrowsError(try db.execute(sql: """
+            // m0025 dropped the pre-m0021 CHECKs from the rebuilt tables:
+            // rating validity lives in Swift (Store.validateRating), so the
+            // raw insert is ACCEPTED at the SQL layer now.
+            try db.execute(sql: """
                 INSERT INTO exploration_finding (uuid, version, created_at, updated_at,
                     exploration_summary_uuid, kind, title, body, agent_name, finding_rating)
-                VALUES ('exf-bad', 0, '\(now)', '\(now)', 'exs-1', 'other', 't', 'b', 'a', 1000)
-                """))
+                VALUES ('exf-checkless', 0, '\(now)', '\(now)', 'exs-1', 'other', 't', 'b', 'a', 1000)
+                """)
+            try db.execute(sql: "DELETE FROM exploration_finding WHERE uuid = 'exf-checkless'")
             // review_summary: complete requires a verdict.
             XCTAssertThrowsError(try db.execute(sql: """
                 INSERT INTO review_summary (uuid, version, created_at, updated_at,
@@ -390,24 +402,24 @@ final class MigrationTests: XCTestCase {
         try Migrations.migrator.migrate(queue)
 
         try queue.write { db in
-            // Retired values are gone from the data…
+            // m0025 split the clarification table: user/unanswered rows are
+            // questions, bot_inferred rows are internal notes, uuids kept.
             XCTAssertEqual(try Int.fetchOne(
-                db, sql: "SELECT COUNT(*) FROM clarification WHERE category = 'yeet_type'"), 0)
+                db, sql: "SELECT COUNT(*) FROM user_clarification_question"), 2)
             XCTAssertEqual(try Int.fetchOne(
-                db, sql: "SELECT COUNT(*) FROM clarification WHERE category = 'detail'"), 2)
-            XCTAssertEqual(try Int.fetchOne(
-                db, sql: "SELECT COUNT(*) FROM clarification WHERE category = 'goal'"), 1)
+                db, sql: "SELECT COUNT(*) FROM internal_clarification_note"), 1)
+            XCTAssertEqual(try String.fetchOne(
+                db, sql: "SELECT answer_text FROM user_clarification_question WHERE uuid = 'clr-goal'"), "a")
+            let noteBody = try String.fetchOne(
+                db, sql: "SELECT body FROM internal_clarification_note WHERE uuid = 'clr-yeet'") ?? ""
+            XCTAssertTrue(noteBody.contains("searchable q yeet"), noteBody)
             XCTAssertEqual(try Int.fetchOne(
                 db, sql: "SELECT COUNT(*) FROM review_summary WHERE verdict = 'legacy_unstated'"), 0)
             XCTAssertEqual(try Int.fetchOne(
                 db, sql: "SELECT COUNT(*) FROM review_summary WHERE verdict = 'approved'"), 1)
 
-            // …and from the schema: the CHECKs now refuse them.
-            XCTAssertThrowsError(try db.execute(sql: """
-                INSERT INTO clarification (uuid, version, created_at, updated_at,
-                    clarification_summary_uuid, seq, category, question, answer, answer_source, status)
-                VALUES ('clr-bad', 0, '\(now)', '\(now)', 'cls-1', 9, 'yeet_type', 'q', NULL, NULL, 'open')
-                """), "category CHECK still accepts yeet_type")
+            // review_summary kept its m0005-era CHECK (m0025 only ADDed a
+            // column there — additive ALTERs never relax constraints).
             XCTAssertThrowsError(try db.execute(sql: """
                 UPDATE review_summary SET verdict = 'legacy_unstated' WHERE uuid = 'rvs-2'
                 """), "verdict CHECK still accepts legacy_unstated")
@@ -424,19 +436,17 @@ final class MigrationTests: XCTestCase {
             // review_finding CASCADE-children survived the review_summary drop.
             XCTAssertEqual(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM review_finding"), 2)
 
-            // Rowids (and therefore the FTS content_rowid join) are stable,
-            // and versions copied verbatim — a rebuild is not a write.
+            // Versions copied verbatim through the m0025 split (uuids are the
+            // stable identity across the reshape); review_summary untouched.
             XCTAssertEqual(try Int.fetchOne(
-                db, sql: "SELECT id FROM clarification WHERE uuid = 'clr-yeet'"), 11)
-            XCTAssertEqual(try Int.fetchOne(
-                db, sql: "SELECT version FROM clarification WHERE uuid = 'clr-yeet'"), 2)
+                db, sql: "SELECT version FROM internal_clarification_note WHERE uuid = 'clr-yeet'"), 2)
             XCTAssertEqual(try Int.fetchOne(
                 db, sql: "SELECT id FROM review_summary WHERE uuid = 'rvs-1'"), 20)
             XCTAssertEqual(try Int.fetchOne(
                 db, sql: "SELECT version FROM review_summary WHERE uuid = 'rvs-1'"), 3)
 
-            // FTS mirrors + triggers survived the rebuild and still match.
-            for table in ["clarification", "review_summary"] {
+            // The m0025 mirrors index the migrated text.
+            for table in ["user_clarification_question", "internal_clarification_note", "review_summary"] {
                 for suffix in ["ai", "ad", "au"] {
                     XCTAssertEqual(try Int.fetchOne(
                         db, sql: "SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name = ?",
@@ -444,7 +454,7 @@ final class MigrationTests: XCTestCase {
                 }
             }
             XCTAssertEqual(try Int.fetchOne(db, sql:
-                "SELECT COUNT(*) FROM clarification_fts WHERE clarification_fts MATCH 'searchable'"), 1)
+                "SELECT COUNT(*) FROM internal_clarification_note_fts WHERE internal_clarification_note_fts MATCH 'searchable'"), 1)
             XCTAssertEqual(try Int.fetchOne(db, sql:
                 "SELECT COUNT(*) FROM review_summary_fts WHERE review_summary_fts MATCH 'searchable'"), 2)
 
@@ -464,15 +474,24 @@ final class MigrationTests: XCTestCase {
                 db, sql: "SELECT uuid FROM clarification_summary WHERE prompt_uuid = 'prompt-3'"))
             XCTAssertNil(try String.fetchOne(
                 db, sql: "SELECT uuid FROM architecture_summary WHERE prompt_uuid = 'prompt-3'"))
-            // A bot-authored summary on a draft prompt is NOT collateral.
-            XCTAssertEqual(try String.fetchOne(
-                db, sql: "SELECT refined_goal FROM clarification_summary WHERE prompt_uuid = 'prompt-1'"), "g")
-            // The pre-existing summary was NOT overwritten…
-            XCTAssertEqual(try String.fetchOne(
-                db, sql: "SELECT refined_goal FROM clarification_summary WHERE prompt_uuid = 'prompt-1'"), "g")
-            // …and the placeholder points at the on-disk file, at terminal status.
-            let placeholder = try String.fetchOne(
-                db, sql: "SELECT refined_detail FROM clarification_summary WHERE prompt_uuid = 'prompt-2'") ?? ""
+            // m0025 dropped refined_goal/refined_detail — but preserved the
+            // authored text by seeding a care_package per summary that
+            // carried any (append-only-history spirit: nothing authored is
+            // destroyed).
+            let intent1 = try String.fetchOne(db, sql: """
+                SELECT cp.clarified_intent FROM care_package cp
+                  JOIN clarification_summary s ON s.uuid = cp.clarification_summary_uuid
+                 WHERE s.prompt_uuid = 'prompt-1'
+                """) ?? ""
+            XCTAssertTrue(intent1.contains("g"), intent1)
+            XCTAssertTrue(intent1.contains("d"), intent1)
+            // …and the placeholder text points at the on-disk file, preserved
+            // into prompt-2's seeded care package; the summary stays terminal.
+            let placeholder = try String.fetchOne(db, sql: """
+                SELECT cp.clarified_intent FROM care_package cp
+                  JOIN clarification_summary s ON s.uuid = cp.clarification_summary_uuid
+                 WHERE s.prompt_uuid = 'prompt-2'
+                """) ?? ""
             XCTAssertTrue(placeholder.contains("2_two/memory/qualified.md"), placeholder)
             XCTAssertEqual(try String.fetchOne(
                 db, sql: "SELECT status FROM clarification_summary WHERE prompt_uuid = 'prompt-2'"), "complete")
@@ -480,7 +499,7 @@ final class MigrationTests: XCTestCase {
                 db, sql: "SELECT status FROM architecture_summary WHERE prompt_uuid = 'prompt-2'"), "approved")
             // A placeholder asserts nothing it cannot back up: no child rows.
             XCTAssertEqual(try Int.fetchOne(db, sql: """
-                SELECT COUNT(*) FROM clarification c
+                SELECT COUNT(*) FROM user_clarification_question c
                   JOIN clarification_summary s ON s.uuid = c.clarification_summary_uuid
                  WHERE s.prompt_uuid = 'prompt-2'
                 """), 0)

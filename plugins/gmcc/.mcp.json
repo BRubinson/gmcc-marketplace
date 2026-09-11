@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "pen": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/scripts/run_mcp.sh"
+    }
+  }
+}

@@ -137,6 +137,21 @@ final class DocsContractTests: XCTestCase {
         XCTAssertEqual(hits, [], "zshrc gmcc block referenced outside cleanup docs:\n" + hits.joined(separator: "\n"))
     }
 
+    /// m0025 retirements: the pre_architecture briefing step (the care
+    /// package replaced it), the clarification summary text fields, the
+    /// clarify ask/category verbs, the merged exploration_key_file table,
+    /// and the finalize→prompt.goal copy. A doc resurrecting any of these
+    /// re-teaches a retired machine. Exempt: nothing — history lives in
+    /// migration comments (Swift), not docs.
+    func testNoRetiredWorkflowConcepts() throws {
+        let hits = try violations(
+            pattern: #"pre_architecture|refined_goal|refined_detail|backstory_note|clarify ask|--category goal|exploration_key_file|copies refined|finalize copies"#,
+            allowFiles: [])
+        XCTAssertEqual(
+            hits, [],
+            "retired m0025 workflow concept in docs:\n" + hits.joined(separator: "\n"))
+    }
+
     /// --adopt is boot-sync-only; a bot tier instructing agents to use it
     /// would silently discard db-side dope work.
     func testAdoptFlagAbsentFromBotTiers() throws {

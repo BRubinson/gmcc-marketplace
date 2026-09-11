@@ -388,6 +388,13 @@ final class DaemonConnectionModel {
             if let prompt = payloadUuids(event)?.promptUuid?.lowercased() {
                 hub.invalidate(.prompt(prompt))
             }
+        case .workflowChange:
+            // m0025 bot workflow transitions: payload carries prompt_uuid —
+            // route like briefingChange (no dedicated pane yet; the prompt
+            // surfaces re-pull their phase stores).
+            if let prompt = payloadUuids(event)?.promptUuid?.lowercased() {
+                hub.invalidate(.prompt(prompt))
+            }
         case .diagramChange:
             // Subject IS the diagram uuid — the open editor's key. The
             // payload's owner chain (project always, session/prompt when the

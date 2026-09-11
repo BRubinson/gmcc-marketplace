@@ -385,14 +385,14 @@ private struct PromptEditorPane: View {
         return []
     }
 
-    /// Post-draft, the clarification's refined goal/detail SUPERSEDE the
-    /// frozen originals — they render as primary, originals in a disclosure.
-    private var refinedContent: (goal: String, detail: String)? {
-        guard !editable, case .loaded(let response) = phases.clarification else { return nil }
-        let goal = response.summary.refinedGoal
-        let detail = response.summary.refinedDetail
-        if goal.isEmpty && detail.isEmpty { return nil }
-        return (goal, detail)
+    /// Post-draft, the care package's clarified intent is the durable
+    /// clarified picture (m0025 — nothing writes prompt content past draft;
+    /// the human triple stays primary and the intent renders alongside it).
+    private var clarifiedIntent: String? {
+        guard !editable, case .loaded(let response) = phases.clarification,
+              let intent = response.carePackage?.clarifiedIntent,
+              !intent.isEmpty else { return nil }
+        return intent
     }
 
     // MARK: Find-in-page
@@ -629,18 +629,13 @@ private struct PromptEditorPane: View {
                         KBitePillBox(available: availableKbites, selected: $selectedKbites)
                         sectionEditor("Backstory", field: .backstory, text: $backstory,
                                       minHeight: 90, hint: "Narrative context (inherited from the session).")
-                        if let refined = refinedContent, !refined.goal.isEmpty {
-                            refinedSection("Goal", refined: refined.goal, original: goal)
-                        } else {
-                            sectionEditor("Goal", field: .goal, text: $goal,
-                                          minHeight: 120, hint: "The outcome / acceptance criteria.")
+                        if let intent = clarifiedIntent {
+                            refinedSection("Clarified Intent", refined: intent, original: goal)
                         }
-                        if let refined = refinedContent, !refined.detail.isEmpty {
-                            refinedSection("Detail", refined: refined.detail, original: detail)
-                        } else {
-                            sectionEditor("Detail", field: .detail, text: $detail,
-                                          minHeight: 220, hint: "The approach, constraints, specifics.")
-                        }
+                        sectionEditor("Goal", field: .goal, text: $goal,
+                                      minHeight: 120, hint: "The outcome / acceptance criteria.")
+                        sectionEditor("Detail", field: .detail, text: $detail,
+                                      minHeight: 220, hint: "The approach, constraints, specifics.")
                         // Briefings lead the stack chronologically: the
                         // doper's initial briefing precedes clarification.
                         // UNGATED like Exploration/Review — BRIEFING_OPEN is

@@ -61,45 +61,58 @@ final class MachineTests: XCTestCase {
         // Gate refuses architecting while the clarification is incomplete.
         XCTAssertThrowsError(try setStatus(.architecting))
 
-        // Ask two questions (one pre-answered), seal, answer, finalize.
-        let q1 = try store.clarifyAsk(ClarifyAskRequest(
-            summaryUuid: summary.uuid, category: .goal, question: "What is the goal?")).clarification
-        _ = try store.clarifyAsk(ClarifyAskRequest(
-            summaryUuid: summary.uuid, category: .detail, question: "Which integration point?",
-            answer: "the wire codec", answerSource: .botInferred))
+        // Add a question (with options) and an internal note; seal, answer,
+        // finalize — the m0025 split machine.
+        let q1 = try store.clarifyQuestionAdd(ClarifyQuestionAddRequest(
+            summaryUuid: summary.uuid, question: "What is the goal?",
+            options: ["Ship it", "Hold"])).question
+        XCTAssertEqual(q1.options.count, 2)
+        _ = try store.clarifyNoteAdd(ClarifyNoteAddRequest(
+            summaryUuid: summary.uuid, body: "Integration point resolved: the wire codec.",
+            weight: 20))
         // Answer while building is refused.
         XCTAssertThrowsError(try store.clarifyAnswer(ClarifyAnswerRequest(
-            clarificationUuid: q1.uuid, expectedVersion: q1.version, answer: "early")))
+            questionUuid: q1.uuid, expectedVersion: q1.version, answerText: "early")))
         summary = try store.clarifySeal(ClarifySealRequest(
             summaryUuid: summary.uuid, expectedVersion: summary.version)).summary
         XCTAssertEqual(summary.status, "answering")
-        // Ask after seal is refused.
-        XCTAssertThrowsError(try store.clarifyAsk(ClarifyAskRequest(
-            summaryUuid: summary.uuid, category: .detail, question: "late?")))
+        // Question-add stays legal while ANSWERING (the generative follow-up
+        // passes); it is refused only once complete. Answer the follow-up so
+        // the finalize gate below tests exactly one open question.
+        let followUp = try store.clarifyQuestionAdd(ClarifyQuestionAddRequest(
+            summaryUuid: summary.uuid, question: "follow-up?")).question
+        _ = try store.clarifyAnswer(ClarifyAnswerRequest(
+            questionUuid: followUp.uuid, expectedVersion: followUp.version,
+            answerText: "answered"))
         // Finalize with an open question is refused.
         XCTAssertThrowsError(try store.clarifyFinalize(ClarifyFinalizeRequest(
-            summaryUuid: summary.uuid, expectedVersion: summary.version,
-            refinedGoal: "g", refinedDetail: "d")))
-        _ = try store.clarifyAnswer(ClarifyAnswerRequest(
-            clarificationUuid: q1.uuid, expectedVersion: q1.version, answer: "ship it"))
+            summaryUuid: summary.uuid, expectedVersion: summary.version)))
+        // Answer by selection + typed elaboration (junction rows).
+        let answered = try store.clarifyAnswer(ClarifyAnswerRequest(
+            questionUuid: q1.uuid, expectedVersion: q1.version,
+            answerText: "ship it", selectedOptionUuids: [q1.options[0].uuid])).question
+        XCTAssertEqual(answered.selectedOptionUuids, [q1.options[0].uuid])
+        // A foreign option uuid is refused.
+        XCTAssertThrowsError(try store.clarifyAnswer(ClarifyAnswerRequest(
+            questionUuid: q1.uuid, expectedVersion: answered.version,
+            selectedOptionUuids: ["not-an-option"])))
         // Stale expected-version conflicts.
         XCTAssertThrowsError(try store.clarifyFinalize(ClarifyFinalizeRequest(
-            summaryUuid: summary.uuid, expectedVersion: summary.version - 1,
-            refinedGoal: "g", refinedDetail: "d")))
+            summaryUuid: summary.uuid, expectedVersion: summary.version - 1)))
         let finalized = try store.clarifyFinalize(ClarifyFinalizeRequest(
-            summaryUuid: summary.uuid, expectedVersion: summary.version,
-            refinedGoal: "Refined goal.", refinedDetail: "Refined detail."))
+            summaryUuid: summary.uuid, expectedVersion: summary.version))
         XCTAssertEqual(finalized.summary.status, "complete")
-        // CONTENT_LOCKED exemption: prompt.goal now carries the refined goal.
-        XCTAssertEqual(finalized.prompt.goal, "Refined goal.")
+        // THE RETIRED DOOR: finalize writes NOTHING to the prompt row —
+        // backstory/goal/detail are human input only.
+        XCTAssertEqual(
+            try store.getPrompt(PromptGetRequest(promptUuid: promptUuid)).prompt.goal, "")
 
         // Reopen (complete → answering) then re-finalize.
         let reopened = try store.clarifyReopen(ClarifyReopenRequest(
             summaryUuid: summary.uuid, expectedVersion: finalized.summary.version)).summary
         XCTAssertEqual(reopened.status, "answering")
         _ = try store.clarifyFinalize(ClarifyFinalizeRequest(
-            summaryUuid: summary.uuid, expectedVersion: reopened.version,
-            refinedGoal: "Refined goal v2.", refinedDetail: "Refined detail v2."))
+            summaryUuid: summary.uuid, expectedVersion: reopened.version))
 
         // clarifying → architecting now passes and creates the arch summary.
         XCTAssertEqual(try setStatus(.architecting).status, "architecting")
@@ -187,8 +200,7 @@ final class MachineTests: XCTestCase {
         let sealed = try store.clarifySeal(ClarifySealRequest(
             summaryUuid: clarify.uuid, expectedVersion: clarify.version)).summary
         _ = try store.clarifyFinalize(ClarifyFinalizeRequest(
-            summaryUuid: clarify.uuid, expectedVersion: sealed.version,
-            refinedGoal: "g", refinedDetail: "d"))
+            summaryUuid: clarify.uuid, expectedVersion: sealed.version))
         _ = try setStatus(.architecting)
         let arch = try store.archOpen(ArchOpenRequest(promptUuid: promptUuid)).summary
         _ = try store.archPersistAdd(ArchPersistAddRequest(
@@ -229,13 +241,20 @@ final class MachineTests: XCTestCase {
     }
 
     func testExplorationMachine() throws {
-        // Open works at draft (Phase 2 timing) and is idempotent; prompt
-        // status never creates one (skip-to-done stays legal — asserted at
-        // the end of testReviewMachine on a fresh prompt).
+        // Open works at draft (Phase 2 timing) and is idempotent per
+        // (prompt, agent_type); prompt status never creates one.
         let opened = try store.exploreOpen(ExploreOpenRequest(promptUuid: promptUuid))
         XCTAssertTrue(opened.created)
         XCTAssertEqual(opened.summary.status, "exploring")
+        XCTAssertEqual(opened.summary.agentType, "general")
         XCTAssertFalse(try store.exploreOpen(ExploreOpenRequest(promptUuid: promptUuid)).created)
+        // A second agent type coexists on the same prompt.
+        let synthesis = try store.exploreOpen(ExploreOpenRequest(
+            promptUuid: promptUuid, agentType: "synthesis"))
+        XCTAssertTrue(synthesis.created)
+        // Unknown agent types are refused (registry-governed vocabulary).
+        XCTAssertThrowsError(try store.exploreOpen(ExploreOpenRequest(
+            promptUuid: promptUuid, agentType: "bogus")))
         let summaryUuid = opened.summary.uuid
 
         // Key files dedupe as upsert-ignore.
@@ -256,27 +275,29 @@ final class MachineTests: XCTestCase {
             body: "body", agentName: "aggressive")).finding
         XCTAssertNil(f2.findingRating)
 
-        // Complete refuses while unranked; the rank gate is the enforcement.
-        var summary = opened.summary
+        // The synthesis complete is the prompt-level seal: it refuses while
+        // anything across the prompt is unranked. An AGENT summary completes
+        // freely — its overview is the agent's own report.
         XCTAssertThrowsError(try store.exploreComplete(ExploreCompleteRequest(
-            summaryUuid: summaryUuid, expectedVersion: summary.version, overview: "o")))
+            summaryUuid: synthesis.summary.uuid,
+            expectedVersion: synthesis.summary.version, overview: "seal")))
 
         // Batch atomicity: one bad pair (foreign uuid) rejects the whole batch.
         XCTAssertThrowsError(try store.exploreRank(ExploreRankRequest(
-            summaryUuid: summaryUuid,
+            promptUuid: promptUuid,
             ratings: [FindingRating(findingUuid: f2.uuid, rating: 10),
                       FindingRating(findingUuid: "not-a-finding", rating: 10)])))
         XCTAssertNil(try store.exploreGet(ExploreGetRequest(promptUuid: promptUuid))
             .findings.first(where: { $0.uuid == f2.uuid })?.findingRating)
         // Duplicate uuids reject too.
         XCTAssertThrowsError(try store.exploreRank(ExploreRankRequest(
-            summaryUuid: summaryUuid,
+            promptUuid: promptUuid,
             ratings: [FindingRating(findingUuid: f2.uuid, rating: 10),
                       FindingRating(findingUuid: f2.uuid, rating: 20)])))
 
-        // A good batch lands; unrankedCount hits zero.
+        // A good PROMPT-scoped batch lands; unrankedCount hits zero.
         let ranked = try store.exploreRank(ExploreRankRequest(
-            summaryUuid: summaryUuid,
+            promptUuid: promptUuid,
             ratings: [FindingRating(findingUuid: f2.uuid, rating: 150)]))
         XCTAssertEqual(ranked.unrankedCount, 0)
 
@@ -293,26 +314,37 @@ final class MachineTests: XCTestCase {
                 promptUuid: promptUuid, ratingMin: 100, ratingMax: 200)).findings.map(\.uuid),
             [f2.uuid])
 
-        // Complete carries the overview (its only write path); rank refused
-        // after complete; reopen re-arms and preserves everything.
-        summary = try store.exploreGet(ExploreGetRequest(promptUuid: promptUuid)).summary
-        summary = try store.exploreComplete(ExploreCompleteRequest(
-            summaryUuid: summaryUuid, expectedVersion: summary.version,
-            overview: "the narrative")).summary
+        // The agent summary completes with just its overview; the synthesis
+        // complete (all ranked now) is the seal; rank refused after the seal;
+        // reopening the synthesis re-arms and preserves everything.
+        var summary = try store.exploreComplete(ExploreCompleteRequest(
+            summaryUuid: summaryUuid, expectedVersion: opened.summary.version,
+            overview: "the agent narrative")).summary
         XCTAssertEqual(summary.status, "complete")
+        var seal = try store.exploreComplete(ExploreCompleteRequest(
+            summaryUuid: synthesis.summary.uuid,
+            expectedVersion: synthesis.summary.version,
+            overview: "the synthesis")).summary
+        XCTAssertEqual(seal.status, "complete")
         XCTAssertThrowsError(try store.exploreRank(ExploreRankRequest(
-            summaryUuid: summaryUuid,
+            promptUuid: promptUuid,
             ratings: [FindingRating(findingUuid: f1.uuid, rating: 5)])))
+        seal = try store.exploreReopen(ExploreReopenRequest(
+            summaryUuid: synthesis.summary.uuid, expectedVersion: seal.version)).summary
+        XCTAssertEqual(seal.status, "exploring")
+        XCTAssertEqual(seal.overview, "the synthesis")
+        // GET returns every summary, synthesis first.
+        let all = try store.exploreGet(ExploreGetRequest(promptUuid: promptUuid))
+        XCTAssertEqual(all.summaries.map(\.agentType), ["synthesis", "general"])
+        // A post-reopen unranked finding re-blocks the SEAL (not the agent).
         summary = try store.exploreReopen(ExploreReopenRequest(
             summaryUuid: summaryUuid, expectedVersion: summary.version)).summary
-        XCTAssertEqual(summary.status, "exploring")
-        XCTAssertEqual(summary.overview, "the narrative")
-        // A post-reopen finding inserts unranked and re-blocks complete.
         _ = try store.exploreFindingAdd(ExploreFindingAddRequest(
             summaryUuid: summaryUuid, kind: .other, title: "new", body: "b",
             agentName: "primary"))
         XCTAssertThrowsError(try store.exploreComplete(ExploreCompleteRequest(
-            summaryUuid: summaryUuid, expectedVersion: summary.version, overview: "v2")))
+            summaryUuid: synthesis.summary.uuid, expectedVersion: seal.version,
+            overview: "v2")))
     }
 
     func testReviewMachine() throws {

@@ -1,11 +1,12 @@
 import SwiftUI
 import GMCCDaemonKit
 
-/// Read-only exploration section (EXPLORE_GET): overview + key files +
-/// PARTITIONED findings — full rows are the sub-threshold/unranked set,
-/// rendered IN WIRE ORDER (unranked first is the daemon's resume-queue
-/// contract, never re-sorted), stubs collapse behind a one-shot full:true
-/// widen. All exploration writes stay bot/CLI-side.
+/// Read-only exploration section (EXPLORE_GET, m0025 per-agent rows):
+/// every summary (synthesis first) + key files + PARTITIONED findings —
+/// full rows are the sub-threshold/unranked set, rendered IN WIRE ORDER
+/// (unranked first is the daemon's resume-queue contract, never re-sorted),
+/// stubs collapse behind a one-shot full:true widen. All exploration writes
+/// stay bot/CLI-side.
 struct ExplorationPane: View {
     let phase: PromptPhaseStore.Phase<ExploreGetResponse>
     /// Widen the store to full:true — invoked once when the user reveals the
@@ -44,20 +45,31 @@ struct ExplorationPane: View {
         )
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 8) {
-                statusChip(response.summary.explorationStatus)
                 Spacer()
                 ReportBadgeCluster(items: ReportBadgeItem.exploration(response))
             }
 
-            // Overview is written only by EXPLORE_COMPLETE — legitimately
-            // empty while still exploring, so absence isn't an error.
-            if !response.summary.overview.isEmpty {
-                Text(response.summary.overview)
-                    .font(.callout)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(10)
-                    .background(.indigo.opacity(0.06), in: .rect(cornerRadius: 8))
+            // m0025: one summary row per agent, synthesis (the seal) first.
+            // Overviews are written only by each summary's COMPLETE —
+            // legitimately empty while still exploring.
+            ForEach(response.summaries, id: \.uuid) { summary in
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        Text(summary.agentType)
+                            .font(.caption.weight(.semibold).monospaced())
+                            .foregroundStyle(.secondary)
+                        statusChip(summary.explorationStatus)
+                        Spacer()
+                    }
+                    if !summary.overview.isEmpty {
+                        Text(summary.overview)
+                            .font(.callout)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(10)
+                            .background(.indigo.opacity(0.06), in: .rect(cornerRadius: 8))
+                    }
+                }
             }
 
             if !response.keyFiles.isEmpty {

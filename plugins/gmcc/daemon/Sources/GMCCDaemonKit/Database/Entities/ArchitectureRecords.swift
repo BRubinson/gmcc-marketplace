@@ -18,6 +18,22 @@ struct ArchitectureSummaryRecord: BaseRecordFields {
     var promptUuid: String
     var body: String
     var status: String
+    var decisionRationale: String
+}
+
+/// Read-side mirror of the `architecture_option` table (m0025 pen
+/// inversion). Columns map via convertFromSnakeCase.
+struct ArchitectureOptionRecord: BaseRecordFields {
+    static let databaseTableName = "architecture_option"
+    var uuid: String
+    var version: Int64
+    var createdAt: String
+    var updatedAt: String
+    var architectureSummaryUuid: String
+    var agentName: String
+    var agentId: String?
+    var body: String
+    var status: String
 }
 
 /// Read-side mirror of the `architecture_general_change` table. Columns map via convertFromSnakeCase.
@@ -48,6 +64,8 @@ struct ArchitecturePersistenceChangeRecord: BaseRecordFields {
     var className: String
     var filePath: String
     var reasonBrief: String
+    var changeKind: String
+    var dopeRef: String?
 }
 
 /// Read-side mirror of the `architecture_persistence_field_change` table. Columns map via convertFromSnakeCase.
@@ -67,6 +85,9 @@ struct ArchitecturePersistenceFieldChangeRecord: BaseRecordFields {
     var isForeignKey: Bool
     var fkTarget: String?
     var isIndexed: Bool
+    var changeKind: String
+    var renamedFrom: String?
+    var dopePropertyRef: String?
 }
 
 extension ArchitectureSummaryRecord {
@@ -74,7 +95,7 @@ extension ArchitectureSummaryRecord {
     func wireRow() -> ArchitectureSummaryRow {
         ArchitectureSummaryRow(
             uuid: uuid, version: version, promptUuid: promptUuid,
-            body: body, status: status,
+            body: body, status: status, decisionRationale: decisionRationale,
             createdAt: createdAt, updatedAt: updatedAt)
     }
 }
@@ -90,7 +111,8 @@ extension ArchitecturePersistenceFieldChangeRecord {
             uuid: uuid, seq: seq, fieldName: fieldName,
             changeReason: changeReason, changePurpose: changePurpose,
             dataType: dataType, nullable: nullable, isForeignKey: isForeignKey,
-            fkTarget: fkTarget, isIndexed: isIndexed)
+            fkTarget: fkTarget, isIndexed: isIndexed, changeKind: changeKind,
+            renamedFrom: renamedFrom, dopePropertyRef: dopePropertyRef)
     }
 }
 
@@ -107,7 +129,8 @@ extension ArchitecturePersistenceChangeRecord {
     ) -> ArchPersistenceChangeRow {
         ArchPersistenceChangeRow(
             uuid: uuid, seq: seq, className: className, filePath: filePath,
-            reasonBrief: reasonBrief, fields: fields, implementation: implementation)
+            reasonBrief: reasonBrief, changeKind: changeKind, dopeRef: dopeRef,
+            fields: fields, implementation: implementation)
     }
 }
 
@@ -119,5 +142,16 @@ extension ArchitectureGeneralChangeRecord {
             uuid: uuid, seq: seq, filePath: filePath, className: className,
             reasonBrief: reasonBrief, changeDepth: changeDepth,
             changeCode: changeCode, implementation: implementation)
+    }
+}
+
+extension ArchitectureOptionRecord {
+    /// db → wire.
+    func wireRow() -> ArchitectureOptionRow {
+        ArchitectureOptionRow(
+            uuid: uuid, version: version,
+            architectureSummaryUuid: architectureSummaryUuid,
+            agentName: agentName, agentId: agentId, body: body, status: status,
+            createdAt: createdAt, updatedAt: updatedAt)
     }
 }

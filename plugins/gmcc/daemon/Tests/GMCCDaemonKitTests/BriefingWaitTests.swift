@@ -12,9 +12,11 @@ final class BriefingWaitTests: XCTestCase {
         AgentBriefingRow(
             uuid: "b-uuid", version: version, sessionUuid: "s-uuid",
             promptUuid: "p-uuid", briefingForStep: "initial", status: status,
-            body: status == "ready" ? "the briefing" : "",
-            dopeRefs: "[]", kbiteRefs: "[]",
-            dopeScopeUuid: nil, dopeScopeRevision: nil,
+            agentId: nil, dopeScopeUuid: nil, dopeScopeRevision: nil,
+            dopeRefs: status == "ready"
+                ? [AgentBriefingDopeRefRow(uuid: "r-1", dopeCode: "the.briefing", brief: nil, seq: 1)]
+                : [],
+            kbiteRefs: [], fileChangeRefs: [],
             createdAt: "", updatedAt: "")
     }
 
@@ -57,7 +59,7 @@ final class BriefingWaitTests: XCTestCase {
         guard case .ready(let got) = outcome else {
             return XCTFail("expected .ready, got \(outcome)")
         }
-        XCTAssertEqual(got.briefing.body, "the briefing")
+        XCTAssertEqual(got.briefing.dopeRefs.map(\.dopeCode), ["the.briefing"])
         XCTAssertEqual(clock.sleeps, 0)
     }
 

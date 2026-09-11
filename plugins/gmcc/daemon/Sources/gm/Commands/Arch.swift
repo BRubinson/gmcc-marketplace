@@ -13,6 +13,7 @@ struct Arch: ParsableCommand {
         abstract: "Db-native architecture: open, summarize, persist-add, field-add, general-add, propose, approve, revise, get.",
         subcommands: [
             Open.self, Summarize.self, PersistAdd.self, FieldAdd.self, GeneralAdd.self,
+            OptionAdd.self, Decide.self,
             Propose.self, Approve.self, Revise.self, Get.self,
         ]
     )
@@ -69,12 +70,17 @@ struct Arch: ParsableCommand {
         var filePath: String
         @Option(name: .long, help: "One-line reason for the change.")
         var reason: String
+        @Option(name: .long, help: "add|modify|rename|delete (default modify) — negative changes are first-class.")
+        var changeKind: String?
+        @Option(name: .long, help: "domain.entity dope dot-path CODE (ghost-legal, never a uuid).")
+        var dopeRef: String?
 
         func run() throws {
             let response = try withClient {
                 try $0.archPersistAdd(ArchPersistAddRequest(
                     summaryUuid: summaryUuid, className: className,
-                    filePath: filePath, reasonBrief: reason))
+                    filePath: filePath, reasonBrief: reason,
+                    changeKind: changeKind, dopeRef: dopeRef))
             }
             if output.json { printJSON(response) } else {
                 let c = response.change
@@ -100,6 +106,12 @@ struct Arch: ParsableCommand {
         var foreignKey = false
         @Option(name: .long, help: "FK target as table.column.") var fkTarget: String?
         @Flag(name: .long, help: "Mark as indexed.") var indexed = false
+        @Option(name: .long, help: "add|modify|rename|delete (default add).")
+        var changeKind: String?
+        @Option(name: .long, help: "Old field name (required with --change-kind rename).")
+        var renamedFrom: String?
+        @Option(name: .long, help: "domain.entity.property dope dot-path CODE (ghost-legal).")
+        var dopePropertyRef: String?
 
         func run() throws {
             let response = try withClient {
@@ -108,7 +120,9 @@ struct Arch: ParsableCommand {
                     fieldName: fieldName, dataType: dataType,
                     changeReason: reason, changePurpose: purpose,
                     nullable: nullable, isForeignKey: foreignKey,
-                    fkTarget: fkTarget, isIndexed: indexed))
+                    fkTarget: fkTarget, isIndexed: indexed,
+                    changeKind: changeKind, renamedFrom: renamedFrom,
+                    dopePropertyRef: dopePropertyRef))
             }
             if output.json { printJSON(response) } else {
                 let f = response.field
@@ -146,6 +160,64 @@ struct Arch: ParsableCommand {
             if output.json { printJSON(response) } else {
                 let c = response.change
                 print("[gm] general change \(c.seq): \(c.filePath) [\(c.changeDepth)] (\(c.uuid))")
+            }
+        }
+    }
+
+    struct OptionAdd: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "option-add",
+            abstract: "The architect pen (m0025, team flows): write one methodology's proposal as an Option row. One per agent_name; once any option exists, change rows refuse until gm arch decide.")
+
+        @OptionGroup var output: OutputOptions
+        @Option(name: .long) var summaryUuid: String
+        @Option(name: .long, help: "Methodology persona (aggressive|conservative|pragmatic|alternative).")
+        var agentName: String
+        @Option(name: .long, help: "Self-reported agent id for dedup/tracking.")
+        var agentId: String?
+        @Option(name: .long) var body: String?
+        @Option(name: .long, help: "Option body from a file (the argv-budget escape hatch).")
+        var bodyFile: String?
+
+        func run() throws {
+            let bodyText = try resolveText(inline: body, file: bodyFile, flag: "body")
+            let response = try withClient {
+                try $0.archOptionAdd(ArchOptionAddRequest(
+                    summaryUuid: summaryUuid, agentName: agentName,
+                    agentId: agentId, body: bodyText))
+            }
+            if output.json { printJSON(response) } else {
+                let o = response.option
+                print("[gm] option [\(o.agentName)] \(o.status): \(o.uuid)")
+            }
+        }
+    }
+
+    struct Decide: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Select one option (rejecting siblings) and record the decision rationale on the summary — only then may the selected option expand into change rows. --expected-version targets the OPTION row.")
+
+        @OptionGroup var output: OutputOptions
+        @Option(name: .long) var optionUuid: String
+        @Option(name: .long, help: "The option row version this decision was based on.")
+        var expectedVersion: Int64
+        @Option(name: .long) var rationale: String?
+        @Option(name: .long, help: "Rationale from a file (the argv-budget escape hatch).")
+        var rationaleFile: String?
+
+        func run() throws {
+            let rationaleText = try resolveText(
+                inline: rationale, file: rationaleFile, flag: "rationale")
+            let response = try withClient {
+                try $0.archDecide(ArchDecideRequest(
+                    optionUuid: optionUuid, expectedVersion: expectedVersion,
+                    rationale: rationaleText))
+            }
+            if output.json { printJSON(response) } else {
+                for o in response.options {
+                    print("  [\(o.status)] \(o.agentName): \(o.uuid)")
+                }
+                print("[gm] decision recorded (summary v\(response.summary.version))")
             }
         }
     }

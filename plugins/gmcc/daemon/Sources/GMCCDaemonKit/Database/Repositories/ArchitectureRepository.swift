@@ -62,6 +62,8 @@ struct ArchitectureRepository: RepositoryContext {
 
     func persistAdd(_ req: ArchPersistAddRequest) throws -> ArchPersistAddResponse {
         let summary = try requireSummary(uuid: req.summaryUuid, at: .drafting, verb: "persist-add")
+        try requireDecisionBeforeExpansion(summaryUuid: req.summaryUuid, verb: "persist-add")
+        let changeKind = try validatedChangeKind(req.changeKind, defaulting: "modify")
         let path = try Store.normalizeRepoRelativePath(
             req.filePath, repoRoot: try instanceRoot(promptUuid: summary.promptUuid))
         let seq = (try Int64.fetchOne(
@@ -74,6 +76,8 @@ struct ArchitectureRepository: RepositoryContext {
             "class_name": req.className,
             "file_path": path,
             "reason_brief": req.reasonBrief,
+            "change_kind": changeKind,
+            "dope_ref": req.dopeRef,
         ])
         try core.appendEvent(
             db, kind: .architectureChange, subjectUuid: req.summaryUuid,
@@ -100,8 +104,13 @@ struct ArchitectureRepository: RepositoryContext {
         }
         let summaryUuid: String = parent["architecture_summary_uuid"]
         let summary = try requireSummary(uuid: summaryUuid, at: .drafting, verb: "field-add")
+        try requireDecisionBeforeExpansion(summaryUuid: summaryUuid, verb: "field-add")
+        let changeKind = try validatedChangeKind(req.changeKind, defaulting: "add")
         if req.isForeignKey, (req.fkTarget ?? "").isEmpty {
             throw StoreError.badRequest(detail: "--fk-target is required with --foreign-key")
+        }
+        if changeKind == "rename", (req.renamedFrom ?? "").isEmpty {
+            throw StoreError.badRequest(detail: "--renamed-from is required with --change-kind rename")
         }
         let seq = (try Int64.fetchOne(
             db,
@@ -118,6 +127,9 @@ struct ArchitectureRepository: RepositoryContext {
             "is_foreign_key": req.isForeignKey ? 1 : 0,
             "fk_target": req.isForeignKey ? req.fkTarget : nil,
             "is_indexed": req.isIndexed ? 1 : 0,
+            "change_kind": changeKind,
+            "renamed_from": req.renamedFrom,
+            "dope_property_ref": req.dopePropertyRef,
         ])
         try core.appendEvent(
             db, kind: .architectureChange, subjectUuid: summaryUuid,
@@ -135,6 +147,7 @@ struct ArchitectureRepository: RepositoryContext {
 
     func generalAdd(_ req: ArchGeneralAddRequest) throws -> ArchGeneralAddResponse {
         let summary = try requireSummary(uuid: req.summaryUuid, at: .drafting, verb: "general-add")
+        try requireDecisionBeforeExpansion(summaryUuid: req.summaryUuid, verb: "general-add")
         guard req.changeCode.utf8.count <= Store.maxChangeCodeBytes else {
             throw StoreError.badRequest(
                 detail: "change_code exceeds \(Store.maxChangeCodeBytes / (1024 * 1024)) MB")
@@ -167,6 +180,105 @@ struct ArchitectureRepository: RepositoryContext {
             throw StoreError.notFound(entity: "architecture_general_change", key: uuid)
         }
         return ArchGeneralAddResponse(change: change)
+    }
+
+    // MARK: - Options (m0025 pen inversion)
+
+    /// The first architect pen verb: one option row per methodology,
+    /// UNIQUE(summary, agent_name) — a re-add by the same persona is refused
+    /// (the option IS the proposal; revise by decision, not overwrite).
+    func optionAdd(_ req: ArchOptionAddRequest) throws -> ArchOptionRowResponse {
+        let summary = try requireSummary(uuid: req.summaryUuid, at: .drafting, verb: "option-add")
+        let agentName = Store.normalizedAgentName(req.agentName)
+        guard !agentName.isEmpty else {
+            throw StoreError.badRequest(detail: "agent_name is empty")
+        }
+        let body = req.body.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !body.isEmpty else {
+            throw StoreError.badRequest(detail: "option body is empty")
+        }
+        guard body.utf8.count <= Store.maxNarrativeBytes else {
+            throw StoreError.badRequest(
+                detail: "option body exceeds \(Store.maxNarrativeBytes / (1024 * 1024)) MB")
+        }
+        if try Row.fetchOne(
+            db, sql: "SELECT 1 FROM architecture_option WHERE architecture_summary_uuid = ? AND agent_name = ?",
+            arguments: [req.summaryUuid, agentName]
+        ) != nil {
+            throw StoreError.badRequest(
+                detail: "agent '\(agentName)' already wrote an option for this summary")
+        }
+        let uuid = try core.insertBase(db, table: "architecture_option", extra: [
+            "architecture_summary_uuid": req.summaryUuid,
+            "agent_name": agentName,
+            "agent_id": req.agentId,
+            "body": body,
+            "status": "proposed",
+        ])
+        try core.appendEvent(
+            db, kind: .architectureChange, subjectUuid: req.summaryUuid,
+            payload: Store.jsonPayload([
+                "action": "option_add", "agent_name": agentName,
+                "prompt_uuid": summary.promptUuid,
+            ]))
+        try clarification.touchSessionForPrompt(promptUuid: summary.promptUuid)
+        guard let row = try fetchOptions(where: "uuid = ?", arguments: [uuid]).first else {
+            throw StoreError.notFound(entity: "architecture_option", key: uuid)
+        }
+        return ArchOptionRowResponse(option: row)
+    }
+
+    /// Atomically stamp one option selected, reject its siblings, and record
+    /// the rationale on the summary. expectedVersion targets the OPTION row.
+    func decide(_ req: ArchDecideRequest) throws -> ArchDecideResponse {
+        guard let winner = try fetchOptions(
+            where: "uuid = ?", arguments: [req.optionUuid]
+        ).first else {
+            throw StoreError.notFound(entity: "architecture_option", key: req.optionUuid)
+        }
+        let summary = try requireSummary(
+            uuid: winner.architectureSummaryUuid, at: .drafting, verb: "decide")
+        let rationale = req.rationale.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !rationale.isEmpty else {
+            throw StoreError.badRequest(detail: "decision rationale is empty")
+        }
+        try core.updateBase(
+            db, table: "architecture_option", uuid: req.optionUuid,
+            expectedVersion: req.expectedVersion, set: ["status": "selected"])
+        for sibling in try fetchOptions(
+            where: "architecture_summary_uuid = ? AND uuid != ?",
+            arguments: [winner.architectureSummaryUuid, req.optionUuid]
+        ) {
+            try core.updateBase(
+                db, table: "architecture_option", uuid: sibling.uuid,
+                expectedVersion: sibling.version, set: ["status": "rejected"])
+        }
+        guard let summaryVersion = try Int64.fetchOne(
+            db, sql: "SELECT version FROM architecture_summary WHERE uuid = ?",
+            arguments: [winner.architectureSummaryUuid]
+        ) else {
+            throw StoreError.notFound(
+                entity: "architecture_summary", key: winner.architectureSummaryUuid)
+        }
+        try core.updateBase(
+            db, table: "architecture_summary", uuid: winner.architectureSummaryUuid,
+            expectedVersion: summaryVersion, set: ["decision_rationale": rationale])
+        try core.appendEvent(
+            db, kind: .architectureChange, subjectUuid: winner.architectureSummaryUuid,
+            payload: Store.jsonPayload([
+                "action": "decide", "selected_option": req.optionUuid,
+                "agent_name": winner.agentName, "prompt_uuid": summary.promptUuid,
+            ]))
+        try clarification.touchSessionForPrompt(promptUuid: summary.promptUuid)
+        guard let updatedSummary = try fetchSummary(uuid: winner.architectureSummaryUuid) else {
+            throw StoreError.notFound(
+                entity: "architecture_summary", key: winner.architectureSummaryUuid)
+        }
+        return ArchDecideResponse(
+            summary: updatedSummary,
+            options: try fetchOptions(
+                where: "architecture_summary_uuid = ?",
+                arguments: [winner.architectureSummaryUuid]))
     }
 
     func get(_ req: ArchGetRequest) throws -> ArchGetResponse {
@@ -203,11 +315,52 @@ struct ArchitectureRepository: RepositoryContext {
         }
         return ArchGetResponse(
             summary: summary,
+            options: try fetchOptions(
+                where: "architecture_summary_uuid = ?", arguments: [summary.uuid]),
             persistenceChanges: persistence,
             generalChanges: general,
             unplannedChanges: unplanned,
             orderingRespected: orderingRespected
         )
+    }
+
+    // MARK: - Option guard (m0025)
+
+    /// Once ANY option row exists for a summary, the change-row expansion
+    /// refuses until exactly one option is selected — the pen-inversion
+    /// gate, a Swift store guard by the m0016 cross-table rule. Zero options
+    /// = legal direct expansion (bot/rpi flows untouched by construction).
+    private func requireDecisionBeforeExpansion(summaryUuid: String, verb: String) throws {
+        let total = try Int.fetchOne(
+            db, sql: "SELECT COUNT(*) FROM architecture_option WHERE architecture_summary_uuid = ?",
+            arguments: [summaryUuid]) ?? 0
+        guard total > 0 else { return }
+        let selected = try Int.fetchOne(
+            db, sql: "SELECT COUNT(*) FROM architecture_option WHERE architecture_summary_uuid = ? AND status = 'selected'",
+            arguments: [summaryUuid]) ?? 0
+        guard selected == 1 else {
+            throw StoreError.invalidEntityTransition(
+                entity: "architecture", from: "options_undecided", to: verb,
+                reason: "\(total) option(s) exist with none selected — gm arch decide first; only the selected option expands into change rows")
+        }
+    }
+
+    private func validatedChangeKind(_ raw: String?, defaulting: String) throws -> String {
+        guard let raw, !raw.isEmpty else { return defaulting }
+        let legal = ["add", "modify", "rename", "delete"]
+        guard legal.contains(raw) else {
+            throw StoreError.badRequest(
+                detail: "change_kind must be one of \(legal.joined(separator: "|")) (got '\(raw)')")
+        }
+        return raw
+    }
+
+    func fetchOptions(
+        where condition: String, arguments: StatementArguments
+    ) throws -> [ArchitectureOptionRow] {
+        try ArchitectureOptionRecord.fetchAll(
+            db, where: condition, arguments: arguments, orderBy: "agent_name"
+        ).map { $0.wireRow() }
     }
 
     // MARK: - Comparison support
@@ -299,6 +452,12 @@ struct ArchitectureRepository: RepositoryContext {
             throw StoreError.invalidEntityTransition(
                 entity: "architecture", from: from.rawValue, to: to.rawValue,
                 reason: "\(action) runs from \(requireFrom.rawValue) — this summary is \(from.rawValue)")
+        }
+        // The pen-inversion gate applies at the SEAL too: proposing with
+        // options still undecided would let the whole ceremony be skipped
+        // (summarize/propose/approve never touch change rows).
+        if action == "propose" {
+            try requireDecisionBeforeExpansion(summaryUuid: summaryUuid, verb: "propose")
         }
         try core.updateBase(
             db, table: "architecture_summary", uuid: summaryUuid,

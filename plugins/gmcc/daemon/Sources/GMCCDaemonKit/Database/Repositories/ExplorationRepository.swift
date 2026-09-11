@@ -5,36 +5,55 @@ import GRDB
 /// INSIDE a Store-owned transaction; holds no dbQueue and never
 /// self-transacts. The shared rank/validation statics stay on Store (they
 /// serve Store+Review too).
+///
+/// m0025 model: summaries are literal per-agent rows keyed
+/// UNIQUE(prompt_uuid, agent_type). Each agent completes its OWN summary;
+/// the `synthesis`-type row is the prompt-level seal — its complete refuses
+/// while any finding across the prompt is unranked (the old per-summary
+/// gate, promoted one level). Key files merged into findings (kind
+/// 'key_file').
 struct ExplorationRepository: RepositoryContext {
     let db: Database
     let core: StoreCore
 
     // MARK: - Shared create-or-return
 
-    /// Idempotent: returns the existing summary or creates one at `exploring`.
-    /// Called ONLY by EXPLORE_OPEN — never by setPromptStatus (explicit-open
-    /// only; prompt status has no exploration coupling).
+    /// Idempotent per (prompt, agentType): returns the existing summary or
+    /// creates one at `exploring`. Called ONLY by EXPLORE_OPEN — never by
+    /// setPromptStatus (explicit-open only; prompt status has no exploration
+    /// coupling).
     @discardableResult
-    func ensureSummary(promptUuid: String) throws -> (uuid: String, created: Bool) {
+    func ensureSummary(
+        promptUuid: String, agentType: String, agentId: String?
+    ) throws -> (uuid: String, created: Bool) {
         guard try Row.fetchOne(
             db, sql: "SELECT 1 FROM prompt WHERE uuid = ?", arguments: [promptUuid]
         ) != nil else {
             throw StoreError.notFound(entity: "prompt", key: promptUuid)
         }
+        guard ExplorationAgentType(rawValue: agentType) != nil else {
+            throw StoreError.badRequest(
+                detail: "unknown exploration agent type '\(agentType)' — one of "
+                    + ExplorationAgentType.allCases.map(\.rawValue).joined(separator: "|"))
+        }
         if let existing = try String.fetchOne(
-            db, sql: "SELECT uuid FROM exploration_summary WHERE prompt_uuid = ?",
-            arguments: [promptUuid]
+            db, sql: "SELECT uuid FROM exploration_summary WHERE prompt_uuid = ? AND agent_type = ?",
+            arguments: [promptUuid, agentType]
         ) {
             return (existing, false)
         }
         let uuid = try core.insertBase(db, table: "exploration_summary", extra: [
             "prompt_uuid": promptUuid,
+            "agent_type": agentType,
+            "agent_id": agentId,
             "status": ExplorationStatus.exploring.rawValue,
             "overview": "",
         ])
         try core.appendEvent(
             db, kind: .explorationChange, subjectUuid: uuid,
-            payload: Store.jsonPayload(["action": "open", "prompt_uuid": promptUuid]))
+            payload: Store.jsonPayload([
+                "action": "open", "prompt_uuid": promptUuid, "agent_type": agentType,
+            ]))
         try clarification.touchSessionForPrompt(promptUuid: promptUuid)
         return (uuid, true)
     }
@@ -42,30 +61,39 @@ struct ExplorationRepository: RepositoryContext {
     // MARK: - Verbs
 
     func open(_ req: ExploreOpenRequest) throws -> ExploreSummaryResponse {
-        let (uuid, created) = try ensureSummary(promptUuid: req.promptUuid)
+        let agentType = req.agentType ?? ExplorationAgentType.general.rawValue
+        let (uuid, created) = try ensureSummary(
+            promptUuid: req.promptUuid, agentType: agentType, agentId: req.agentId)
         guard let summary = try fetchSummary(uuid: uuid) else {
             throw StoreError.notFound(entity: "exploration_summary", key: uuid)
         }
         return ExploreSummaryResponse(summary: summary, created: created)
     }
 
-    /// Key files are a shared deduped set: a duplicate path is an idempotent
+    /// Key files are findings of kind 'key_file' since m0025. Still a shared
+    /// deduped set per summary: a duplicate path is an idempotent
     /// upsert-ignore returning the existing row (the prompt_artifact
-    /// precedent), never an error.
+    /// precedent), never an error — the dedupe is a Swift guard now, not a
+    /// UNIQUE (ordinary findings may repeat paths).
     func keyFileAdd(_ req: ExploreKeyFileAddRequest) throws -> ExploreKeyFileAddResponse {
         let summary = try requireSummary(
             uuid: req.summaryUuid, at: .exploring, verb: "key-file-add")
         let path = try Store.normalizeRepoRelativePath(
             req.filePath, repoRoot: try architecture.instanceRoot(promptUuid: summary.promptUuid))
-        if let existing = try fetchKeyFiles(
-            where: "exploration_summary_uuid = ? AND file_path = ?",
+        if let existing = try fetchFindings(
+            where: "exploration_summary_uuid = ? AND kind = 'key_file' AND file_path = ?",
             arguments: [req.summaryUuid, path]
         ).first {
-            return ExploreKeyFileAddResponse(keyFile: existing, created: false)
+            return ExploreKeyFileAddResponse(keyFile: keyFileView(existing), created: false)
         }
-        let uuid = try core.insertBase(db, table: "exploration_key_file", extra: [
+        let uuid = try core.insertBase(db, table: "exploration_finding", extra: [
             "exploration_summary_uuid": req.summaryUuid,
+            "kind": ExplorationFindingKind.keyFile.rawValue,
+            "title": path,
+            "body": "",
             "file_path": path,
+            "agent_name": summary.agentType,
+            "agent_id": summary.agentId,
         ])
         try core.appendEvent(
             db, kind: .explorationChange, subjectUuid: req.summaryUuid,
@@ -74,24 +102,32 @@ struct ExplorationRepository: RepositoryContext {
                 "prompt_uuid": summary.promptUuid,
             ]))
         try clarification.touchSessionForPrompt(promptUuid: summary.promptUuid)
-        guard let row = try fetchKeyFiles(where: "uuid = ?", arguments: [uuid]).first else {
-            throw StoreError.notFound(entity: "exploration_key_file", key: uuid)
+        guard let row = try fetchFindings(where: "uuid = ?", arguments: [uuid]).first else {
+            throw StoreError.notFound(entity: "exploration_finding", key: uuid)
         }
-        return ExploreKeyFileAddResponse(keyFile: row, created: true)
+        return ExploreKeyFileAddResponse(keyFile: keyFileView(row), created: true)
     }
 
     func findingAdd(_ req: ExploreFindingAddRequest) throws -> ExploreFindingRowResponse {
         let summary = try requireSummary(
             uuid: req.summaryUuid, at: .exploring, verb: "finding-add")
         let (title, body, agentName) = try Store.validatedFindingText(
-            title: req.title, body: req.body, agentName: req.agentName)
+            title: req.title, body: req.body, agentName: req.agentName,
+            allowEmptyBody: req.kind == .keyFile)
         try Store.validateRating(req.rating)
+        var path: String? = nil
+        if let raw = req.filePath, !raw.isEmpty {
+            path = try Store.normalizeRepoRelativePath(
+                raw, repoRoot: try architecture.instanceRoot(promptUuid: summary.promptUuid))
+        }
         let uuid = try core.insertBase(db, table: "exploration_finding", extra: [
             "exploration_summary_uuid": req.summaryUuid,
             "kind": req.kind.rawValue,
             "title": title,
             "body": body,
+            "file_path": path,
             "agent_name": agentName,
+            "agent_id": req.agentId,
             "finding_rating": req.rating,
         ])
         try core.appendEvent(
@@ -107,46 +143,51 @@ struct ExplorationRepository: RepositoryContext {
         return ExploreFindingRowResponse(finding: row)
     }
 
-    /// Batch rank — atomic all-or-nothing, deliberately version-less: the team
-    /// re-ranker blind-overwrites ratings it never read (the specified
-    /// semantic), and the single-writer DatabaseQueue serializes competing
-    /// batches; row versions still bump via updateBase so stale holders of a
-    /// FINDING version conflict normally elsewhere. Refused once complete —
-    /// ranking a sealed set would shift the sub-100 contract; reopen first.
+    /// Batch rank — atomic all-or-nothing, deliberately version-less, and
+    /// PROMPT-scoped since m0025: one calibrated batch across every summary
+    /// of the prompt (cross-persona duplicate collapse needs the whole set).
+    /// Refused once the synthesis row is complete — ranking a sealed set
+    /// would shift the sub-100 contract; reopen the synthesis first.
     func rank(_ req: ExploreRankRequest) throws -> ExploreRankResponse {
-        let summary = try requireSummary(uuid: req.summaryUuid, at: .exploring, verb: "rank")
-        try findingRank.applyRankBatch(
-            table: "exploration_finding", parentColumn: "exploration_summary_uuid",
-            summaryUuid: req.summaryUuid, ratings: req.ratings)
-        let unranked = try findingRank.unrankedCount(
-            table: "exploration_finding", parentColumn: "exploration_summary_uuid",
-            summaryUuid: req.summaryUuid)
+        guard try Row.fetchOne(
+            db, sql: "SELECT 1 FROM prompt WHERE uuid = ?", arguments: [req.promptUuid]
+        ) != nil else {
+            throw StoreError.notFound(entity: "prompt", key: req.promptUuid)
+        }
+        if let synthesis = try fetchSummary(
+            byPrompt: req.promptUuid, agentType: ExplorationAgentType.synthesis.rawValue),
+            synthesis.explorationStatus == .complete {
+            throw StoreError.invalidEntityTransition(
+                entity: "exploration", from: synthesis.status, to: "rank",
+                reason: "the synthesis summary is complete — gm explore reopen it before re-ranking")
+        }
+        try findingRank.applyPromptRankBatch(promptUuid: req.promptUuid, ratings: req.ratings)
+        let unranked = try findingRank.promptUnrankedCount(promptUuid: req.promptUuid)
         try core.appendEvent(
-            db, kind: .explorationChange, subjectUuid: req.summaryUuid,
+            db, kind: .explorationChange, subjectUuid: req.promptUuid,
             payload: Store.jsonPayload([
                 "action": "rank", "count": req.ratings.count,
-                "prompt_uuid": summary.promptUuid,
+                "prompt_uuid": req.promptUuid,
             ]))
-        try clarification.touchSessionForPrompt(promptUuid: summary.promptUuid)
-        guard let updated = try fetchSummary(uuid: req.summaryUuid) else {
-            throw StoreError.notFound(entity: "exploration_summary", key: req.summaryUuid)
-        }
+        try clarification.touchSessionForPrompt(promptUuid: req.promptUuid)
         return ExploreRankResponse(
-            summary: updated, updatedCount: req.ratings.count, unrankedCount: unranked)
+            promptUuid: req.promptUuid, updatedCount: req.ratings.count, unrankedCount: unranked)
     }
 
-    /// exploring → complete. Refuses while any finding is unranked; `overview`
-    /// is carried only here (its ONLY write path).
+    /// exploring → complete, per summary. An agent seals its OWN summary with
+    /// just the overview; the `synthesis` summary is the prompt-level seal —
+    /// it alone carries the unranked-findings gate (promoted from the old
+    /// per-summary complete).
     func complete(_ req: ExploreCompleteRequest) throws -> ExploreSummaryResponse {
         let summary = try requireSummary(uuid: req.summaryUuid, at: .exploring, verb: "complete")
-        let unranked = try findingRank.unrankedCount(
-            table: "exploration_finding", parentColumn: "exploration_summary_uuid",
-            summaryUuid: req.summaryUuid)
-        guard unranked == 0 else {
-            throw StoreError.invalidEntityTransition(
-                entity: "exploration", from: summary.status,
-                to: ExplorationStatus.complete.rawValue,
-                reason: "\(unranked) finding(s) unranked — run gm explore rank first")
+        if summary.agentType == ExplorationAgentType.synthesis.rawValue {
+            let unranked = try findingRank.promptUnrankedCount(promptUuid: summary.promptUuid)
+            guard unranked == 0 else {
+                throw StoreError.invalidEntityTransition(
+                    entity: "exploration", from: summary.status,
+                    to: ExplorationStatus.complete.rawValue,
+                    reason: "\(unranked) finding(s) unranked across the prompt — run gm explore rank first")
+            }
         }
         let overview = try Store.validatedOverview(req.overview, entity: "exploration")
         try core.updateBase(
@@ -155,7 +196,10 @@ struct ExplorationRepository: RepositoryContext {
             set: ["status": ExplorationStatus.complete.rawValue, "overview": overview])
         try core.appendEvent(
             db, kind: .explorationChange, subjectUuid: req.summaryUuid,
-            payload: Store.jsonPayload(["action": "complete", "prompt_uuid": summary.promptUuid]))
+            payload: Store.jsonPayload([
+                "action": "complete", "prompt_uuid": summary.promptUuid,
+                "agent_type": summary.agentType,
+            ]))
         try clarification.touchSessionForPrompt(promptUuid: summary.promptUuid)
         guard let updated = try fetchSummary(uuid: req.summaryUuid) else {
             throw StoreError.notFound(entity: "exploration_summary", key: req.summaryUuid)
@@ -164,9 +208,9 @@ struct ExplorationRepository: RepositoryContext {
     }
 
     /// complete → exploring: the revision edge. Preserves everything —
-    /// findings, ratings, key files, overview (nulling would make a mistaken
-    /// reopen unrecoverable in an append-only db); the next COMPLETE must
-    /// re-carry the overview, so staleness cannot survive a re-seal.
+    /// findings, ratings, overview (nulling would make a mistaken reopen
+    /// unrecoverable in an append-only db); the next COMPLETE must re-carry
+    /// the overview, so staleness cannot survive a re-seal.
     func reopen(_ req: ExploreReopenRequest) throws -> ExploreSummaryResponse {
         guard let summary = try fetchSummary(uuid: req.summaryUuid) else {
             throw StoreError.notFound(entity: "exploration_summary", key: req.summaryUuid)
@@ -197,18 +241,35 @@ struct ExplorationRepository: RepositoryContext {
         ) != nil else {
             throw StoreError.notFound(entity: "prompt", key: req.promptUuid)
         }
-        guard let summary = try fetchSummary(byPrompt: req.promptUuid) else {
+        var condition = "prompt_uuid = ?"
+        var args: StatementArguments = [req.promptUuid]
+        if let agentType = req.agentType {
+            condition += " AND agent_type = ?"
+            _ = args.append(contentsOf: [agentType])
+        }
+        // synthesis first, then alphabetical — the seal row leads the render.
+        let summaries = try ExplorationSummaryRecord.fetchAll(
+            db, where: condition, arguments: args,
+            orderBy: "agent_type != 'synthesis', agent_type"
+        ).map { $0.wireRow() }
+        guard !summaries.isEmpty else {
             throw StoreError.summaryAbsent(
                 entity: "exploration", promptUuid: req.promptUuid)
         }
-        let keyFiles = try fetchKeyFiles(
-            where: "exploration_summary_uuid = ?", arguments: [summary.uuid])
-        let window = try Store.ratingWindow(full: req.full, min: req.ratingMin, max: req.ratingMax)
+        let summaryUuids = summaries.map(\.uuid)
+        let placeholders = summaryUuids.map { _ in "?" }.joined(separator: ",")
         let all = try fetchFindings(
-            where: "exploration_summary_uuid = ?", arguments: [summary.uuid])
+            where: "exploration_summary_uuid IN (\(placeholders))",
+            arguments: StatementArguments(summaryUuids))
+        let window = try Store.ratingWindow(full: req.full, min: req.ratingMin, max: req.ratingMax)
+        var keyFiles: [ExplorationKeyFileRow] = []
         var full: [ExplorationFindingRow] = []
         var stubs: [ExplorationFindingStub] = []
         for row in all {
+            if row.kind == ExplorationFindingKind.keyFile.rawValue {
+                keyFiles.append(keyFileView(row))
+                continue
+            }
             if Store.ratingInWindow(row.findingRating, window: window) {
                 full.append(row)
             } else {
@@ -217,11 +278,21 @@ struct ExplorationRepository: RepositoryContext {
                     findingRating: row.findingRating, agentName: row.agentName))
             }
         }
+        keyFiles.sort { ($0.filePath, $0.uuid) < ($1.filePath, $1.uuid) }
         return ExploreGetResponse(
-            summary: summary, keyFiles: keyFiles, findings: full, findingStubs: stubs)
+            summaries: summaries, keyFiles: keyFiles, findings: full, findingStubs: stubs)
     }
 
     // MARK: - Transition + fetch helpers
+
+    /// The stable key-file wire surface, computed from a kind='key_file'
+    /// finding since m0025.
+    private func keyFileView(_ finding: ExplorationFindingRow) -> ExplorationKeyFileRow {
+        ExplorationKeyFileRow(
+            uuid: finding.uuid, version: finding.version,
+            explorationSummaryUuid: finding.explorationSummaryUuid,
+            filePath: finding.filePath ?? finding.title)
+    }
 
     private func requireSummary(
         uuid: String, at required: ExplorationStatus, verb: String
@@ -238,26 +309,21 @@ struct ExplorationRepository: RepositoryContext {
     }
 
     func fetchSummary(uuid: String) throws -> ExplorationSummaryRow? {
-        try fetchSummary(where: "uuid = ?", key: uuid)
-    }
-
-    func fetchSummary(byPrompt promptUuid: String) throws -> ExplorationSummaryRow? {
-        try fetchSummary(where: "prompt_uuid = ?", key: promptUuid)
-    }
-
-    private func fetchSummary(
-        where condition: String, key: String
-    ) throws -> ExplorationSummaryRow? {
         try ExplorationSummaryRecord.fetchAll(
-            db, where: condition, arguments: [key]
+            db, where: "uuid = ?", arguments: [uuid]
         ).first?.wireRow()
     }
 
-    private func fetchKeyFiles(
-        where condition: String, arguments: StatementArguments
-    ) throws -> [ExplorationKeyFileRow] {
-        try ExplorationKeyFileRecord.fetchAll(
-            db, where: condition, arguments: arguments, orderBy: "file_path"
+    func fetchSummary(byPrompt promptUuid: String, agentType: String) throws -> ExplorationSummaryRow? {
+        try ExplorationSummaryRecord.fetchAll(
+            db, where: "prompt_uuid = ? AND agent_type = ?", arguments: [promptUuid, agentType]
+        ).first?.wireRow()
+    }
+
+    func fetchSummaries(byPrompt promptUuid: String) throws -> [ExplorationSummaryRow] {
+        try ExplorationSummaryRecord.fetchAll(
+            db, where: "prompt_uuid = ?", arguments: [promptUuid],
+            orderBy: "agent_type != 'synthesis', agent_type"
         ).map { $0.wireRow() }
     }
 

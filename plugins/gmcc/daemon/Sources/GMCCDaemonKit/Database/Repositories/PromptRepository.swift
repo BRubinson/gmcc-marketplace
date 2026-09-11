@@ -219,6 +219,9 @@ struct PromptRepository: RepositoryContext {
             try db.execute(
                 sql: "DELETE FROM prompt_activation WHERE prompt_uuid = ?",
                 arguments: [req.promptUuid])
+            // m0025: done also closes the prompt's active workflow row.
+            try BotWorkflowRepository(db: db, core: core).closeForPrompt(
+                promptUuid: req.promptUuid)
         }
         try core.appendEvent(
             db, kind: .promptStatusChange, subjectUuid: req.promptUuid,

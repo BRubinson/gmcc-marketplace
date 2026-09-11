@@ -67,30 +67,31 @@ struct SearchRepository: RepositoryContext {
                 JOIN session s ON s.uuid = p.session_uuid
                 WHERE prompt_fts MATCH ?\(scope)
                 """
-        case .clarificationSummary:
+        case .clarificationQuestion:
             return """
-                SELECT 'clarification_summary' AS kind, cs.uuid AS subject_uuid, \(common),
-                       'clarification summary' AS title,
-                       snippet(clarification_summary_fts, -1, '', '', '…', 24) AS excerpt,
-                       bm25(clarification_summary_fts, 8.0, 4.0, 1.0) * 1.0 AS score
-                FROM clarification_summary_fts fts
-                JOIN clarification_summary cs ON cs.id = fts.rowid
+                SELECT 'clarification_question' AS kind, q.uuid AS subject_uuid, \(common),
+                       q.question AS title,
+                       snippet(user_clarification_question_fts, -1, '', '', '…', 24) AS excerpt,
+                       bm25(user_clarification_question_fts, 6.0, 4.0) * 0.85 AS score
+                FROM user_clarification_question_fts fts
+                JOIN user_clarification_question q ON q.id = fts.rowid
+                JOIN clarification_summary cs ON cs.uuid = q.clarification_summary_uuid
                 JOIN prompt p ON p.uuid = cs.prompt_uuid
                 JOIN session s ON s.uuid = p.session_uuid
-                WHERE clarification_summary_fts MATCH ?\(scope)
+                WHERE user_clarification_question_fts MATCH ?\(scope)
                 """
-        case .clarification:
+        case .clarificationNote:
             return """
-                SELECT 'clarification' AS kind, c.uuid AS subject_uuid, \(common),
-                       c.question AS title,
-                       snippet(clarification_fts, -1, '', '', '…', 24) AS excerpt,
-                       bm25(clarification_fts, 6.0, 4.0) * 0.85 AS score
-                FROM clarification_fts fts
-                JOIN clarification c ON c.id = fts.rowid
-                JOIN clarification_summary cs ON cs.uuid = c.clarification_summary_uuid
+                SELECT 'clarification_note' AS kind, n.uuid AS subject_uuid, \(common),
+                       'internal note' AS title,
+                       snippet(internal_clarification_note_fts, -1, '', '', '…', 24) AS excerpt,
+                       bm25(internal_clarification_note_fts, 5.0) * 0.85 AS score
+                FROM internal_clarification_note_fts fts
+                JOIN internal_clarification_note n ON n.id = fts.rowid
+                JOIN clarification_summary cs ON cs.uuid = n.clarification_summary_uuid
                 JOIN prompt p ON p.uuid = cs.prompt_uuid
                 JOIN session s ON s.uuid = p.session_uuid
-                WHERE clarification_fts MATCH ?\(scope)
+                WHERE internal_clarification_note_fts MATCH ?\(scope)
                 """
         case .architectureSummary:
             return """
@@ -141,19 +142,6 @@ struct SearchRepository: RepositoryContext {
                 JOIN prompt p ON p.uuid = es.prompt_uuid
                 JOIN session s ON s.uuid = p.session_uuid
                 WHERE exploration_summary_fts MATCH ?\(scope)
-                """
-        case .explorationKeyFile:
-            return """
-                SELECT 'exploration_key_file' AS kind, kf.uuid AS subject_uuid, \(common),
-                       kf.file_path AS title,
-                       snippet(exploration_key_file_fts, -1, '', '', '…', 24) AS excerpt,
-                       bm25(exploration_key_file_fts, 5.0) * 0.7 AS score
-                FROM exploration_key_file_fts fts
-                JOIN exploration_key_file kf ON kf.id = fts.rowid
-                JOIN exploration_summary es ON es.uuid = kf.exploration_summary_uuid
-                JOIN prompt p ON p.uuid = es.prompt_uuid
-                JOIN session s ON s.uuid = p.session_uuid
-                WHERE exploration_key_file_fts MATCH ?\(scope)
                 """
         case .explorationFinding:
             return """

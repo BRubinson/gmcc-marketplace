@@ -39,7 +39,7 @@ struct Briefing: ParsableCommand {
         @OptionGroup var output: OutputOptions
         @Option(name: .long) var promptUuid: String?
         @Option(name: .long) var sessionUuid: String?
-        @Option(name: .long, help: "Which phase consumes this briefing (initial | pre_architecture).")
+        @Option(name: .long, help: "Which phase consumes this briefing (initial — see BriefingStepSpec).")
         var step: String
 
         func run() throws {
@@ -57,33 +57,33 @@ struct Briefing: ParsableCommand {
 
     struct Complete: ParsableCommand {
         static let configuration = CommandConfiguration(
-            abstract: "building → ready. The daemon stamps the dope revision itself and denormalizes kbite briefs from --kbite-ref uuids.")
+            abstract: "building → ready. Briefings are opinion-free ref sets (m0025 — no body): the daemon stamps the dope revision itself and denormalizes kbite briefs from --kbite-ref uuids.")
 
         @OptionGroup var output: OutputOptions
         @Option(name: .long) var briefingUuid: String
         @Option(name: .long) var expectedVersion: Int64
-        @Option(name: .long, help: "Briefing body (inline).")
-        var body: String?
-        @Option(name: .long, help: "Briefing body from a file (the argv-budget escape hatch).")
-        var bodyFile: String?
-        @Option(name: .long, help: "Repeatable dope DOT-PATH the briefing drew on (never a uuid).")
+        @Option(name: .long, help: "Repeatable dope DOT-PATH the briefing pre-selects (never a uuid).")
         var dopeRef: [String] = []
         @Option(name: .long, help: "Repeatable kbite file uuid; the daemon attaches each brief.")
         var kbiteRef: [String] = []
+        @Option(name: .long, help: "Repeatable file_change uuid to pre-select.")
+        var fileChangeRef: [String] = []
+        @Option(name: .long, help: "Self-reported agent id (agent-abc123) for dedup/tracking.")
+        var agentId: String?
 
         func run() throws {
-            let bodyText = try resolveText(inline: body, file: bodyFile, flag: "body")
             let response = try withClient {
                 try $0.briefingComplete(BriefingCompleteRequest(
                     briefingUuid: briefingUuid,
                     expectedVersion: expectedVersion,
-                    body: bodyText,
                     dopeRefs: dopeRef.isEmpty ? nil : dopeRef,
-                    kbiteRefs: kbiteRef.isEmpty ? nil : kbiteRef))
+                    kbiteRefs: kbiteRef.isEmpty ? nil : kbiteRef,
+                    fileChangeRefs: fileChangeRef.isEmpty ? nil : fileChangeRef,
+                    agentId: agentId))
             }
             if output.json { printJSON(response) } else {
                 let b = response.briefing
-                print("[gm] briefing ready: \(b.uuid) (step \(b.briefingForStep), scope rev \(b.dopeScopeRevision.map(String.init) ?? "-"), v\(b.version))")
+                print("[gm] briefing ready: \(b.uuid) (step \(b.briefingForStep), \(b.dopeRefs.count) dope / \(b.kbiteRefs.count) kbite / \(b.fileChangeRefs.count) file refs, scope rev \(b.dopeScopeRevision.map(String.init) ?? "-"), v\(b.version))")
             }
         }
     }
@@ -173,7 +173,15 @@ struct Briefing: ParsableCommand {
                 if !s.ghostDotPaths.isEmpty {
                     print("  ghosts: \(s.ghostDotPaths.joined(separator: ", "))")
                 }
-                print(b.body)
+                for ref in b.dopeRefs {
+                    print("  dope: \(ref.dopeCode)\(ref.brief.map { " — \($0)" } ?? "")")
+                }
+                for ref in b.kbiteRefs {
+                    print("  kbite: \(ref.kbiteResourceFileUuid)\(ref.brief.map { " — \($0.prefix(160))" } ?? "")")
+                }
+                for ref in b.fileChangeRefs {
+                    print("  file-change: \(ref.fileChangeUuid)")
+                }
             }
         }
     }

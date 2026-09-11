@@ -266,10 +266,10 @@ final class PromptQualifiedDiagramTests: XCTestCase {
     /// the value is pinned so a migration cannot land silently.
     func testSchemaVersionMatchesCompiledConstant() throws {
         XCTAssertEqual(try store.schemaVersion(), Migrations.currentSchemaVersion)
-        XCTAssertEqual(Migrations.currentSchemaVersion, 24)
+        XCTAssertEqual(Migrations.currentSchemaVersion, 25)
         try store.dbQueue.read { db in
             XCTAssertEqual(
-                try Int.fetchOne(db, sql: "SELECT MAX(version) FROM schema_migrations"), 24)
+                try Int.fetchOne(db, sql: "SELECT MAX(version) FROM schema_migrations"), 25)
             XCTAssertEqual(
                 try Int.fetchOne(
                     db, sql: "SELECT COUNT(*) FROM schema_migrations WHERE version = 24"), 1)

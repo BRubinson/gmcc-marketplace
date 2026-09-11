@@ -48,11 +48,35 @@ struct FileChangeRepository: RepositoryContext {
             changeKind: req.changeKind
         )
 
+        // origin vocabulary (m0025): hook|manual|reconcile — provenance
+        // honesty, so reconciliation rows never masquerade as hook rows.
+        let origin = req.origin ?? "hook"
+        guard ["hook", "manual", "reconcile"].contains(origin) else {
+            throw StoreError.badRequest(
+                detail: "origin must be hook|manual|reconcile (got '\(origin)')")
+        }
+        // workflow_phase is stamped SERVER-SIDE and DERIVED LIVE (the
+        // machine's doctrine — last_served_phase is observability only and
+        // stales between bot-next calls): a handful of indexed point
+        // queries in the same transaction.
+        var workflowPhase: String?
+        if let promptUuid = attributedPromptUuid {
+            let workflows = BotWorkflowRepository(db: db, core: core)
+            if let workflow = try workflows.fetchActive(promptUuid: promptUuid),
+               let variant = BotVariant(rawValue: workflow.variant) {
+                workflowPhase = try workflows.derivePhase(
+                    workflow: workflow, variant: variant).0.rawValue
+            }
+        }
         let fileChangeUuid = try core.insertBase(db, table: "file_change", extra: [
             "session_file_uuid": sessionFileUuid,
             "session_uuid": sessionUuid,
             "prompt_uuid": attributedPromptUuid,
             "change_kind": req.changeKind.rawValue,
+            "agent_id": req.agentId,
+            "agent_name": req.agentName.map(Store.normalizedAgentName),
+            "workflow_phase": workflowPhase,
+            "origin": origin,
         ])
 
         var rangeUuids: [String] = []
@@ -118,6 +142,7 @@ struct FileChangeRepository: RepositoryContext {
             db,
             sql: """
                 SELECT fc.uuid, fc.session_uuid, fc.prompt_uuid, fc.change_kind, fc.created_at,
+                       fc.agent_id, fc.agent_name, fc.workflow_phase, fc.origin,
                        sf.relative_path
                 FROM file_change fc
                 JOIN session_file sf ON sf.uuid = fc.session_file_uuid
@@ -153,6 +178,10 @@ struct FileChangeRepository: RepositoryContext {
                 promptUuid: row["prompt_uuid"],
                 relativePath: row["relative_path"],
                 changeKind: row["change_kind"],
+                agentId: row["agent_id"],
+                agentName: row["agent_name"],
+                workflowPhase: row["workflow_phase"],
+                origin: row["origin"],
                 createdAt: row["created_at"],
                 ranges: rangesByChange[uuid] ?? []
             )
