@@ -8,8 +8,17 @@
 import Foundation
 import GRDB
 
+/// The five dope tree tables share one soft-delete shape: BaseEntity columns
+/// plus `deleted_on`. This lets DopeRepository.fetchDopeTree build every
+/// node's DopeNodeIdentity through one generic helper instead of five copies.
+protocol DopeNodeRecord: BaseRecordFields {
+    var createdAt: String { get }
+    var updatedAt: String { get }
+    var deletedOn: String? { get }
+}
+
 /// Read-side mirror of the `dope_persistence` table. Columns map via convertFromSnakeCase.
-struct DopePersistenceRecord: BaseRecordFields {
+struct DopePersistenceRecord: DopeNodeRecord {
     static let databaseTableName = "dope_persistence"
     var uuid: String
     var version: Int64
@@ -25,7 +34,7 @@ struct DopePersistenceRecord: BaseRecordFields {
 }
 
 /// Read-side mirror of the `dope_persistence_entity` table. Columns map via convertFromSnakeCase.
-struct DopePersistenceEntityRecord: BaseRecordFields {
+struct DopePersistenceEntityRecord: DopeNodeRecord {
     static let databaseTableName = "dope_persistence_entity"
     var uuid: String
     var version: Int64
@@ -43,7 +52,7 @@ struct DopePersistenceEntityRecord: BaseRecordFields {
 }
 
 /// Read-side mirror of the `dope_persistence_entity_property` table. Columns map via convertFromSnakeCase.
-struct DopePersistenceEntityPropertyRecord: BaseRecordFields {
+struct DopePersistenceEntityPropertyRecord: DopeNodeRecord {
     static let databaseTableName = "dope_persistence_entity_property"
     var uuid: String
     var version: Int64
@@ -66,7 +75,7 @@ struct DopePersistenceEntityPropertyRecord: BaseRecordFields {
 }
 
 /// Read-side mirror of the `dope_persistence_enum` table. Columns map via convertFromSnakeCase.
-struct DopePersistenceEnumRecord: BaseRecordFields {
+struct DopePersistenceEnumRecord: DopeNodeRecord {
     static let databaseTableName = "dope_persistence_enum"
     var uuid: String
     var version: Int64
@@ -82,7 +91,7 @@ struct DopePersistenceEnumRecord: BaseRecordFields {
 }
 
 /// Read-side mirror of the `dope_persistence_enum_option` table. Columns map via convertFromSnakeCase.
-struct DopePersistenceEnumOptionRecord: BaseRecordFields {
+struct DopePersistenceEnumOptionRecord: DopeNodeRecord {
     static let databaseTableName = "dope_persistence_enum_option"
     var uuid: String
     var version: Int64

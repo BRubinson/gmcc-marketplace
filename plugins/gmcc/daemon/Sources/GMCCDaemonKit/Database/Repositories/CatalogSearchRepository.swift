@@ -86,21 +86,9 @@ struct CatalogSearchRepository: RepositoryContext {
             instanceArguments.append(contentsOf: parentUuids)
         }
         instanceSql += " WHERE " + instanceConditions.joined(separator: " AND ")
-        let instances = try Row.fetchAll(
+        let instances = try InstanceRecord.fetchAll(
             db, sql: instanceSql, arguments: StatementArguments(instanceArguments)
-        ).map { row in
-            InstanceRow(
-                uuid: row["uuid"],
-                version: row["version"],
-                projectUuid: row["project_uuid"],
-                code: row["code"],
-                name: row["name"],
-                absoluteFileSystemPath: row["absolute_file_system_path"],
-                ckfsRelativeStoragePath: row["ckfs_relative_storage_path"],
-                createdAt: row["created_at"],
-                updatedAt: row["updated_at"]
-            )
-        }
+        ).map { $0.wireRow() }
 
         return CatalogSearchResponse(instances: instances, sessions: sessions)
     }

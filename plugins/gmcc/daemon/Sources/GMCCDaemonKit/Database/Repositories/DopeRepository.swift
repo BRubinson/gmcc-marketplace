@@ -524,31 +524,31 @@ struct DopeRepository: RepositoryContext {
         func alive(_ alias: String) -> String {
             live.replacingOccurrences(of: "%@", with: alias)
         }
-        let domainRows = try Row.fetchAll(db, sql: """
+        let domainRows = try DopePersistenceRecord.fetchAll(db, sql: """
             SELECT * FROM dope_persistence WHERE dope_scope_uuid = ?
             \(forProjection ? "AND deleted_on IS NULL" : "")
             ORDER BY sort_order, code
             """, arguments: [scope.uuid])
-        let entityRows = try Row.fetchAll(db, sql: """
+        let entityRows = try DopePersistenceEntityRecord.fetchAll(db, sql: """
             SELECT e.* FROM dope_persistence_entity e
             JOIN dope_persistence d ON d.uuid = e.dope_persistence_uuid
             WHERE d.dope_scope_uuid = ? \(alive("e")) \(alive("d"))
             ORDER BY e.sort_order, e.code
             """, arguments: [scope.uuid])
-        let enumRows = try Row.fetchAll(db, sql: """
+        let enumRows = try DopePersistenceEnumRecord.fetchAll(db, sql: """
             SELECT n.* FROM dope_persistence_enum n
             JOIN dope_persistence d ON d.uuid = n.dope_persistence_uuid
             WHERE d.dope_scope_uuid = ? \(alive("n")) \(alive("d"))
             ORDER BY n.sort_order, n.code
             """, arguments: [scope.uuid])
-        let optionRows = try Row.fetchAll(db, sql: """
+        let optionRows = try DopePersistenceEnumOptionRecord.fetchAll(db, sql: """
             SELECT o.* FROM dope_persistence_enum_option o
             JOIN dope_persistence_enum n ON n.uuid = o.dope_persistence_enum_uuid
             JOIN dope_persistence d ON d.uuid = n.dope_persistence_uuid
             WHERE d.dope_scope_uuid = ? \(alive("o")) \(alive("n")) \(alive("d"))
             ORDER BY o.sort_order, o.code
             """, arguments: [scope.uuid])
-        let propertyRows = try Row.fetchAll(db, sql: """
+        let propertyRows = try DopePersistenceEntityPropertyRecord.fetchAll(db, sql: """
             SELECT p.* FROM dope_persistence_entity_property p
             JOIN dope_persistence_entity e ON e.uuid = p.dope_persistence_entity_uuid
             JOIN dope_persistence d ON d.uuid = e.dope_persistence_uuid
@@ -558,31 +558,33 @@ struct DopeRepository: RepositoryContext {
 
         // Ref projection maps: uuid → dot-path code.
         var domainCode = [String: String]()
-        for row in domainRows { domainCode[row["uuid"]] = row["code"] }
+        for row in domainRows { domainCode[row.uuid] = row.code }
         var entityInfo = [String: (domain: String, code: String)]()
         var entityRef = [String: String]()
         for row in entityRows {
-            let domain = domainCode[row["dope_persistence_uuid"]] ?? "?"
-            entityInfo[row["uuid"]] = (domain, row["code"])
-            entityRef[row["uuid"]] = DopeCode.formatEntityRef(
-                domain: domain, entity: row["code"])
+            let domain = domainCode[row.dopePersistenceUuid] ?? "?"
+            entityInfo[row.uuid] = (domain, row.code)
+            entityRef[row.uuid] = DopeCode.formatEntityRef(
+                domain: domain, entity: row.code)
         }
         var enumRef = [String: String]()
         for row in enumRows {
-            let domain = domainCode[row["dope_persistence_uuid"]] ?? "?"
-            enumRef[row["uuid"]] = DopeCode.formatEnumRef(domain: domain, enumCode: row["code"])
+            let domain = domainCode[row.dopePersistenceUuid] ?? "?"
+            enumRef[row.uuid] = DopeCode.formatEnumRef(domain: domain, enumCode: row.code)
         }
         var propertyRef = [String: String]()
         for row in propertyRows {
-            let info = entityInfo[row["dope_persistence_entity_uuid"]] ?? (domain: "?", code: "?")
-            propertyRef[row["uuid"]] = DopeCode.formatPropertyRef(
-                domain: info.domain, entity: info.code, property: row["code"])
+            let info = entityInfo[row.dopePersistenceEntityUuid] ?? (domain: "?", code: "?")
+            propertyRef[row.uuid] = DopeCode.formatPropertyRef(
+                domain: info.domain, entity: info.code, property: row.code)
         }
 
-        func identity(_ row: Row) -> DopeNodeIdentity {
-            DopeNodeIdentity(uuid: row["uuid"], version: row["version"],
-                             createdAt: row["created_at"], updatedAt: row["updated_at"],
-                             deletedOn: row["deleted_on"])
+        // One identity shape over five record types: every dope node table
+        // carries the same BaseEntity columns plus deleted_on.
+        func identity<R: DopeNodeRecord>(_ row: R) -> DopeNodeIdentity {
+            DopeNodeIdentity(uuid: row.uuid, version: row.version,
+                             createdAt: row.createdAt, updatedAt: row.updatedAt,
+                             deletedOn: row.deletedOn)
         }
 
         var propertiesByEntity = [String: [DopePropertyNode]]()
@@ -590,58 +592,58 @@ struct DopeRepository: RepositoryContext {
             let node = DopePropertyNode(
                 identity: identity(row),
                 body: DopePropertyBody(
-                    code: row["code"], name: row["name"], description: row["description"],
-                    sortOrder: row["sort_order"], dataType: row["data_type"],
-                    nullable: (row["nullable"] as Int64) != 0,
-                    isUnique: (row["is_unique"] as Int64) != 0,
-                    autoIncrement: (row["auto_increment"] as Int64?).map { $0 != 0 },
-                    textCharLimit: row["text_char_limit"],
-                    enumRef: (row["dope_persistence_enum_uuid"] as String?).flatMap { enumRef[$0] },
-                    relationshipTargetRef: (row["relationship_target_uuid"] as String?)
+                    code: row.code, name: row.name, description: row.description,
+                    sortOrder: Int(row.sortOrder), dataType: row.dataType,
+                    nullable: row.nullable,
+                    isUnique: row.isUnique,
+                    autoIncrement: row.autoIncrement,
+                    textCharLimit: row.textCharLimit.map(Int.init),
+                    enumRef: row.dopePersistenceEnumUuid.flatMap { enumRef[$0] },
+                    relationshipTargetRef: row.relationshipTargetUuid
                         .flatMap { propertyRef[$0] },
-                    baseOriginRef: (row["base_origin_property_uuid"] as String?)
+                    baseOriginRef: row.baseOriginPropertyUuid
                         .flatMap { propertyRef[$0] }))
-            propertiesByEntity[row["dope_persistence_entity_uuid"], default: []].append(node)
+            propertiesByEntity[row.dopePersistenceEntityUuid, default: []].append(node)
         }
         var optionsByEnum = [String: [DopeOptionNode]]()
         for row in optionRows {
-            optionsByEnum[row["dope_persistence_enum_uuid"], default: []].append(
+            optionsByEnum[row.dopePersistenceEnumUuid, default: []].append(
                 DopeOptionNode(identity: identity(row),
-                               body: DopeOptionBody(code: row["code"], name: row["name"],
-                                                    description: row["description"],
-                                                    sortOrder: row["sort_order"])))
+                               body: DopeOptionBody(code: row.code, name: row.name,
+                                                    description: row.description,
+                                                    sortOrder: Int(row.sortOrder))))
         }
         var entitiesByDomain = [String: [DopeEntityNode]]()
         for row in entityRows {
-            entitiesByDomain[row["dope_persistence_uuid"], default: []].append(
+            entitiesByDomain[row.dopePersistenceUuid, default: []].append(
                 DopeEntityNode(identity: identity(row),
                                body: DopeEntityBody(
-                                    code: row["code"], name: row["name"],
-                                    entityType: row["entity_type"],
-                                    description: row["description"],
-                                    sortOrder: row["sort_order"],
-                                    repoRepresentativeFile: row["repo_representative_file"],
-                                    baseComposableRef: (row["base_composable_uuid"] as String?)
+                                    code: row.code, name: row.name,
+                                    entityType: row.entityType,
+                                    description: row.description,
+                                    sortOrder: Int(row.sortOrder),
+                                    repoRepresentativeFile: row.repoRepresentativeFile,
+                                    baseComposableRef: row.baseComposableUuid
                                         .flatMap { entityRef[$0] }),
-                               properties: propertiesByEntity[row["uuid"]] ?? []))
+                               properties: propertiesByEntity[row.uuid] ?? []))
         }
         var enumsByDomain = [String: [DopeEnumNode]]()
         for row in enumRows {
-            enumsByDomain[row["dope_persistence_uuid"], default: []].append(
+            enumsByDomain[row.dopePersistenceUuid, default: []].append(
                 DopeEnumNode(identity: identity(row),
                              body: DopeEnumBody(
-                                code: row["code"], name: row["name"],
-                                description: row["description"], sortOrder: row["sort_order"],
-                                repoRepresentativeFile: row["repo_representative_file"]),
-                             options: optionsByEnum[row["uuid"]] ?? []))
+                                code: row.code, name: row.name,
+                                description: row.description, sortOrder: Int(row.sortOrder),
+                                repoRepresentativeFile: row.repoRepresentativeFile),
+                             options: optionsByEnum[row.uuid] ?? []))
         }
         let domains = domainRows.map { row in
             DopePersistenceNode(identity: identity(row),
-                           body: DopePersistenceBody(code: row["code"], name: row["name"],
-                                                description: row["description"],
-                                                sortOrder: row["sort_order"]),
-                           entities: entitiesByDomain[row["uuid"]] ?? [],
-                           enums: enumsByDomain[row["uuid"]] ?? [])
+                           body: DopePersistenceBody(code: row.code, name: row.name,
+                                                description: row.description,
+                                                sortOrder: Int(row.sortOrder)),
+                           entities: entitiesByDomain[row.uuid] ?? [],
+                           enums: enumsByDomain[row.uuid] ?? [])
         }
         return DopeScopeTree(
             identity: DopeNodeIdentity(uuid: scope.uuid, version: scope.version,
