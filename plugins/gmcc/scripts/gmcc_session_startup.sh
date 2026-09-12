@@ -43,27 +43,27 @@ if [ -n "$REPO_ROOT" ] && [ -f "$REPO_ROOT/.gmcc_sandbox" ]; then
 fi
 
 # --- 3. Locate gm -----------------------------------------------------------
-GM_BIN="${GMCC_ROOT:-$HOME/gmcc}/bin/gm"
-if [ ! -x "$GM_BIN" ]; then
-    echo "[GMB] gm binary missing at $GM_BIN — run 'bash $GMCC_PLUGIN_DIR/scripts/build_daemon.sh' to build, then restart the session"
+HOOK_BIN="${GMCC_ROOT:-$HOME/gmcc}/bin/gmcc_hook"
+if [ ! -x "$HOOK_BIN" ]; then
+    echo "[GMB] gmcc_hook binary missing at $HOOK_BIN — run 'bash $GMCC_PLUGIN_DIR/scripts/build_daemon.sh' to build, then restart the session"
     exit 0
 fi
 
 # --- 4. Rows + binding + artifact home + dope boot sync (stderr = notices) --
 warnings=$( (cd "$REPO_ROOT" && printf '%s' "$payload" \
-    | "$GM_BIN" context ensure --hook-payload >/dev/null) 2>&1 )
+    | "$HOOK_BIN" context ensure --hook-payload >/dev/null) 2>&1 )
 if [ $? -ne 0 ]; then
     warnings="$warnings
-[GMB] daemon unavailable — context not ensured (run 'bash $GMCC_PLUGIN_DIR/scripts/build_daemon.sh' or /gmcc_daemon, then 'gm context ensure')"
+[GMB] daemon unavailable — context not ensured (run 'bash $GMCC_PLUGIN_DIR/scripts/build_daemon.sh' or /gmcc_daemon, then 'gmcc_hook context ensure')"
 fi
 
 # --- 5. Cheatsheet into hook stdout (automatic; the agent never runs it) ----
-"$GM_BIN" cheatsheet 2>/dev/null || true
+"$HOOK_BIN" pen-sheet 2>/dev/null || true
 
 # --- 6. Env contract → $CLAUDE_ENV_FILE (stdout), warnings → context --------
 if [ -n "$CLAUDE_ENV_FILE" ]; then
     warnings="$warnings
-$( (cd "$REPO_ROOT" && "$GM_BIN" context env --plugin-root "$GMCC_PLUGIN_DIR") 2>&1 >> "$CLAUDE_ENV_FILE" )"
+$( (cd "$REPO_ROOT" && "$HOOK_BIN" context env --plugin-root "$GMCC_PLUGIN_DIR") 2>&1 >> "$CLAUDE_ENV_FILE" )"
 fi
 
 if [ -n "$(printf '%s' "$warnings" | tr -d '[:space:]')" ]; then

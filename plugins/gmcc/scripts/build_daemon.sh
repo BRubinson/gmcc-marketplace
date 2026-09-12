@@ -3,7 +3,7 @@
 # GMCC daemon build + install script
 #
 # Builds the GMCCDaemon Swift package (plugins/gmcc/daemon/) in release mode
-# and installs the gm + gmcc_daemon binaries into ~/gmcc/bin/.
+# and installs the gmcc_daemon + gmcc_mcp + gmcc_hook binaries into ~/gmcc/bin/.
 #
 # Usage:
 #   build_daemon.sh            # rebuild only if sources are newer than the
@@ -39,7 +39,7 @@ fi
 needs_build=0
 if [ "$1" = "--force" ]; then
     needs_build=1
-elif [ ! -x "$GMCC_BIN/gmcc_daemon" ] || [ ! -x "$GMCC_BIN/gm" ] || [ ! -x "$GMCC_BIN/gmcc_mcp" ]; then
+elif [ ! -x "$GMCC_BIN/gmcc_daemon" ] || [ ! -x "$GMCC_BIN/gmcc_mcp" ] || [ ! -x "$GMCC_BIN/gmcc_hook" ]; then
     needs_build=1
 elif [ -n "$(find "$DAEMON_PKG/Sources" "$DAEMON_PKG/Package.swift" -newer "$GMCC_BIN/gmcc_daemon" -print -quit 2>/dev/null)" ]; then
     needs_build=1
@@ -77,16 +77,19 @@ BIN_DIR="$(swift build -c release --package-path "$DAEMON_PKG" --show-bin-path)"
 # code-signature cache pointing at the old inode contents, and the next exec
 # of the binary dies with SIGKILL (exit 137, no output). Fresh inodes only.
 mkdir -p "$GMCC_BIN"
-rm -f "$GMCC_BIN/gm" "$GMCC_BIN/gmcc_daemon" "$GMCC_BIN/gmcc_mcp"
-cp "$BIN_DIR/gm" "$GMCC_BIN/gm"
+# The retired CLI is removed from the runtime bin too: a stale `gm` left on
+# disk is a binary that still opens the socket and still writes.
+rm -f "$GMCC_BIN/gm"
+rm -f "$GMCC_BIN/gmcc_daemon" "$GMCC_BIN/gmcc_mcp" "$GMCC_BIN/gmcc_hook"
 cp "$BIN_DIR/gmcc_daemon" "$GMCC_BIN/gmcc_daemon"
 cp "$BIN_DIR/gmcc_mcp" "$GMCC_BIN/gmcc_mcp"
-chmod +x "$GMCC_BIN/gm" "$GMCC_BIN/gmcc_daemon" "$GMCC_BIN/gmcc_mcp"
+cp "$BIN_DIR/gmcc_hook" "$GMCC_BIN/gmcc_hook"
+chmod +x "$GMCC_BIN/gmcc_daemon" "$GMCC_BIN/gmcc_mcp" "$GMCC_BIN/gmcc_hook"
 
 echo "[GMB] installed:"
-echo "  $GMCC_BIN/gm"
 echo "  $GMCC_BIN/gmcc_daemon"
 echo "  $GMCC_BIN/gmcc_mcp"
+echo "  $GMCC_BIN/gmcc_hook"
 echo ""
-echo "[GMB] a running daemon (if any) is now stale — run: $GMCC_BIN/gm daemon restart"
+echo "[GMB] a running daemon (if any) is now stale — restart it (launchctl kickstart, or stop it and let the next client autostart)"
 echo "      (the protocol handshake auto-retires it only across a wire-version bump)"

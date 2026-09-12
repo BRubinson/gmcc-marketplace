@@ -1,8 +1,6 @@
 import XCTest
 import GMCCDaemonKit
 
-@testable import gm
-
 // The --wait loop's timeout/poll semantics, exercised with an injected
 // clock, sleeper, and scripted fetches — a silent regression here reverts
 // the whole doper-ordering gate invisibly.

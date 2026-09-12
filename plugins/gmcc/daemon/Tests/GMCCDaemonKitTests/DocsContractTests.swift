@@ -533,7 +533,9 @@ final class DocsContractTests: XCTestCase {
             ("GMCC_BOOTED",
              "the session env does not survive into a hook process, so this gate silently disables the hook"),
             ("command -v gm",
-             "`gm` is on the session PATH, not the hook's — this resolves to nothing and exits 0 forever"),
+             "the binary is on the session PATH, not the hook's — this resolves to nothing and exits 0 forever"),
+            ("command -v gmcc_hook",
+             "the same inherited-PATH failure under the new name — resolve from the script's own location instead"),
             ("command -v jq",
              "the same inherited-PATH failure one dependency over; a tool a hook needs is found on disk or not needed at all"),
         ]
@@ -556,7 +558,7 @@ final class DocsContractTests: XCTestCase {
                         // retargets a sandbox snapshot, and `$HOME/gmcc` is
                         // the default when there is no marker.
                         for (needle, what) in [
-                            (#"dirname"#, "resolve gm from its own script location"),
+                            (#"dirname"#, "resolve its binary from its own script location"),
                             (#".gmcc_sandbox"#, "walk up for a sandbox marker, or a snapshot's hooks write the prod db"),
                             (#"$HOME/gmcc"#, "fall back to the default runtime root"),
                         ] {
@@ -568,10 +570,10 @@ final class DocsContractTests: XCTestCase {
                                 """)
                         }
                         XCTAssertTrue(
-                            text.contains(#"[ -x "$GM_BIN" ] || exit 0"#),
+                            text.contains(#"[ -x "$HOOK_BIN" ] || exit 0"#),
                             """
                             scripts/\(name) runs on \(event) but carries no \
-                            `[ -x "$GM_BIN" ] || exit 0` — with no binary on disk it must \
+                            `[ -x "$HOOK_BIN" ] || exit 0` — with no binary on disk it must \
                             exit 0 in silence, never block a tool call or wedge a spawn.
                             """)
 

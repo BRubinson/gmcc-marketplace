@@ -17,8 +17,8 @@ import Foundation
 /// in the CLI writes from there too.
 ///
 /// `gm` survives in exactly two places, and VerbRegistry is what says which:
-/// the primary's four gate doors — gm prompt set-status, gm arch decide,
-/// gm review rank, gm clarify package-complete — which no agent may walk
+/// the primary's four gate doors — mcp__plugin_gmcc_pen__prompt_set_status, mcp__plugin_gmcc_pen__arch_decide,
+/// mcp__plugin_gmcc_pen__review_rank, mcp__plugin_gmcc_pen__care_package_complete — which no agent may walk
 /// through, and verbs that have no pen tool at all.
 public enum WorkflowSpec {
 
@@ -105,7 +105,7 @@ public enum WorkflowSpec {
             mcp__plugin_gmcc_pen__explore_finding_add write it, and \
             mcp__plugin_gmcc_pen__explore_complete seals THAT row. Leave the findings \
             unranked here — calibration is cross-agent and belongs to one reader.
-            When every expected row is complete: gm prompt set-status --status clarifying \
+            When every expected row is complete: mcp__plugin_gmcc_pen__prompt_set_status status: clarifying \
             (the primary's door; it creates the clarification summary), then \
             \(clarifierNote) for the merged pass — rank, seal the synthesis row, then \
             author the question and note suite. Sealing synthesis is what moves the \
@@ -141,7 +141,7 @@ public enum WorkflowSpec {
                 text += """
                  When every question is answered or skipped: gm clarify finalize \
                 --summary-uuid <clarification> --expected-version V (pure gate), then \
-                gm prompt set-status --status architecting.
+                mcp__plugin_gmcc_pen__prompt_set_status status: architecting.
                 """
             }
             return text
@@ -151,10 +151,10 @@ public enum WorkflowSpec {
             the primary opens it), then curate through the pen: \
             mcp__plugin_gmcc_pen__care_ref_add with kind dope|kbite|exploration \
             (exploration entries are COPIES of ranked findings written with more intent — \
-            never re-explore). Finish at the primary's door: gm clarify package-complete \
+            never re-explore). Finish at the primary's door: mcp__plugin_gmcc_pen__care_package_complete \
             --intent-file <clarified intent: backstory+goal+detail, clarified>. The intent \
             lives ONLY here — it is never written back to the prompt row. Then \
-            gm clarify finalize (pure gate) and gm prompt set-status --status architecting.
+            gm clarify finalize (pure gate) and mcp__plugin_gmcc_pen__prompt_set_status status: architecting.
             """
         case .archOptions:
             return """
@@ -167,7 +167,7 @@ public enum WorkflowSpec {
             if variant == .team {
                 return """
                 Read the options (gm arch get) and pick the winner at the primary's door: \
-                gm arch decide --option-uuid <winner> --rationale-file P (stamps selected, \
+                mcp__plugin_gmcc_pen__arch_decide --option-uuid <winner> --rationale-file P (stamps selected, \
                 rejects siblings, records why — offer unused-option features to the user \
                 later). Then expand ONLY the selected option into rows: persistence FIRST \
                 (gm arch persist-add --change-kind add|modify|rename|delete --dope-ref \
@@ -193,7 +193,7 @@ public enum WorkflowSpec {
             return """
             gm arch propose, then present the plan for user sign-off — ALWAYS include the \
             full persistence delta table (positive AND negative changes, dope refs shown). \
-            Approve → gm arch approve + gm prompt set-status --status implementing (the \
+            Approve → gm arch approve + mcp__plugin_gmcc_pen__prompt_set_status status: implementing (the \
             primary's door; it claims the activation). Modify → gm arch revise and return \
             to architecture.
             """
@@ -239,13 +239,13 @@ public enum WorkflowSpec {
             case .team: spawn = "Run the review workflow — one reviewer per methodology."
             }
             return """
-            gm prompt set-status --status reviewing (the primary's door), then \
+            mcp__plugin_gmcc_pen__prompt_set_status status: reviewing (the primary's door), then \
             gm review open --prompt-uuid <prompt> (no pen tool — the primary opens it). \
             \(spawn) Reviewers scope themselves with mcp__plugin_gmcc_pen__arch_get and \
             mcp__plugin_gmcc_pen__file_change_list, read the record so far with \
             mcp__plugin_gmcc_pen__review_get, and write their findings with \
             mcp__plugin_gmcc_pen__review_finding_add. Calibrate at the primary's door \
-            (gm review rank), then seal: gm review complete --verdict \
+            (mcp__plugin_gmcc_pen__review_rank), then seal: gm review complete --verdict \
             approved|approved_with_nits|changes_requested (it refuses unranked findings).
             """
         case .reviewFix:
@@ -259,7 +259,7 @@ public enum WorkflowSpec {
             """
         case .done:
             return """
-            gm prompt set-status --status done (the primary's door; it releases the \
+            mcp__plugin_gmcc_pen__prompt_set_status status: done (the primary's door; it releases the \
             activation claim and closes the workflow row). Present the completion summary \
             — the db rows are the record, and there are no phase-history files.
             """

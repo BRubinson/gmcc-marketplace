@@ -135,24 +135,30 @@ public enum VerbRegistry {
     // │                                                                  │
     // │  PRECONDITION, and it is machine-readable rather than            │
     // │  remembered: read the would-refuse ledger first.                 │
-    // │      gm verbs                 (prints the counter)               │
-    // │      gm verbs --json          (.would_refuse)                    │
+    // │      gmcc_hook verbs          (.would_refuse)                    │
     // │      cat ~/gmcc/would_refuse.json                                │
     // │  A non-empty `by_verb` naming anything other than a genuine      │
     // │  agent reaching for a primary door means the flip would break a  │
     // │  live caller — fix that first.                                   │
     // │                                                                  │
-    // │  WHY IT SHIPS OBSERVE: this prompt modifies the machine          │
-    // │  executing it. run_mcp.sh rebuilds unconditionally before exec,  │
-    // │  so the live pen and daemon change underneath the agents         │
-    // │  currently using them. A refusal mid-run spends an agent's       │
-    // │  context on a door that did not exist when it started.           │
+    // │  FLIPPED TO ENFORCE. The reason this shipped `.observe` was      │
+    // │  that run_mcp.sh rebuilt unconditionally before exec, so the     │
+    // │  live pen changed underneath agents mid-run and a refusal would  │
+    // │  spend their context on a door that did not exist when they      │
+    // │  started. The launcher no longer builds, so that reason is gone. │
     // │                                                                  │
-    // │  The window between the Wave-1 deletion of the old              │
-    // │  payload-granular synthesis guard and this flip is a KNOWN,      │
-    // │  BOUNDED gap — bounded by this prompt's own close.               │
+    // │  PRECONDITION CHECKED, NOT REMEMBERED: the would-refuse ledger   │
+    // │  was empty at the flip (total 0, by_verb {}, no                  │
+    // │  ~/gmcc/would_refuse.json on disk), so no live caller is being   │
+    // │  broken by it.                                                   │
+    // │                                                                  │
+    // │  AND THE DOORS ARE REACHABLE NOW, which is what makes enforcing  │
+    // │  them safe rather than merely strict: the four primary doors     │
+    // │  carry pen tools, served through the `.primary` client only for  │
+    // │  a call the PreToolUse hook attested. Flipping BEFORE that       │
+    // │  existed would have locked the primary out of its own gates.     │
     // └──────────────────────────────────────────────────────────────────┘
-    nonisolated(unsafe) public static var enforcement: VerbEnforcement = .observe
+    nonisolated(unsafe) public static var enforcement: VerbEnforcement = .enforce
 
     // MARK: - Decision
 
@@ -239,6 +245,21 @@ public enum VerbRegistry {
     public static let compositePenTools: [String: [MessageType]] = [
         // BOT_GET to find the workflow's prompt, then PROMPT_GET to read it.
         "bot_current_prompt": [.botGet, .promptGet],
+
+        // THE COLD-START FAST PATH. One call from "the user typed 10" to a
+        // running briefing, composed client-side out of verbs that already
+        // exist — which is why none of these needed a new MessageType, a
+        // handler, or a migration.
+        "prompt_init": [
+            .contextEnsure,     // $PWD + git branch -> project/instance/session
+            .promptList,        // the candidate set the resolver folds over
+            .promptCreate,      // only with create:true AND name AND detail
+            .promptResume,      // fetch-or-create; its `created` flag is new-vs-resumed
+            .botNext,           // phase, instructions, gate blockers
+            .briefingGet,       // absent | building | ready
+        ],
+        "init_briefing": [.briefingOpen],
+        "wait_for_briefing": [.briefingGet],
     ]
 
     /// MessageTypes deliberately left out of `all`. Daemon → client only: they
@@ -386,7 +407,7 @@ public enum VerbRegistry {
                  pen: "prompt_get", role: .read),
         VerbSpec(.promptUpdateContent, gm: "gm prompt update-content", role: .record(agentPhases: nil)),
         // PRIMARY DOOR — the only thing that moves a prompt.
-        VerbSpec(.promptSetStatus, gm: "gm prompt set-status", role: .primaryDoor),
+        VerbSpec(.promptSetStatus, gm: "gm prompt set-status", pen: "prompt_set_status", role: .primaryDoor),
         VerbSpec(.promptStart, gm: "gm prompt start", role: .record(agentPhases: nil)),
         VerbSpec(.promptResume, gm: "gm prompt resume", role: .record(agentPhases: nil)),
 
@@ -463,7 +484,7 @@ public enum VerbRegistry {
         VerbSpec(.carePackageRefAdd, gm: "gm clarify package-add", pen: "care_ref_add",
                  role: .record(agentPhases: [.carePackage])),
         // PRIMARY DOOR — the package SEAL: the clarified intent lives only here.
-        VerbSpec(.carePackageComplete, gm: "gm clarify package-complete", role: .primaryDoor),
+        VerbSpec(.carePackageComplete, gm: "gm clarify package-complete", pen: "care_package_complete", role: .primaryDoor),
         VerbSpec(.carePackageGet, gm: "gm clarify package-get", pen: "care_package_get", role: .read),
 
         // ── Architecture machine ─────────────────────────────────────────
@@ -475,7 +496,7 @@ public enum VerbRegistry {
         VerbSpec(.archOptionAdd, gm: "gm arch option-add", pen: "arch_option_add",
                  role: .record(agentPhases: [.archOptions])),
         // PRIMARY DOOR — DECIDE selects one option and rejects its siblings.
-        VerbSpec(.archDecide, gm: "gm arch decide", role: .primaryDoor),
+        VerbSpec(.archDecide, gm: "gm arch decide", pen: "arch_decide", role: .primaryDoor),
         VerbSpec(.archPropose, gm: "gm arch propose", role: .record(agentPhases: [.architecture])),
         VerbSpec(.archApprove, gm: "gm arch approve", role: .record(agentPhases: [.planGate])),
         VerbSpec(.archRevise, gm: "gm arch revise", role: .record(agentPhases: [.planGate])),
@@ -513,7 +534,7 @@ public enum VerbRegistry {
                  role: .record(agentPhases: [.review, .reviewFix])),
         // PRIMARY DOOR — and it STAYS one: the review-side reranker is
         // outside the approved clarifier merge.
-        VerbSpec(.reviewRank, gm: "gm review rank", role: .primaryDoor),
+        VerbSpec(.reviewRank, gm: "gm review rank", pen: "review_rank", role: .primaryDoor),
         VerbSpec(.reviewResolve, gm: "gm review resolve", role: .record(agentPhases: [.reviewFix])),
         VerbSpec(.reviewComplete, gm: "gm review complete", role: .record(agentPhases: [.review])),
         VerbSpec(.reviewReopen, gm: "gm review reopen", role: .record(agentPhases: nil)),

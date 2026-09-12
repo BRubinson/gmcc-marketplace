@@ -37,8 +37,8 @@ Same as /gm_bot (resume by seq / create by slug — STAY TRUE), with
 
 - **Workflow-driven phases** — briefing + explore + clarify-open,
   implementation, and review-fix run as dynamic workflows you HAND-AUTHOR,
-  guided by `gm bot next` output. Script code is pure orchestration: it
-  never touches gm or the db — every read/write happens inside agent()
+  guided by `mcp__plugin_gmcc_pen__bot_next` output. Script code is pure
+  orchestration: it never touches the db directly — every read/write happens inside agent()
   subagents, through the MCP pen tools and nothing else. Capture is the
   PostToolUse hook alone — there is no gate-time backstop, so a write the
   hook cannot see is not recorded at all.
@@ -55,13 +55,13 @@ Same as /gm_bot (resume by seq / create by slug — STAY TRUE), with
   clarified-intent blob), finalize, set-status architecting.
 - **Architecture optioning** — four `gmcc:code-architect` personas each pen
   their OWN option row (`arch_option_add`). You pick the winner with
-  `gm arch decide` (rationale recorded; siblings rejected; offer the
+  `mcp__plugin_gmcc_pen__arch_decide` (rationale recorded; siblings rejected; offer the
   losers' best features to the user), and ONLY the selected option expands
   into change rows — persistence first, change kinds + dope refs.
 - **Plan gate** — propose → user sign-off with the full persistence delta
   table → approve → implementing.
 - **Review** — four `gmcc:code-quality-reviewer` personas pen finding rows;
-  you calibrate at your own door (`gm review rank`) and complete with the
+  you calibrate at your own door (`mcp__plugin_gmcc_pen__review_rank`) and complete with the
   verdict, clarify fix intent with the user, run review-fix (as a workflow
   when the fixes fan out), done.
 

@@ -36,6 +36,16 @@
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/gmcc_gm_write_guard.sh"
           }
         ]
+      },
+      {
+        "matcher": "mcp__plugin_gmcc_pen__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "timeout": 5,
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/gmcc_hook.sh pen-attest"
+          }
+        ]
       }
     ],
     "PostToolUse": [

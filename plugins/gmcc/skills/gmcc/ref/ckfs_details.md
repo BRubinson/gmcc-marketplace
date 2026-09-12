@@ -137,7 +137,7 @@ gm file-change list [--prompt-uuid U] [--path P]
 ### Optimistic concurrency (`--expected-version`)
 
 Every mutation (`gm session update`, `gm prompt update-content`,
-`gm prompt set-status`) requires `--expected-version N` — the row
+`mcp__plugin_gmcc_pen__prompt_set_status`) requires `--expected-version N` — the row
 version the edit was based on. Capture `.version` from the `--json`
 output of the previous `create`/`get`/mutation (a fresh `create` returns
 `version: 0`; each mutation returns the incremented version). A stale
@@ -190,7 +190,7 @@ absent backing row fails the gate.
    (human/Clarify input only); `backstory` inherited from the session row.
    Never split, infer, or author these fields. Then
    `mkdir -p prompts/{seq}_{name}/memory/`.
-2. **clarifying** — enter with `gm prompt set-status ... --status
+2. **clarifying** — enter with `mcp__plugin_gmcc_pen__prompt_set_status ... --status
    clarifying` (a gate verb with no pen tool — the primary's door, not an
    agent write path; it locks content and the daemon creates the summary).
    The clarifier then pens `mcp__plugin_gmcc_pen__clarify_question_add`

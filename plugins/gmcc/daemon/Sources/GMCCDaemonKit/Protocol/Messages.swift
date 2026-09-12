@@ -650,6 +650,20 @@ public struct ContextEnsureResponse: Codable, Hashable, Sendable {
     public let createdProject: Bool
     public let createdInstance: Bool
     public let createdSession: Bool
+    /// How many `claude_session_binding` rows exist for this session.
+    ///
+    /// CAPTURE HEALTH, AND THE ONLY WAY THE MCP CAN SEE IT. Zero means no Claude
+    /// conversation is bound to this gmcc session, so the PostToolUse hook has
+    /// nothing to attribute against and file-change capture is silently OFF. A
+    /// stdio MCP server is handed only CLAUDE_PROJECT_DIR — it cannot read
+    /// `claude_session_id` for itself — so without this count it cannot tell a
+    /// healthy session from a dead one, and the failure stays invisible exactly
+    /// the way it did before.
+    ///
+    /// OPTIONAL BY CONSTRUCTION: an additive optional field on an existing
+    /// message does not bump `GMCCWireProtocol.version`, so an older client
+    /// decodes this response unchanged and GMVibes' pinned kit keeps working.
+    public let claudeSessionBindingCount: Int?
 
     public init(
         projectUuid: String,
@@ -657,7 +671,8 @@ public struct ContextEnsureResponse: Codable, Hashable, Sendable {
         sessionUuid: String,
         createdProject: Bool,
         createdInstance: Bool,
-        createdSession: Bool
+        createdSession: Bool,
+        claudeSessionBindingCount: Int? = nil
     ) {
         self.projectUuid = projectUuid
         self.instanceUuid = instanceUuid
@@ -665,6 +680,7 @@ public struct ContextEnsureResponse: Codable, Hashable, Sendable {
         self.createdProject = createdProject
         self.createdInstance = createdInstance
         self.createdSession = createdSession
+        self.claudeSessionBindingCount = claudeSessionBindingCount
     }
 }
 

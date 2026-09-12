@@ -30,7 +30,7 @@ import GMCCDaemonKit
 // Registered by the plugin as server `pen`, so tools surface as
 // mcp__plugin_gmcc_pen__<tool> (the plugin-scoped naming rule — a bare
 // mcp__gmcc__ matcher never fires). Harness tool search defers tool schemas
-// by default; `alwaysLoadedTools` below is the small set that is exempt, so
+// by default; this server declares `alwaysLoad` on its .mcp.json entry, so
 // the pen is in every session's surface without a search and without holding
 // up startup.
 
@@ -177,11 +177,25 @@ struct Args {
 
 // MARK: - Tool registry
 
+/// Which client serves a tool — i.e. what role the daemon is told the call
+/// came from.
+enum ToolAudience {
+    /// Everything an agent may do. Served by the `.agent` client, and the
+    /// daemon's role gate applies exactly as it always has.
+    case agent
+    /// One of the four gate doors. Served by the `.primary` client ONLY when
+    /// the call carries a harness attestation saying the primary made it.
+    case primaryDoor
+}
+
 struct Tool {
     let name: String
     let description: String
     /// {property name: (type, description, required)}
     let params: [(String, String, String, Bool)]
+    /// Defaults to `.agent`, so a tool added without thinking about roles gets
+    /// the restrictive side rather than a door.
+    var audience: ToolAudience = .agent
     let run: (Args, DaemonClient) throws -> any Encodable
 
     var inputSchema: [String: Any] {
@@ -704,37 +718,27 @@ let tools: [Tool] = [
         run: { args, client in
             try client.getPrompt(PromptGetRequest(promptUuid: try args.string("prompt_uuid")))
         }),
-]
+] + makeFastPathTools() + makePrimaryDoorTools()
 
 // MARK: - Upfront loading
 
-/// The tools that load into every session's context WITHOUT a ToolSearch,
-/// advertised per-tool as `_meta: {"anthropic/alwaysLoad": true}`.
-///
-/// WHY PER-TOOL AND NOT `alwaysLoad` ON THE SERVER ENTRY. Server-level
-/// alwaysLoad makes session startup WAIT for this server's tools, capped at
-/// the 5-second connect timeout, because they must exist when the first
-/// prompt is built. This server's launcher (scripts/run_mcp.sh) runs
-/// build_daemon.sh before exec, and a cold or invalidated `swift build -c
-/// release` takes minutes, not seconds — so exactly the sessions that follow
-/// a source edit would spend the whole budget in bash and then build their
-/// first prompt with no pen in it. The per-tool flag carries no startup wait:
-/// the server connects off the critical path and these tools land upfront the
-/// moment it does, which is the property that was actually wanted.
-///
-/// THE SET IS THE SPINE EVERY AGENT WALKS BEFORE IT KNOWS ANYTHING. bot_next
-/// hands back the phase instructions, which name the phase's own pen tools by
-/// their exact `mcp__plugin_gmcc_pen__` spelling — as does the `instructions`
-/// string below — so every remaining tool is one exact-name search away. The
-/// rest stay deferred, which is what keeps the upfront cost proportional.
-let alwaysLoadedTools: Set<String> = [
-    "bot_next",           // the entry point; names everything else
-    "bot_get",            // the uuid bundle every later call is keyed on
-    "briefing_get",       // every agent's first read
-    "briefing_complete",  // every agent's first write
-    "dope_search",        // the two searches a briefing is MADE of — an agent
-    "kbite_search",       // must reach them before it can complete one
-]
+// EVERY PEN TOOL LOADS UPFRONT, declared once as `"alwaysLoad": true` on this
+// server's `.mcp.json` entry rather than per-tool here.
+//
+// The per-tool `_meta` flag this replaced existed for one reason: server-level
+// alwaysLoad makes session startup WAIT for the server's tools (capped at the
+// 5-second connect timeout), and the launcher used to run a release build
+// before exec — so a session following a source edit would spend the whole
+// budget in bash. The launcher no longer builds, so the wait is a socket
+// connect and the reason is gone.
+//
+// WHAT THE OLD ARRANGEMENT COST: with six tools upfront and the rest deferred,
+// an agent holding a correct frontmatter tool list still found every other pen
+// call failing until it thought to run a ToolSearch by exact name — and nothing
+// in any agent definition told it that step existed. From inside the agent that
+// is indistinguishable from the server not being registered at all, which is
+// exactly how it was reported. Loading the whole surface costs context; it buys
+// the disappearance of a failure mode that reads as a lie.
 
 // MARK: - The initialize instructions, generated from the registry
 
@@ -743,46 +747,10 @@ let alwaysLoadedTools: Set<String> = [
 /// from VerbRegistry so it cannot drift from the roster, ordered critical
 /// first, and deliberately small (the budget below is ~2KB: this text is paid
 /// for by every session the pen is loaded into).
-func penInstructions() -> String {
-    // Orientation before record before write: an agent that calls bot_next
-    // first never needs the rest of this text.
-    let leadReads = ["bot_next", "bot_get", "bot_current_prompt"]
-    var reads: [String] = leadReads
-    var writes: [String] = []
-    for spec in VerbRegistry.all.sorted(by: { $0.messageType.rawValue < $1.messageType.rawValue }) {
-        guard let tool = spec.penTool, !reads.contains(tool) else { continue }
-        switch spec.role {
-        case .read: reads.append(tool)
-        case .record: writes.append(tool)
-        case .primaryDoor: continue  // a door never carries a pen tool
-        }
-    }
-    for tool in VerbRegistry.compositePenTools.keys.sorted() where !reads.contains(tool) {
-        reads.append(tool)
-    }
-    let doors = VerbRegistry.all
-        .filter { $0.role == .primaryDoor && !$0.gmInvocation.isEmpty }
-        .map(\.gmInvocation)
-        .sorted()
-        .joined(separator: ", ")
-    return """
-        The GMCC pen: the GM-CDE workflow machine's record, as tools.
-
-        START HERE — bot_next returns your current phase, its instructions, \
-        your uuid bundle, and the gate blockers. Call it before anything else, \
-        and again after every seal. It answers without being told a uuid.
-
-        THE RULE — where a pen tool exists, it is the write path. Do not shell \
-        out to `gm` for it: the daemon knows which channel a write came from, \
-        and the CLI is the primary's surface, not yours.
-
-        READ: \(reads.joined(separator: ", ")).
-        WRITE: \(writes.joined(separator: ", ")).
-
-        NOT YOURS — the primary's gate doors, refused to this client by role: \
-        \(doors). Report that you are ready for one; never walk through it.
-        """
-}
+// The pen sheet generator moved to GMCCDaemonKit as `PenSheet`. The
+// SubagentStart hook hands spawned agents the same generated text, and two
+// generators over one registry drift apart — which is how the retired CLI
+// cheatsheet came to contradict the agent definitions it shipped beside.
 
 /// Startup diagnostics on stderr (stdout belongs to the protocol): the roster
 /// and the registry must be the same set. The build-time guard is
@@ -799,10 +767,7 @@ func penInstructions() -> String {
     for missing in declared.subtracting(served).sorted() {
         lines.append("[gmcc_mcp] VerbRegistry declares pen tool '\(missing)' but this binary does not serve it")
     }
-    for ghost in alwaysLoadedTools.subtracting(served).sorted() {
-        lines.append("[gmcc_mcp] alwaysLoadedTools names '\(ghost)', which this binary does not serve — it will load nothing")
-    }
-    let instructionBytes = penInstructions().utf8.count
+    let instructionBytes = PenSheet.instructions.utf8.count
     if instructionBytes > 2_048 {
         lines.append("[gmcc_mcp] initialize instructions are \(instructionBytes) bytes (budget 2048)")
     }
@@ -861,10 +826,31 @@ if let projectDir = ProcessInfo.processInfo.environment["CLAUDE_PROJECT_DIR"],
     FileManager.default.changeCurrentDirectoryPath(projectDir)
 }
 
-// EVERYTHING this process forwards is an agent write. The stamp is the
-// agent-side half of the door; the daemon's VerbRegistry check is the other.
+// TWO CLIENTS, NOT ONE MUTABLE ROLE. `DaemonClient.callerRole` is a `let` read
+// inside a locked `request()` on an `@unchecked Sendable` type — flipping it
+// per call would be a data race. Two sockets is both smaller and correct.
+//
+// The agent client serves every tool and is unchanged. The primary client
+// serves the four gate doors and ONLY when the PreToolUse attestation says the
+// primary is calling; an agent reaching for a door is handed the agent client
+// and refused by the daemon, which is the same answer it has always got.
 let client = DaemonClient(callerRole: .agent)
+let primaryClient = DaemonClient(callerRole: .primary)
 defer { client.close() }
+defer { primaryClient.close() }
+
+/// Resolve which client serves this call.
+///
+/// UNSTAMPED READS AS AN AGENT. The attestation is a positive literal written by
+/// the PreToolUse hook, so a hook that did not run leaves no stamp at all — and
+/// that must land on the restrictive side. Inferring the primary from absence is
+/// precisely the forgery this closes: an agent does not know its own agent_id,
+/// so omitting it is the DEFAULT path, not an exotic one.
+func clientFor(_ tool: Tool, _ args: Args) -> DaemonClient {
+    guard tool.audience == .primaryDoor else { return client }
+    let attested = args.optString(HookRunner.attestKey)
+    return attested == HookRunner.attestPrimary ? primaryClient : client
+}
 
 validateRosterAgainstRegistry()
 
@@ -888,7 +874,7 @@ while let line = readLine(strippingNewline: true) {
             ],
             // Loaded at session start, ahead of any tool schema — the only
             // place the pen gets to state its own contract.
-            "instructions": penInstructions(),
+            "instructions": PenSheet.instructions,
         ])
     case "ping":
         respond(id: id, result: [:])
@@ -900,9 +886,6 @@ while let line = readLine(strippingNewline: true) {
                     "description": tool.description,
                     "inputSchema": tool.inputSchema,
                 ]
-                if alwaysLoadedTools.contains(tool.name) {
-                    entry["_meta"] = ["anthropic/alwaysLoad": true]
-                }
                 return entry
             }
         ])
@@ -914,7 +897,7 @@ while let line = readLine(strippingNewline: true) {
             continue
         }
         do {
-            let result = try tool.run(arguments, client)
+            let result = try tool.run(arguments, clientFor(tool, arguments))
             respond(id: id, result: [
                 "content": [["type": "text", "text": try renderResult(result)]],
                 "isError": false,

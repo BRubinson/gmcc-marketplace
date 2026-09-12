@@ -10,8 +10,8 @@ allowed-tools: Bash(gm:*)
 
 You are executing the **bot** variant: every phase in primary context, no
 subagents except the `gmcc:doper` briefing pass. The lifecycle lives in the
-daemon — `gm bot next` tells you the current phase, its instructions, and
-what blocks the next one. Follow it; this file carries only the variant
+daemon — `mcp__plugin_gmcc_pen__bot_next` tells you the current phase, its
+instructions, and what blocks the next one. Follow it; this file carries only the variant
 contract. Canonical reference: `skills/gmcc/ref/bot_workflows.md`.
 
 ## Pre-Flight
@@ -33,20 +33,32 @@ probe process, while what matters is whether THIS session registered the tools.
 
 ## Arguments
 
-- **Numeric seq** → resume: find the prompt via `gm prompt list --json`,
-  then `gm prompt resume --prompt-uuid U [--variant bot]` and `gm bot next`.
-- **Slug name + content** → create (STAY TRUE: the whole passed prompt goes
-  to `--detail` verbatim; goal/backstory are never authored):
+ONE CALL STARTS A RUN. `mcp__plugin_gmcc_pen__prompt_init` takes what the user
+typed and does the rest: it resolves session and project from the working
+directory and git branch, matches the selector, enters the workflow machine, and
+returns the uuid bundle, the derived phase, that phase's instructions, the NEXT
+phase's expected agents, the gate blockers, and the briefing's state. There is
+nothing to read afterwards to know what to do — no ref doc, no command file, no
+source file.
 
-```bash
-gm prompt create --name {name} --detail-file <content> \
-  --backstory "<session backstory verbatim>" --command /gm_bot --json
-mkdir -p $GMCC_CKFS_ROOT/<ckfs_relative_storage_path>/memory   # path verbatim from the response
-gm prompt start --prompt-uuid U --variant bot
-gm bot next
-```
-
+- **Numeric seq, code, name, or a unique fragment of one** → resume:
+  `prompt_init(selector: "10", variant: "bot")`. The reply's
+  `resolution.created` says whether this is a NEW prompt or a RESUMED one, and
+  an ambiguous selector comes back with `candidates` and touches nothing — pick
+  one and call again rather than guessing.
+- **Slug name + content** → create, by passing the same call the content
+  (STAY TRUE: the whole passed prompt goes to `detail` verbatim; goal and
+  backstory are never authored):
+  `prompt_init(selector: "{name}", variant: "bot", create: true, name: "{name}", detail: "<the user's prompt, verbatim>")`.
+  Creation requires `create`, `name` AND `detail` together, so a mistyped
+  selector can never silently become a new prompt. Then
+  `mkdir -p $GMCC_CKFS_ROOT/<ckfs_relative_storage_path>/memory`, taking the
+  path verbatim from the response.
 - **No args** → AskUserQuestion for the prompt content.
+
+If the reply carries `warnings`, read them before spawning anything: a session
+with no `claude_session_binding` row records no file changes at all, and the run
+will look like it worked.
 
 ## Variant contract (bot)
 

@@ -11,7 +11,8 @@ allowed-tools: Bash(gm:*)
 You are executing the **rpi** variant: ONE general-persona subagent per
 phase (it adopts all four methodology lenses at once — summary/agent type
 `general`), plus up to 2 implementation subagents. The lifecycle lives in
-the daemon — `gm bot next` serves each phase's instructions and gates.
+the daemon — `mcp__plugin_gmcc_pen__bot_next` serves each phase's
+instructions and gates.
 Canonical reference: `skills/gmcc/ref/bot_workflows.md`.
 
 ## Pre-Flight

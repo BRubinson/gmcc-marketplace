@@ -59,11 +59,24 @@ first, then re-run.
 (it needs jq and user-scope file edits). Expected entries in
 `~/.claude/settings.json`: `$GMCC_CKFS_ROOT` in
 `permissions.additionalDirectories`; `Read($GMCC_CKFS_ROOT/**)`,
-`Edit($GMCC_CKFS_ROOT/**)`, `Bash(gm *)`, `Bash($HOME/gmcc/bin/gm *)` in
-`permissions.allow`. Missing → offer the same idempotent jq merge
-`/gm_init` documents (adds what's missing, scrubs retired `Write(...)`/
-`Glob(...)` rules, preserves everything else). Takes effect on the next
-Claude Code restart.
+`Edit($GMCC_CKFS_ROOT/**)`, `mcp__plugin_gmcc_pen__*`, and
+`Bash($HOME/gmcc/bin/gmcc_hook *)` in `permissions.allow`.
+
+`mcp__plugin_gmcc_pen__*` is the load-bearing one: the pen is the only
+channel Claude records through, so a missing grant makes every write
+prompt. `Bash($HOME/gmcc/bin/gmcc_hook *)` covers the shell-callable ops
+client only — hooks, context env, daemon lifecycle, and the
+`gmcc_hook call <MESSAGE_TYPE>` passthrough a human runs at a terminal.
+
+RETIRED, and the merge SCRUBS them rather than leaving them: `Bash(gm *)`
+and `Bash($HOME/gmcc/bin/gm *)`. The `gm` binary no longer exists, so
+those grants authorize nothing — but left in place they read as a live
+CLI path and invite reaching for one. Scrub them the same way the merge
+already scrubs retired `Write(...)`/`Glob(...)` rules.
+
+Missing → offer the same idempotent jq merge `/gm_init` documents (adds
+what's missing, scrubs retired rules, preserves everything else). Takes
+effect on the next Claude Code restart.
 
 ## Step 3: Verify + report
 

@@ -10,7 +10,7 @@
 #
 # THE NO-OP CONTRACT — none of these three lines is negotiable:
 #
-#   1. gm is located from THIS SCRIPT'S OWN LOCATION plus an upward
+#   1. gmcc_hook is located from THIS SCRIPT'S OWN LOCATION plus an upward
 #      `.gmcc_sandbox` walk. Never PATH, never `command -v`, never an
 #      inherited GMCC_* variable. A hook runs with whatever environment the
 #      harness hands it, which is NOT the environment `gm context env`
@@ -29,7 +29,7 @@
 
 [ -n "$1" ] || exit 0
 
-# ── Locate gm from the filesystem ──────────────────────────────────────────
+# ── Locate gmcc_hook from the filesystem ──────────────────────────────────────────
 # A snapshot repo copy carries `.gmcc_sandbox` at its root and this script
 # ships INSIDE that copy, so climbing from the script's own directory finds
 # the snapshot's runtime whenever the hook belongs to one — without which a
@@ -45,11 +45,11 @@ while [ "$d" != "/" ]; do
   d="$(dirname "$d")"
 done
 
-GM_BIN="${sandbox_root:-$HOME/gmcc}/bin/gm"
-[ -x "$GM_BIN" ] || exit 0
+HOOK_BIN="${sandbox_root:-$HOME/gmcc}/bin/gmcc_hook"
+[ -x "$HOOK_BIN" ] || exit 0
 
 # "$@" rather than "$1": the event is argv[1] and the harness passes nothing
 # else, but forwarding the rest is what lets the documented verification path
 # (--dry-run) run through THIS script instead of around it. A check that
 # bypasses the shim does not check the shim.
-exec "$GM_BIN" hook "$@"
+exec "$HOOK_BIN" hook "$@"

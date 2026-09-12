@@ -204,8 +204,16 @@ while IFS= read -r seg; do
       *) break ;;
     esac
   done
+  # TWO SPELLINGS REACH THE DAEMON, so two are admitted here. `gm <verb>` is
+  # the named surface; `gmcc_hook call <MESSAGE_TYPE>` is the raw passthrough,
+  # which reaches EVERY verb the daemon serves and would otherwise be one
+  # obvious typing away from writing whatever an agent liked. An absolute path
+  # to either binary is admitted too — the deny is decided on the command,
+  # not on whether PATH was used to find it.
   case "$seg" in
     gm|gm[[:space:]]*) ;;
+    gmcc_hook|gmcc_hook[[:space:]]*) ;;
+    */gmcc_hook|*/gmcc_hook[[:space:]]*) ;;
     *) continue ;;
   esac
   # collapse whitespace runs so `gm   arch    decide` compares like the
@@ -233,9 +241,9 @@ while [ "$d" != "/" ]; do
   fi
   d="$(dirname "$d")"
 done
-GM_BIN="${sandbox_root:-$HOME/gmcc}/bin/gm"
-[ -x "$GM_BIN" ] || exit 0
-registry="$("$GM_BIN" verbs --json --writes-only 2>/dev/null)" || exit 0
+HOOK_BIN="${sandbox_root:-$HOME/gmcc}/bin/gmcc_hook"
+[ -x "$HOOK_BIN" ] || exit 0
+registry="$("$HOOK_BIN" verbs --writes-only 2>/dev/null)" || exit 0
 [ -z "$registry" ] && exit 0
 jq -e '.verbs' >/dev/null 2>&1 <<<"$registry" || exit 0
 
@@ -253,6 +261,27 @@ for cand in "${candidates[@]}"; do
     esac
   done
 done
+
+# THE PASSTHROUGH IS THE SAME DOOR WEARING A DIFFERENT NAME.
+# `gmcc_hook call <MESSAGE_TYPE>` reaches every verb the daemon serves, so a
+# guard that only knew the named spellings would leave an agent one obvious
+# typing away from writing whatever it liked. Match the MESSAGE TYPE against the
+# same generated registry, so this coverage cannot drift from the named half.
+if [ -z "$matched" ]; then
+  for cand in "${candidates[@]}"; do
+    case "$cand" in
+      "gmcc_hook call "*|*"/gmcc_hook call "*)
+        mt="${cand#*call }"; mt="${mt%% *}"
+        mt="$(printf '%s' "$mt" | tr '[:lower:]' '[:upper:]')"
+        [ -n "$mt" ] || continue
+        hit="$(jq -r --arg mt "$mt" \
+          '[.verbs[]? | select(.message_type == $mt and .write == true) | .gm][0] // empty' \
+          <<<"$registry" 2>/dev/null)"
+        if [ -n "$hit" ]; then matched="$hit"; break; fi
+        ;;
+    esac
+  done
+fi
 [ -z "$matched" ] && exit 0
 
 # ── Deny, with a reason generated from the registry ────────────────────────
@@ -292,7 +321,7 @@ exit 0
 #  HERMETIC MEANS THE SCRIPT TOO, not just the registry: this file is COPIED
 #  into the temp tree and the copy is what runs, under a HOME pointed at that
 #  tree. The guard resolves gm from its own location upward, so a copy running
-#  outside any `.gmcc_sandbox` marker lands on `$HOME/gmcc/bin/gm` — the fake
+#  outside any `.gmcc_sandbox` marker lands on `$HOME/gmcc/bin/gmcc_hook` — the fake
 #  — no matter where the real checkout lives or whether it is a snapshot.
 #
 #  Both halves matter and they pull in opposite directions:
@@ -313,12 +342,12 @@ guard_self_test() {
   cat >"$tmp/registry.json" <<'REGISTRY'
 {
   "verbs": [
-    { "gm": "gm review finding-add",  "write": true, "role": "record" },
-    { "gm": "gm explore finding-add", "write": true, "role": "record" },
-    { "gm": "gm file-change add",     "write": true, "role": "record" },
-    { "gm": "gm backup",              "write": true, "role": "record" },
-    { "gm": "gm arch decide",         "write": true, "role": "primary_door" },
-    { "gm": "gm review rank",         "write": true, "role": "primary_door" }
+    { "gm": "gm review finding-add",  "message_type": "REVIEW_FINDING_ADD",  "write": true, "role": "record" },
+    { "gm": "gm explore finding-add", "message_type": "EXPLORE_FINDING_ADD", "write": true, "role": "record" },
+    { "gm": "gm file-change add",     "message_type": "FILE_CHANGE_ADD",     "write": true, "role": "record" },
+    { "gm": "gm backup",              "message_type": "BACKUP",             "write": true, "role": "record" },
+    { "gm": "gm arch decide",         "message_type": "ARCH_DECIDE",         "write": true, "role": "primary_door" },
+    { "gm": "gm review rank",         "message_type": "REVIEW_RANK",         "write": true, "role": "primary_door" }
   ],
   "pen_replacements": {
     "gm review finding-add":  "review_finding_add",
@@ -328,8 +357,8 @@ guard_self_test() {
   "primary_doors": [ "gm arch decide", "gm review rank" ]
 }
 REGISTRY
-  printf '%s\n' '#!/bin/sh' "cat '$tmp/registry.json'" >"$tmp/gmcc/bin/gm"
-  chmod +x "$tmp/gmcc/bin/gm"
+  printf '%s\n' '#!/bin/sh' "cat '$tmp/registry.json'" >"$tmp/gmcc/bin/gmcc_hook"
+  chmod +x "$tmp/gmcc/bin/gmcc_hook"
 
   guard_test_run=0
   guard_test_failed=0
@@ -362,6 +391,21 @@ REGISTRY
       guard_test_failed=$((guard_test_failed + 1))
     fi
   }
+
+  echo "── DENY: the raw passthrough is the same door, renamed ────────────────"
+  # `gmcc_hook call <MESSAGE_TYPE>` reaches every verb the daemon serves. A
+  # guard that only knew the named spellings would leave an agent one obvious
+  # typing away from writing whatever it liked, so the MESSAGE TYPE is matched
+  # against the same generated registry the named half uses.
+  _gt deny  'gmcc_hook call ARCH_DECIDE --json "{}"'
+  _gt deny  'gmcc_hook call REVIEW_FINDING_ADD --json "{}"'
+  _gt deny  '/Users/x/gmcc/bin/gmcc_hook call FILE_CHANGE_ADD --json "{}"'
+  _gt deny  'gmcc_hook call arch_decide --json "{}"'   # case is not a bypass
+  # A type with no write row is not a write — reads stay free.
+  _gt allow 'gmcc_hook call EXPLORE_GET --json "{}"'
+  _gt allow 'gmcc_hook call PING'
+  # And the quoting rules apply here exactly as they do to the named half.
+  _gt allow 'echo "gmcc_hook call ARCH_DECIDE"'
 
   echo "── DENY: real invocations in command position ─────────────────────────"
   _gt deny  'gm review finding-add --summary-uuid S --title T'

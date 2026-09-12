@@ -1,7 +1,9 @@
-import GMCCDaemonKit
 import XCTest
 
-@testable import gm
+// @testable, not a plain import: the hook logic's types are INTERNAL to the kit
+// on purpose — HookRunner is their only production caller — and the tests reach
+// them here rather than the surface being widened to suit them.
+@testable import GMCCDaemonKit
 
 /// The hook family's parsing half, under test because the failure this work
 /// answers was a hook that died on its first line for weeks with nobody

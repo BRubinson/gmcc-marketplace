@@ -30,7 +30,7 @@ gm bot next
 the binary, per variant), the phase's uuid bundle, and the gate blockers for
 the next phase. It REFUSES to advance past unmet gates (the briefing
 hard-stop, the exploration seal, clarification finalize, architecture
-approval) — mechanically, not by prose. `gm prompt set-status` remains the
+approval) — mechanically, not by prose. `mcp__plugin_gmcc_pen__prompt_set_status` remains the
 ONLY door that moves a prompt; the machine names the exact command when a
 status gate is met and never bypasses it.
 
@@ -65,7 +65,7 @@ copy is retired. The clarified intent lives on the CARE PACKAGE.
    (`bot_summary`) and sealing it with `explore_complete`. Findings and key
    files are the agents'; findings stay UNRANKED here — calibration is
    cross-agent and belongs to one reader. When every expected row is
-   complete: `gm prompt set-status --status clarifying` (the primary's door;
+   complete: `mcp__plugin_gmcc_pen__prompt_set_status status: clarifying` (the primary's door;
    it locks content and creates the clarification summary), then the merged
    `gmcc:clarifier` pass.
 3. **clarify_open** — the merged clarifier pass, one reader and one
@@ -86,10 +86,10 @@ copy is retired. The clarified intent lives on the CARE PACKAGE.
    COPIES of ranked findings, never re-explored), then `package-complete
    --intent-file` with the clarified intent (backstory+goal+detail,
    clarified). The intent lives ONLY here. Then `gm clarify finalize` (a
-   pure gate) and `gm prompt set-status --status architecting`.
+   pure gate) and `mcp__plugin_gmcc_pen__prompt_set_status status: architecting`.
 6. **arch_options** (team) — architects hold the OPTION pen: each writes
    its proposal via `mcp__plugin_gmcc_pen__arch_option_add`. Once any
-   option exists, change rows refuse until `gm arch decide` selects one
+   option exists, change rows refuse until `mcp__plugin_gmcc_pen__arch_decide` selects one
    (rejecting siblings, recording the rationale) — decide is a gate verb
    with no pen tool, the primary's door, not an agent write path.
 7. **architecture** — ONLY the selected option (or the solo design) expands
@@ -113,7 +113,7 @@ copy is retired. The clarified intent lives on the CARE PACKAGE.
    `gm arch get` audits progress.
 10. **review** — `set-status reviewing`, `gm review open`, reviewer agents
     pen finding rows, the primary calibrates at its own door
-    (`gm review rank`) and completes with the verdict.
+    (`mcp__plugin_gmcc_pen__review_rank`) and completes with the verdict.
 11. **review_fix** — clarify fix intent with the user; `gm review resolve`
     per finding under 100 (works after complete by design).
 12. **done** — `set-status done` (releases the activation claim, closes the
@@ -128,8 +128,8 @@ Bash is for reading the repo. The rule is enforced at the door — the daemon
 refuses a gate verb by caller role, not by which tool reached for it.
 
 Four verbs are PRIMARY DOORS and belong to the primary alone:
-`gm review rank`, `gm arch decide`, `gm prompt set-status`,
-`gm clarify package-complete`. Alongside them the primary keeps the clarify
+`mcp__plugin_gmcc_pen__review_rank`, `mcp__plugin_gmcc_pen__arch_decide`, `mcp__plugin_gmcc_pen__prompt_set_status`,
+`mcp__plugin_gmcc_pen__care_package_complete`. Alongside them the primary keeps the clarify
 conversation + finalize, arch propose/approve, review complete/verdict and
 resolve, and the phase-opening verbs (`gm briefing open`, `gm review open`,
 `gm clarify package-open`) that have no pen tool by design.

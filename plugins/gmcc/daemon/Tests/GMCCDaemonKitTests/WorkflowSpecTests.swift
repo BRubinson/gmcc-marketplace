@@ -100,15 +100,26 @@ final class WorkflowSpecTests: XCTestCase {
     /// read is anchored on `Tool(` rather than on a bare `name: "` line prefix,
     /// so a params tuple can never be mistaken for a tool.
     private func servedPenTools() throws -> [String] {
-        let source = pluginRoot.appendingPathComponent("daemon/Sources/gmcc_mcp/main.swift")
-        let text = try String(contentsOf: source, encoding: .utf8)
+        // EVERY file in the target, not just main.swift. The roster outgrew one
+        // file when the fast path and the primary doors arrived, and a scan
+        // anchored on a single filename would have reported them as absent while
+        // the binary served them — a parity check that reads the wrong half of
+        // the surface is worse than none.
+        let dir = pluginRoot.appendingPathComponent("daemon/Sources/gmcc_mcp")
+        let files = try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension == "swift" }
+        XCTAssertFalse(files.isEmpty, "no gmcc_mcp sources found — the roster read is broken")
         let pattern = try NSRegularExpression(pattern: #"\bTool\(\s*\n\s*name:\s*"([a-z0-9_]+)""#)
-        let matches = pattern.matches(
-            in: text, range: NSRange(text.startIndex..., in: text))
-        return matches.compactMap { match -> String? in
-            guard let range = Range(match.range(at: 1), in: text) else { return nil }
-            return String(text[range])
+        var found: [String] = []
+        for file in files {
+            let text = try String(contentsOf: file, encoding: .utf8)
+            let matches = pattern.matches(in: text, range: NSRange(text.startIndex..., in: text))
+            found += matches.compactMap { match -> String? in
+                guard let range = Range(match.range(at: 1), in: text) else { return nil }
+                return String(text[range])
+            }
         }
+        return found
     }
 
     /// FULL PARITY, both directions. Roster → registry catches an orphan tool
@@ -322,11 +333,22 @@ final class WorkflowSpecTests: XCTestCase {
             "agent-facing doc teaches a pen-replaced `gm` write:\n" + hits.joined(separator: "\n"))
     }
 
-    /// The four doors keep their `gm` form and are the only gm writes that may
-    /// appear alongside pen-less verbs — and each must actually be reachable
-    /// from the prose, or the primary has no documented way through its own
-    /// gate.
-    func testPrimaryDoorsAreStillNamedForThePrimary() {
+    /// THE DOORS NOW CARRY PEN TOOLS, and each must be reachable from the prose
+    /// or the primary has no documented way through its own gate.
+    ///
+    /// This inverts the rule that stood here before ("a door never carries a pen
+    /// tool"), and the inversion is deliberate. That rule was right while the
+    /// CLI was the primary's surface: withholding the tool made the compliant
+    /// path obvious without pretending to be a boundary. With the CLI deleted it
+    /// becomes a capability hole — these four verbs would be reachable by nobody
+    /// at all, and a bot run could not advance past its own gates.
+    ///
+    /// WHAT STILL ENFORCES IS UNCHANGED, and that is the point: the daemon's
+    /// role gate refuses a `.primaryDoor` verb arriving as `.agent` exactly as
+    /// before. The tool existing does not widen who may walk through it; the MCP
+    /// server picks the primary client only for a call the PreToolUse hook
+    /// attested, and an unattested call is served as an agent.
+    func testPrimaryDoorsCarryPenToolsAndAreNamedForThePrimary() {
         let doors = VerbRegistry.all.filter { $0.role == .primaryDoor }
         XCTAssertEqual(doors.count, 4, "the approved invariant names exactly four doors")
         var everyBlock = ""
@@ -336,10 +358,13 @@ final class WorkflowSpecTests: XCTestCase {
             }
         }
         for door in doors {
-            XCTAssertNil(door.penTool, "\(door.gmInvocation) is a door and must have no pen tool")
+            let pen = try? XCTUnwrap(
+                door.penTool,
+                "\(door.gmInvocation) is a door with no pen tool — with the CLI gone it is reachable by nobody")
+            guard let pen else { continue }
             XCTAssertTrue(
-                names(door.gmInvocation, in: everyBlock),
-                "no instruction block tells the primary to walk `\(door.gmInvocation)`")
+                names("mcp__plugin_gmcc_pen__" + pen, in: everyBlock),
+                "no instruction block tells the primary to walk `\(pen)`")
         }
     }
 

@@ -25,13 +25,21 @@ struct ContextRepository: RepositoryContext {
             try claudeSessionBinding.pin(
                 claudeSessionId: claudeSessionId, sessionUuid: sessionUuid)
         }
+        // Counted AFTER the pin above, so a caller that just bound this session
+        // is told 1 rather than the pre-pin 0 and does not warn about a session
+        // it has this instant made healthy.
+        let bindingCount = try Int.fetchOne(
+            db,
+            sql: "SELECT COUNT(*) FROM claude_session_binding WHERE session_uuid = ?",
+            arguments: [sessionUuid]) ?? 0
         return ContextEnsureResponse(
             projectUuid: projectUuid,
             instanceUuid: instanceUuid,
             sessionUuid: sessionUuid,
             createdProject: createdProject,
             createdInstance: createdInstance,
-            createdSession: createdSession
+            createdSession: createdSession,
+            claudeSessionBindingCount: bindingCount
         )
     }
 

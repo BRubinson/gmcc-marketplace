@@ -1,189 +1,14 @@
-import ArgumentParser
 import Foundation
-import GMCCDaemonKit
 
-/// gm hook post-tool-use|subagent-start — the Claude Code hook surface, in
-/// Swift.
-///
-/// The shell shim that fronts these does three things: resolve the gm binary
-/// from the filesystem, pipe stdin through, and exit 0 if gm is absent. Every
-/// decision past that — decoding the payload, adopting a sandbox, deciding
-/// which paths a tool call wrote, and building the FILE_CHANGE_ADD — happens
-/// here, where `swift test` reaches it. A hook that failed silently for weeks
-/// is what this family exists to answer, and an untestable parser in a shell
-/// script is how that happened.
-///
-/// THE HOOK CONTRACT: never block a tool call, never wedge a spawn, never
-/// write to stderr. Every failure path returns quietly with exit 0. `run()`
-/// therefore does not throw — an ArgumentParser error would print and exit
-/// non-zero, which is exactly the noise a hook may not produce.
-///
-/// RESOLUTION USES TWO PAYLOAD FIELDS AND NOTHING ELSE: `session_id` and
-/// `agent_id`. No environment variable participates, no PATH assumption is
-/// made, and no inherited GMCC_* is read. Everything else in the payload is
-/// captured as DATA — one typed column per field, never a blob.
-struct Hook: ParsableCommand {
-    static let configuration = CommandConfiguration(
-        abstract: "Claude Code hook entry points — the raw payload arrives on stdin.",
-        subcommands: [PostToolUse.self, SubagentStart.self]
-    )
-
-    // MARK: - post-tool-use
-
-    /// Record the file changes one tool call made.
-    ///
-    /// The path set is decided by a NAMED ALLOWLIST of tools, so a hook
-    /// manifest that fires this for something else records nothing rather
-    /// than inventing a change from a `file_path` that was only ever read.
-    struct PostToolUse: ParsableCommand {
-        static let configuration = CommandConfiguration(
-            abstract: "Record what one tool call wrote (Edit/Write/NotebookEdit paths, Bash write allowlist).")
-
-        @Flag(name: .long, help: "Parse, resolve and PRINT the FILE_CHANGE_ADD payloads instead of sending them. No socket, no write — the capture surface is verified through this before any hook script points at it.")
-        var dryRun = false
-
-        func run() {
-            guard let payload = HookPayload.decode(readStdin()), let cwd = payload.cwd else {
-                return
-            }
-            // BEFORE ANY OTHER WORK: Paths.root resolves GMCC_ROOT once per
-            // process, and DaemonClient resolves the socket through it.
-            SandboxMarker.adopt(startingAt: cwd)
-
-            // CHEAPEST QUESTION FIRST. The manifest fires this hook on every
-            // Bash call, and most Bash traffic writes nothing — `ls`, `cat`,
-            // `grep`, `git log`. Deciding whether a payload NAMES a write is
-            // pure string work, while GitContext.detect costs two subprocess
-            // forks, so asking git first makes every read-only command pay to
-            // be told there was nothing to do.
-            guard HookWriteTargets.mayHaveTargets(payload: payload) else { return }
-
-            // Identity comes from the PAYLOAD's cwd. The hook process's own
-            // working directory is not the tool call's, and resolving against
-            // it files the change under whatever repo the hook happened to be
-            // launched in.
-            guard let git = try? GitContext.detect(in: cwd) else { return }
-            let targets = HookWriteTargets.resolve(payload: payload, repoRoot: git.repoRoot)
-            guard !targets.isEmpty else { return }
-
-            let context = ContextBuilder.ensureRequest(for: git)
-            let changes = targets.map { target in
-                FileChangeAdd(
-                    project: context.project,
-                    instance: context.instance,
-                    session: context.session,
-                    relativePath: target.relativePath,
-                    changeKind: target.changeKind,
-                    ranges: target.ranges,
-                    // The daemon resolves the prompt from the binding this
-                    // payload's session_id names. There is no clientKey to
-                    // send: the field does not exist, which is what makes the
-                    // split from the activation ladder structural.
-                    autoAttribute: true,
-                    agentId: payload.agentId,
-                    origin: target.origin,
-                    claudeSessionId: payload.sessionId,
-                    claudeTurnId: payload.claudeTurnId,
-                    toolUseId: payload.toolUseId,
-                    toolName: payload.toolName,
-                    agentType: payload.agentType,
-                    permissionMode: payload.permissionMode,
-                    durationMs: payload.durationMs,
-                    transcriptPath: payload.transcriptPath)
-            }
-
-            if dryRun {
-                printJSON(HookDryRun(
-                    event: payload.hookEventName ?? "PostToolUse",
-                    repoRoot: git.repoRoot,
-                    gmccRoot: Paths.root.path,
-                    changes: changes))
-                return
-            }
-            // Per-change `try?`: one refused path must not cost the others
-            // their row, and a refusal is already durable daemon-side (the
-            // unbound write appends its own event). A dead daemon loses the
-            // write — with one capture method there is no net under it.
-            _ = try? withClient { client in
-                for change in changes { _ = try? client.addFileChange(change) }
-            }
-        }
-    }
-
-    // MARK: - subagent-start
-
-    /// Register the spawned agent's IDENTITY half and hand it its context.
-    ///
-    /// Registration here is what makes agent_id mean something: every spawn
-    /// shape fires SubagentStart carrying agent_id, so this beats the agent to
-    /// any write it could make. The spawner's `gm agent register` merges the
-    /// authority half onto the same row whenever it gets to it.
-    struct SubagentStart: ParsableCommand {
-        static let configuration = CommandConfiguration(
-            abstract: "Register a spawned agent's identity and emit its SubagentStart context.")
-
-        @Flag(name: .long, help: "Parse and PRINT the registration that would be written, without writing it or fetching context.")
-        var dryRun = false
-
-        func run() {
-            guard let payload = HookPayload.decode(readStdin()), let cwd = payload.cwd else {
-                return
-            }
-            SandboxMarker.adopt(startingAt: cwd)
-
-            // The gmcc session and prompt are NOT resolved here. The daemon
-            // derives both from claude_session_id through the binding, so a
-            // registration and a file_change can never disagree about which
-            // session a conversation belongs to.
-            let registration = payload.agentId.map { agentId in
-                AgentRegisterRequest(
-                    agentId: agentId,
-                    agentType: payload.agentType,
-                    claudeSessionId: payload.sessionId,
-                    claudeTurnId: payload.claudeTurnId)
-            }
-            if dryRun {
-                printJSON(SubagentStartDryRun(
-                    event: payload.hookEventName ?? "SubagentStart",
-                    gmccRoot: Paths.root.path,
-                    registration: registration))
-                return
-            }
-
-            var stub = ""
-            _ = try? withClient { client in
-                if let registration { _ = try? client.agentRegister(registration) }
-                // cwd → session resolution is client-side; no session is a
-                // silent empty stub, never an error.
-                if let sessionUuid = try? ContextBuilder.resolveSessionUuid(client) {
-                    stub = (try? client.briefingStub(BriefingStubRequest(
-                        agentType: payload.agentType,
-                        sessionUuid: sessionUuid,
-                        clientKey: ClientKey.resolve())).stub) ?? ""
-                }
-            }
-
-            var context = Cheatsheet.coreText
-            if !stub.isEmpty { context += "\n\n" + stub }
-            emitAdditionalContext(context)
-        }
-
-        /// Claude Code's hook response shape, whose keys are camelCase — so
-        /// it is built with JSONSerialization rather than through WireCodec,
-        /// which snake_cases everything it touches.
-        private func emitAdditionalContext(_ context: String) {
-            let response: [String: Any] = [
-                "hookSpecificOutput": [
-                    "hookEventName": "SubagentStart",
-                    "additionalContext": context,
-                ],
-            ]
-            guard let data = try? JSONSerialization.data(withJSONObject: response),
-                  let line = String(data: data, encoding: .utf8) else { return }
-            print(line)
-        }
-    }
-}
+// Hoisted VERBATIM out of Sources/gm/Commands/Hook.swift. This block is the
+// parser-free half of the hook surface — payload decoding, sandbox adoption,
+// write-target resolution, and the Bash command scanner — and it moved to the
+// kit so both the shell client and anything else that must speak the hook
+// contract share ONE implementation. Two copies of a write-path scanner drift
+// apart in exactly the way that makes capture silently stop capturing.
+//
+// Types stay INTERNAL: HookRunner (same module) is the only caller that needs
+// them, and the tests reach them through @testable import GMCCDaemonKit.
 
 // MARK: - Dry-run reports
 
@@ -223,8 +48,12 @@ private func readStdin() -> Data {
 /// Keys are spelled out literally instead of going through a key strategy:
 /// the top level is snake_case and `structuredPatch` inside `tool_response` is
 /// camelCase, and no single strategy reads both.
-struct HookPayload: Equatable {
-    let sessionId: String?
+/// PUBLIC ONLY WHERE A FRONT-END GENUINELY NEEDS IT. `decode` and `sessionId`
+/// are exposed because SessionStart's context-ensure rides the same payload and
+/// must read the conversation id out of it; everything else stays internal, so
+/// the kit's hook surface cannot be reached around through its own data types.
+public struct HookPayload: Equatable {
+    public let sessionId: String?
     let hookEventName: String?
     let cwd: String?
     let transcriptPath: String?
@@ -249,7 +78,7 @@ struct HookPayload: Equatable {
     let command: String?
     let structuredPatch: [StructuredPatchHunk]
 
-    static func decode(_ data: Data) -> HookPayload? {
+    public static func decode(_ data: Data) -> HookPayload? {
         guard !data.isEmpty,
               let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
         else { return nil }

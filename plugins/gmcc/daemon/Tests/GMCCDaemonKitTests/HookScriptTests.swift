@@ -78,7 +78,7 @@ final class HookScriptTests: XCTestCase {
 
     /// Copy a shipped hook script into the temp tree at `<relativeDir>/<name>`.
     /// Nothing above a temp directory carries a `.gmcc_sandbox` marker, so a
-    /// copy placed here resolves to `$HOME/gmcc/bin/gm` unless the test puts a
+    /// copy placed here resolves to `$HOME/gmcc/bin/gmcc_hook` unless the test puts a
     /// marker there on purpose.
     private func install(
         _ name: String, into sandbox: Sandbox, at relativeDir: String = "plugin/scripts"
@@ -158,7 +158,7 @@ final class HookScriptTests: XCTestCase {
     func testPostToolUsePayloadReachesGmWithNoInheritedEnvironment() throws {
         let sandbox = try Sandbox()
         let script = try install("gmcc_hook.sh", into: sandbox)
-        try installFakeGm(in: sandbox, at: "gmcc/bin/gm", recordDir: "rec")
+        try installFakeGm(in: sandbox, at: "gmcc/bin/gmcc_hook", recordDir: "rec")
 
         let result = try run(
             script, ["post-tool-use"], stdin: postToolUsePayload, home: sandbox.root)
@@ -173,7 +173,7 @@ final class HookScriptTests: XCTestCase {
     func testSubagentStartPayloadReachesGmWithNoInheritedEnvironment() throws {
         let sandbox = try Sandbox()
         let script = try install("gmcc_hook.sh", into: sandbox)
-        try installFakeGm(in: sandbox, at: "gmcc/bin/gm", recordDir: "rec")
+        try installFakeGm(in: sandbox, at: "gmcc/bin/gmcc_hook", recordDir: "rec")
         let payload = """
         {"session_id":"6d3f1a90-hook-test","hook_event_name":"SubagentStart",\
         "cwd":"/Users/nobody/repo","agent_id":"agent-1","agent_type":"gmcc:code-explorer"}
@@ -208,7 +208,7 @@ final class HookScriptTests: XCTestCase {
     func testMissingEventArgumentRunsNothing() throws {
         let sandbox = try Sandbox()
         let script = try install("gmcc_hook.sh", into: sandbox)
-        try installFakeGm(in: sandbox, at: "gmcc/bin/gm", recordDir: "rec")
+        try installFakeGm(in: sandbox, at: "gmcc/bin/gmcc_hook", recordDir: "rec")
 
         let result = try run(script, [], stdin: postToolUsePayload, home: sandbox.root)
 
@@ -237,8 +237,8 @@ final class HookScriptTests: XCTestCase {
             "gmcc_hook.sh", into: sandbox, at: "snapshot/repo/plugins/gmcc/scripts")
         // The prod-shaped binary is present too: this test fails if the walk
         // is skipped, not merely if it finds nothing.
-        try installFakeGm(in: sandbox, at: "gmcc/bin/gm", recordDir: "rec-prod")
-        try installFakeGm(in: sandbox, at: "snapshot/runtime/bin/gm", recordDir: "rec-snapshot")
+        try installFakeGm(in: sandbox, at: "gmcc/bin/gmcc_hook", recordDir: "rec-prod")
+        try installFakeGm(in: sandbox, at: "snapshot/runtime/bin/gmcc_hook", recordDir: "rec-snapshot")
 
         let result = try run(
             script, ["post-tool-use"], stdin: postToolUsePayload, home: sandbox.root)
@@ -297,10 +297,10 @@ final class HookScriptTests: XCTestCase {
         }
         let script = try install("gmcc_gm_write_guard.sh", into: sandbox)
         let registry = """
-        {"verbs":[{"gm":"gm review finding-add","write":true,"role":"record"}],\
+        {"verbs":[{"gm":"gm review finding-add","message_type":"REVIEW_FINDING_ADD","write":true,"role":"record"}],\
         "pen_replacements":{"gm review finding-add":"review_finding_add"},"primary_doors":[]}
         """
-        try installFakeGm(in: sandbox, at: "gmcc/bin/gm", recordDir: "rec", stdout: registry)
+        try installFakeGm(in: sandbox, at: "gmcc/bin/gmcc_hook", recordDir: "rec", stdout: registry)
         let payload = """
         {"session_id":"6d3f1a90-hook-test","agent_id":"aconservative-d32a81b4b9dfa222",\
         "agent_type":"gmcc:architect","tool_input":{"command":"gm review finding-add --title T"}}
@@ -326,8 +326,8 @@ final class HookScriptTests: XCTestCase {
         }
         let script = try install("gmcc_gm_write_guard.sh", into: sandbox)
         try installFakeGm(
-            in: sandbox, at: "gmcc/bin/gm", recordDir: "rec",
-            stdout: #"{"verbs":[{"gm":"gm review finding-add","write":true,"role":"record"}]}"#)
+            in: sandbox, at: "gmcc/bin/gmcc_hook", recordDir: "rec",
+            stdout: #"{"verbs":[{"gm":"gm review finding-add","message_type":"REVIEW_FINDING_ADD","write":true,"role":"record"}]}"#)
         let payload = """
         {"session_id":"6d3f1a90-hook-test",\
         "tool_input":{"command":"gm review finding-add --title T"}}
