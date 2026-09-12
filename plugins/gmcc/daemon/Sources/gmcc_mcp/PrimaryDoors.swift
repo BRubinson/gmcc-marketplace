@@ -1,26 +1,16 @@
 import Foundation
 import GMCCDaemonKit
 
-/// The four gate doors, as pen tools.
+/// The four tools that ADVANCE the workflow: move a prompt, decide among
+/// architecture options, apply the calibrated review rank, seal the care
+/// package.
 ///
-/// WHY THESE EXIST NOW, HAVING DELIBERATELY NOT EXISTED BEFORE. The old rule was
-/// "a door never carries a pen tool", and it was right while the CLI was the
-/// primary's surface: withholding the tool made the compliant path obvious
-/// without pretending to be a boundary. With the CLI gone the same rule becomes
-/// a capability hole — these four verbs would be reachable by nobody at all, and
-/// a bot run could not advance past its own gates.
-///
-/// WHAT ACTUALLY ENFORCES. Not this file. Each tool is marked
-/// `audience: .primaryDoor`, which only selects WHICH client forwards the call;
-/// the daemon's `VerbRegistry` check is still the boundary, and it refuses a
-/// `.primaryDoor` verb arriving with caller role `.agent` exactly as before. An
-/// agent that calls one of these is served by the agent client and refused —
-/// the same answer it got when the tool did not exist, but now with a reason
-/// attached instead of a missing name.
-///
-/// THE ROLE IS NOT SELF-REPORTED. `clientFor` reads the attestation the
-/// PreToolUse hook stamped from the harness's own payload, never an argument the
-/// caller chose to send. An unstamped call is served as an agent.
+/// THEY ARE ORDINARY PEN TOOLS. Nothing here refuses anyone — the four are
+/// served by the same client as every other tool. What reserves them for the
+/// primary is METHODOLOGY, not policy: cross-agent calibration and the choice
+/// among options belong to one reader, and that is stated in the pen sheet and
+/// in each agent's own definition. A persona that finds one of these in its
+/// tool list may use it; a persona that does not, reports it is ready for one.
 func makePrimaryDoorTools() -> [Tool] { [
 
     Tool(
@@ -36,7 +26,6 @@ func makePrimaryDoorTools() -> [Tool] { [
             ("expected_version", "number", "The prompt version this write is based on", true),
             ("status", "string", "clarifying | architecting | implementing | reviewing | done", true),
         ],
-        audience: .primaryDoor,
         run: { args, client in
             let raw = try args.string("status")
             guard let status = PromptStatus(rawValue: raw) else {
@@ -62,7 +51,6 @@ func makePrimaryDoorTools() -> [Tool] { [
             ("expected_version", "number", "That option's version", true),
             ("rationale", "string", "Why this option won, and what the rejected siblings contribute", true),
         ],
-        audience: .primaryDoor,
         run: { args, client in
             try client.archDecide(ArchDecideRequest(
                 optionUuid: try args.string("option_uuid"),
@@ -82,7 +70,6 @@ func makePrimaryDoorTools() -> [Tool] { [
             ("summary_uuid", "string", "The review summary being ranked", true),
             ("ratings", "array", "Entries shaped {finding_uuid, rating} — as JSON objects, one per finding", true),
         ],
-        audience: .primaryDoor,
         run: { args, client in
             guard case let .array(items)? = args.json["ratings"] else {
                 throw ToolError(message: "ratings must be an array of {finding_uuid, rating}")
@@ -113,7 +100,6 @@ func makePrimaryDoorTools() -> [Tool] { [
             ("expected_version", "number", "The package version this write is based on", true),
             ("clarified_intent", "string", "The decided intent, in full — what was chosen, and what was ruled out and why", true),
         ],
-        audience: .primaryDoor,
         run: { args, client in
             try client.carePackageComplete(CarePackageCompleteRequest(
                 packageUuid: try args.string("package_uuid"),

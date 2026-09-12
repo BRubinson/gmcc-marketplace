@@ -1,9 +1,9 @@
 ---
 name: gm_bot_rpi
-description: Subagent GMCC workflow (variant rpi). One general-persona subagent per phase adopts every methodology's goals at once; up to 2 implementation subagents; care package instead of the retired pre-architecture briefing.
+description: Subagent GMCC workflow (variant rpi). One general-persona subagent per phase adopts every methodology's goals at once; up to 2 implementation subagents; the care package carries clarified intent into architecture.
 argument-hint: <prompt-name|seq> <task/prompt content>
 disable-model-invocation: true
-allowed-tools: Bash(gm:*)
+allowed-tools: Bash(gmcc_hook:*)
 ---
 
 # GM-CDE Bot RPI (variant: rpi)
@@ -57,6 +57,6 @@ Same as /gm_bot (resume by seq / create by slug — STAY TRUE), with
   (general); you complete with the verdict and run the fix loop; done.
 
 Spawn prompts carry ONLY: the methodology (`general`), the summary uuid
-where the def asks for one, and the one-line target. Teammate-style pastes
-of cheatsheets or briefings are forbidden — agents pull their own context
-through the pen tools.
+where the def asks for one, and the one-line target. Do not paste briefings
+or dope dumps into a spawn prompt — agents pull their own context through
+the pen tools.

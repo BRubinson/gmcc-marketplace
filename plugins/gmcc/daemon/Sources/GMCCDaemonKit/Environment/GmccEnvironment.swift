@@ -1,7 +1,7 @@
 import Foundation
 
 /// Single home for the SessionStart env contract: the emitted line set, the
-/// bare-`gm` resolution rule, the installable shim text, and the env-vs-db
+/// PATH resolution rule, the installable shim text, and the env-vs-db
 /// consistency check. Kit-level so GMVibes can adopt the same resolution
 /// without a second implementation.
 ///
@@ -56,7 +56,8 @@ public enum GmccEnvironment {
         // GMCC_ROOT is a passthrough, not a computation: the SessionStart hook
         // parsed it from .gmcc_sandbox and Paths.root already resolved against
         // it. Emitting it is the split-brain fix — without this line the
-        // session believes it is sandboxed while in-session gm drives prod.
+        // session believes it is sandboxed while its in-session clients
+        // drive prod.
         if let root = ProcessInfo.processInfo.environment["GMCC_ROOT"], !root.isEmpty {
             pairs.append(("GMCC_ROOT", root))
         }
@@ -74,8 +75,8 @@ public enum GmccEnvironment {
 
     /// This runtime's bin first, deduped: prepend `Paths.bin` and drop any
     /// other component that already points at it, so re-boots are idempotent
-    /// and a sandbox session can never resolve bare `gm` to the prod binary
-    /// through a stale leading entry.
+    /// and a sandbox session can never resolve a bare binary name to the prod
+    /// build through a stale leading entry.
     public static func pathValue(current: String) -> String {
         let mine = Paths.bin.path
         let survivors = current
@@ -95,14 +96,15 @@ public enum GmccEnvironment {
                != URL(fileURLWithPath: paths.ckfsRoot).standardizedFileURL.path {
             findings.append(Finding(code: "ckfs_root_mismatch", message:
                 "[GMB] WARN: ckfs_root disagreement — env \(claimed) vs db \(paths.ckfsRoot). "
-                + "In a sandbox: gm sandbox refresh. In prod: gm config set --key ckfs_root --value <correct>."))
+                + "In a sandbox: gmcc_hook sandbox refresh. In prod: gmcc_hook call CONFIG_SET "
+                + "--json '{\"key\":\"ckfs_root\",\"value\":\"<correct>\"}'."))
         }
         if let claimed = env["GMCC_ROOT"], !claimed.isEmpty,
            URL(fileURLWithPath: claimed).standardizedFileURL.path
                != URL(fileURLWithPath: paths.gmccRoot).standardizedFileURL.path {
             findings.append(Finding(code: "gmcc_root_mismatch", message:
                 "[GMB] WARN: gmcc_root disagreement — env \(claimed) vs daemon \(paths.gmccRoot). "
-                + "The daemon answering this socket lives elsewhere; re-run gm sandbox refresh."))
+                + "The daemon answering this socket lives elsewhere; re-run gmcc_hook sandbox refresh."))
         }
         return findings
     }
@@ -112,9 +114,9 @@ public enum GmccEnvironment {
     /// SessionStart hook set GMCC_ROOT.
     public static let shimScript = """
         #!/bin/sh
-        # GMCC gm resolver — installed by `gm setup --install-path`. Do not edit.
+        # GMCC client resolver. Do not edit.
         # Resolves at call time so one install serves prod and every sandbox
         # generation; sandbox launchers and the SessionStart hook set GMCC_ROOT.
-        exec "${GMCC_ROOT:-$HOME/gmcc}/bin/gm" "$@"
+        exec "${GMCC_ROOT:-$HOME/gmcc}/bin/gmcc_hook" "$@"
         """
 }

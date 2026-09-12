@@ -334,15 +334,14 @@ final class BriefingTests: XCTestCase {
 
     /// The other half of the incident: the same briefing carried zero kbite
     /// refs and zero file-change refs, indistinguishable from having looked
-    /// and found nothing. `[]` is a real answer; ABSENT is not one, and an
-    /// agent caller no longer gets to give it.
-    func testAgentCallerMustNameEveryRefClassButEmptyIsAnAnswer() throws {
+    /// and found nothing. `[]` is a real answer; ABSENT is not one, and no
+    /// caller gets to give it.
+    func testEveryRefClassMustBeNamedButEmptyIsAnAnswer() throws {
         // Absent classes: refused, and the refusal NAMES each one.
         XCTAssertThrowsError(
             try BriefingCompletenessRule.check(
                 BriefingCompleteRequest(
-                    briefingUuid: "b", expectedVersion: 0, dopeRefs: ["a.b"]),
-                callerRole: .agent)
+                    briefingUuid: "b", expectedVersion: 0, dopeRefs: ["a.b"]))
         ) { error in
             guard case StoreError.badRequest(let detail) = error else {
                 return XCTFail("expected badRequest, got \(error)")
@@ -357,14 +356,7 @@ final class BriefingTests: XCTestCase {
         XCTAssertNoThrow(try BriefingCompletenessRule.check(
             BriefingCompleteRequest(
                 briefingUuid: "b", expectedVersion: 0,
-                dopeRefs: ["a.b"], kbiteRefs: [], fileChangeRefs: []),
-            callerRole: .agent))
-
-        // The primary is not the caller this rule is about: its CLI cannot
-        // spell "absent" in the first place.
-        XCTAssertNoThrow(try BriefingCompletenessRule.check(
-            BriefingCompleteRequest(briefingUuid: "b", expectedVersion: 0),
-            callerRole: .primary))
+                dopeRefs: ["a.b"], kbiteRefs: [], fileChangeRefs: [])))
     }
 
     /// Opportunity O2 — the JSON-args layer the repository tests never touch.
@@ -387,21 +379,20 @@ final class BriefingTests: XCTestCase {
             """)
         XCTAssertEqual(empty.kbiteRefs, [])
         XCTAssertEqual(empty.fileChangeRefs, [])
-        XCTAssertNoThrow(try BriefingCompletenessRule.check(empty, callerRole: .agent))
+        XCTAssertNoThrow(try BriefingCompletenessRule.check(empty))
 
         let absent = try decode("""
             {"briefing_uuid": "b", "expected_version": 0, "dope_refs": ["a.b"]}
             """)
         XCTAssertNil(absent.kbiteRefs)
         XCTAssertNil(absent.fileChangeRefs)
-        XCTAssertThrowsError(try BriefingCompletenessRule.check(absent, callerRole: .agent))
+        XCTAssertThrowsError(try BriefingCompletenessRule.check(absent))
 
         // And the round trip an agent's payload actually makes: [] must
-        // survive encoding, or the door would refuse a compliant caller.
+        // survive encoding, or the rule would refuse a compliant caller.
         let wire = String(decoding: try WireCodec.encoder.encode(empty), as: UTF8.self)
         XCTAssertTrue(wire.contains("\"kbite_refs\":[]"), wire)
-        XCTAssertNoThrow(try BriefingCompletenessRule.check(
-            try decode(wire), callerRole: .agent))
+        XCTAssertNoThrow(try BriefingCompletenessRule.check(try decode(wire)))
     }
 
     // MARK: - The six-line ensureSummary hole
@@ -555,7 +546,7 @@ final class BriefingTests: XCTestCase {
             agentType: "gmcc:code-explorer", sessionUuid: "sess-1", clientKey: "test-instance-one"))
         XCTAssertTrue(stub.stub.contains("active_prompt_uuid: prompt-a"))
         XCTAssertTrue(stub.stub.contains(open.briefing.uuid))
-        XCTAssertTrue(stub.stub.contains("gm briefing get --briefing-uuid"))
+        XCTAssertTrue(stub.stub.contains("mcp__plugin_gmcc_pen__briefing_get"))
         XCTAssertLessThanOrEqual(stub.stub.utf8.count, 2048)
         // A role with no mapped step still gets the uuid block, no briefing line.
         let reranker = try store.briefingStub(BriefingStubRequest(

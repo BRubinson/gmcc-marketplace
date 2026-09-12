@@ -8,12 +8,12 @@ allowed-tools: Read, Write, Bash, Glob, Grep
 
 # /gm_crunch_digest {kbite_name}
 
-Finalizes a kbite: one `gm kbite digest` call imports every chewed analysis
+Finalizes a kbite: one KBITE_DIGEST call imports every chewed analysis
 into the daemon db (the canonical home for digested text, keywords, and
 search), then the raw source folders are archived under
 `{kbite_digested_root}/{kbite_name}/` and the open maw is deleted
 (kbite_root / kbite_open_root / kbite_digested_root come from
-`gm paths --json`).
+`gmcc_hook paths --json`).
 
 ---
 
@@ -28,7 +28,7 @@ To fix: Restart Claude Code from within a git repository.
 ```
 Exit without proceeding.
 
-1. Resolve the kbite roots from `gm paths --json` (kbite_root,
+1. Resolve the kbite roots from `gmcc_hook paths --json` (kbite_root,
    kbite_open_root, kbite_digested_root)
 2. Verify maw exists at `{kbite_open_root}/{kbite_name}/`
 3. Read MAW_INDEX.md - verify status is "ready_to_digest" or has chewed resources
@@ -77,11 +77,12 @@ Per the **gmcc_kbite** skill:
 
 **Destination:**
 - **Daemon db** (canonical): resources, per-file summaries + inline text
-  content, keywords, FTS5 search — written by `gm kbite digest`, read back
-  via `gm kbite get / file-get / search`.
+  content, keywords, FTS5 search — written by KBITE_DIGEST, read back via
+  KBITE_GET and the `mcp__plugin_gmcc_pen__kbite_search` /
+  `kbite_file_get` pen tools.
 - **`{kbite_digested_root}/{kbite_name}/`** (raw-source archive): the raw
   source folders, moved there client-side after the db import. No
-  KBITE_INDEX.md is generated — `gm kbite get` is the index.
+  KBITE_INDEX.md is generated — KBITE_GET is the index.
 - **`{kbite_root}/{kbite_name}/`** (identity): KBITE_PURPOSE.md and, if
   relationships exist, KBITE_RELATIONSHIPS.md (managed by `/gm_kbite_relate`).
 
@@ -103,7 +104,7 @@ keyword rows (full text inlined for text-type files), then deletes the
 chewed `.md` files after the transaction commits:
 
 ```bash
-gm kbite digest --code {kbite_name} --json
+gmcc_hook call KBITE_DIGEST --json '{"code":"{kbite_name}","kbite_open_path":"{kbite_open_root}/{kbite_name}"}'
 ```
 
 The response reports `resource_count`, `file_count`, `keyword_count`, and
@@ -113,7 +114,7 @@ The response reports `resource_count`, `file_count`, `keyword_count`, and
 
 Move the raw source folders from the maw into the digested archive
 (client-side — the daemon never moves raw sources; substitute the
-kbite_open_root / kbite_digested_root values from `gm paths --json`):
+kbite_open_root / kbite_digested_root values from `gmcc_hook paths --json`):
 
 ```bash
 for axis1 in primary secondary; do
@@ -137,7 +138,7 @@ rm -rf "{kbite_open_root}/{kbite_name}"
 ### Step 5: Verify
 
 ```bash
-gm kbite get --code {kbite_name} --json
+gmcc_hook call KBITE_GET --json '{"code":"{kbite_name}"}'
 ```
 
 Confirm the resource/file/keyword counts match Step 2's response.
@@ -149,7 +150,7 @@ Confirm the resource/file/keyword counts match Step 2's response.
 ```
 Digest Complete: {kbite_name}
 
-**Canonical knowledge**: daemon db (gm kbite get/search/file-get)
+**Canonical knowledge**: daemon db (KBITE_GET; kbite_search / kbite_file_get)
 **Raw-source archive**: {kbite_digested_root}/{kbite_name}/
 
 ## Digest Summary
@@ -167,7 +168,8 @@ The open maw at `{kbite_open_root}/{kbite_name}/` has been deleted.
 
 ## Next Steps
 
-1. Query: `gm kbite search "<topic>"` then `gm kbite file-get --file-uuid U`
+1. Query: `mcp__plugin_gmcc_pen__kbite_search` then
+   `mcp__plugin_gmcc_pen__kbite_file_get`
 2. Add relationships with `/gm_kbite_relate {kbite_name} {other_kbite} {description}`
 ```
 
@@ -189,11 +191,11 @@ Run /gm_crunch_open_maw {kbite_name} and /gm_crunch_chew {kbite_name} first.
 Run /gm_crunch_chew {kbite_name} to process crunchables.
 ```
 
-**Digest failure (gm exits non-zero):**
+**Digest failure (the call exits non-zero):**
 ```
-[GMB] Error: gm kbite digest failed
+[GMB] Error: KBITE_DIGEST failed
 
-{gm stderr}
+{gmcc_hook stderr}
 
 Nothing was deleted — the db transaction rolled back and chewed files are
 only removed after a successful commit. Fix the issue and re-run

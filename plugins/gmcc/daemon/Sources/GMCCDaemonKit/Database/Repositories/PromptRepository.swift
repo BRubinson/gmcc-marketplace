@@ -160,8 +160,8 @@ struct PromptRepository: RepositoryContext {
     ///   architecting → implementing: requires the architecture approved
     /// Legacy (pre-m0002) prompts bypass absent-backing-row gates AND skip
     /// create-on-enter — creating a summary for one would wedge it a state
-    /// later. They walk all six states on their ckfs artifacts; gm clarify
-    /// open is the explicit adoption path.
+    /// later. They walk all six states on their ckfs artifacts; CLARIFY_OPEN
+    /// is the explicit adoption path.
     func setStatus(_ req: PromptSetStatusRequest) throws -> PromptRow {
         guard let head = try Row.fetchOne(
             db, sql: "SELECT status, created_at, session_uuid FROM prompt WHERE uuid = ?",

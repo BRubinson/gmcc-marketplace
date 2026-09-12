@@ -428,8 +428,8 @@ public enum Migrations {
             // Step 3 — seed daemon_config with the layout defaults ($HOME
             // conventions, matching gmcc_session_startup.sh). CONFIG_SET is the write
             // door for a differing layout; the daemon never reads $GMCC_* env
-            // vars (its environment is a posix_spawn snapshot of whichever gm
-            // invocation autostarted it).
+            // vars (its environment is a posix_spawn snapshot of whichever
+            // client invocation autostarted it).
             let home = NSHomeDirectory()
             let now = Store.isoNow()
             for (key, value) in [
@@ -1225,7 +1225,7 @@ public enum Migrations {
         // the FKs below it. project_uuid is ALWAYS NOT NULL.
         //
         // dope bindings are TEXT codes, deliberately NOT SQL FKs into the
-        // dope tables: gm dope ingest wipes and re-mints every child uuid, so
+        // dope tables: DOPE_INGEST wipes and re-mints every child uuid, so
         // a uuid FK would dangle after one round-trip edit. Dangling codes
         // are a LEGAL renderable state (ghost cards) — diagram tables never
         // join requireNoExternalReferrers, so a picture can never block
@@ -2587,7 +2587,7 @@ public enum Migrations {
 
                 -- The activation registry. NOT a single pointer on the
                 -- session row: several Claude Code instances routinely run
-                -- DIFFERENT prompts on the same gm session at once, and a
+                -- DIFFERENT prompts on the same GMCC session at once, and a
                 -- last-writer-wins column would let the second instance steal
                 -- the first's attribution. One row per running instance
                 -- (client_key = the caller's nearest claude-ancestor process
@@ -2706,7 +2706,7 @@ public enum Migrations {
             )
         }
 
-        // m0025 — Dynamic workflows train. PRECONDITION: gm backup.
+        // m0025 — Dynamic workflows train. PRECONDITION: a BACKUP.
         //
         // One train, not five: later slices build against final shapes.
         // Rebuilds use the m0005 create-copy-drop-rename grammar; every
@@ -3280,7 +3280,7 @@ public enum Migrations {
             )
         }
 
-        // m0026 — Session-bound hook attribution. PRECONDITION: gm backup.
+        // m0026 — Session-bound hook attribution. PRECONDITION: a BACKUP.
         //
         // One attribution path, resolved from the PostToolUse payload plus
         // the db. claude_session_binding maps Claude Code's conversation uuid
@@ -3330,7 +3330,7 @@ public enum Migrations {
             // ---- agent_registration: identity for an opaque agent_id.
             // Two writers merge into ONE row per agent: the SubagentStart
             // hook writes IDENTITY (agent_id, agent_type, claude ids, the
-            // resolved session), `gm agent register` writes AUTHORITY (role,
+            // resolved session), AGENT_REGISTER writes AUTHORITY (role,
             // methodology, workflow_phase). The join happens at READ time, so
             // ordering is not a constraint — a spawner that only learns agent
             // ids when a dynamic workflow reports back registers late and

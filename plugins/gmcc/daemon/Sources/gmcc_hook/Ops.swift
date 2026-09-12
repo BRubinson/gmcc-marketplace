@@ -9,7 +9,6 @@ callers that cannot: a shell hook, and a person at a terminal.
 
   hook post-tool-use [--dry-run]     record what one tool call wrote
   hook subagent-start [--dry-run]    register a spawned agent, emit its context
-  hook pen-attest                    stamp who is calling a pen tool
 
   context ensure [--hook-payload]    provision project/instance/session from $PWD + branch
   context env [--plugin-root P]      emit the session env block
@@ -17,7 +16,7 @@ callers that cannot: a shell hook, and a person at a terminal.
                                      scripts/build_daemon.sh — never a connect path.
   paths [--json]                     resolved runtime roots
   status | ping | doctor | backup    health and safety
-  verbs [--json] [--writes-only]     the verb ledger (the write guard reads this)
+  verbs [--json] [--writes-only]     the verb catalogue: MessageType, pen tool, read/write
   sandbox refresh|status             snapshot dev environment
 
   call <MESSAGE_TYPE> [--json '<payload>' | --json-file <path>]

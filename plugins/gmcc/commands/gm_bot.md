@@ -3,7 +3,7 @@ name: gm_bot
 description: Lightweight GMCC workflow (variant bot). Authors a prompt into the current session, enters the daemon's workflow machine, and runs every phase in primary context — the only spawn is the haiku doper briefing.
 argument-hint: <prompt-name|seq> <task/prompt content>
 disable-model-invocation: true
-allowed-tools: Bash(gm:*)
+allowed-tools: Bash(gmcc_hook:*)
 ---
 
 # GM-CDE Bot (variant: bot)
@@ -66,8 +66,9 @@ will look like it worked.
   `general` summary (`mcp__plugin_gmcc_pen__bot_summary --agent-type
   general`), pen the finding rows yourself, complete it. The pen is loaded
   for you too — running the phase in the primary's own context is no reason
-  to reach for the CLI. What the pen withholds from the primary is the gate
-  doors, refused per-verb by role; the read and record verbs are yours.
+  to record it any other way. Every read and every write this variant needs
+  is a pen tool, the primary's four included: you are the one reader here,
+  so the rank, the decide, the seals and the status moves are yours to make.
 - Clarification: you run the merged clarifier pass in context — rank
   prompt-wide from your own self-ratings, open + complete the `synthesis`
   summary, author the questions/notes, seal, run the user conversation
@@ -80,5 +81,5 @@ will look like it worked.
   alone), review in context against your general review summary, complete
   with a verdict, run the fix loop, set-status done.
 
-Every step's exact commands come from `gm bot next` — trust the machine,
-never skip its gate blockers.
+Every step's exact commands come from `mcp__plugin_gmcc_pen__bot_next` —
+trust the machine, never skip its gate blockers.

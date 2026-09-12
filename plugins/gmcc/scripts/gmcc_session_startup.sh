@@ -1,10 +1,10 @@
 #!/bin/bash
 
 # GM-CDE SessionStart bootstrap. Four jobs only: confirm we're in a git repo,
-# find the plugin root, find the right gm binary, and hand the hook payload on
-# stdin to `gm context ensure`. Everything else — identity, paths, env
-# emission, the artifact home, dope boot sync, the cheatsheet — is owned by
-# the gm binary (`gm context ensure` + `gm context env`). This script computes
+# find the right gmcc_hook binary, and hand the hook payload on stdin to
+# `gmcc_hook context ensure`. Everything else — identity, paths, env
+# emission, the artifact home, dope boot sync, the pen sheet — is owned by
+# that binary (`context ensure` + `context env`). This script computes
 # NOTHING the daemon computes, and it does not read the payload: the session
 # uuid inside it is sliced out in Swift, so no jq is on this path either.
 #
@@ -16,7 +16,7 @@ if ! git rev-parse --git-dir > /dev/null 2>&1; then
 fi
 
 # --- 0b. The hook payload ---------------------------------------------------
-# Held verbatim and piped into `gm context ensure --hook-payload`, which pins
+# Held verbatim and piped into `gmcc_hook context ensure --hook-payload`, which pins
 # its session_id to the ensured session in claude_session_binding. That
 # binding is what every later hook write resolves its gmcc session through, so
 # a SessionStart that drops the payload leaves the whole capture surface
@@ -33,7 +33,7 @@ GMCC_PLUGIN_DIR="$(dirname "$SCRIPT_DIR")"
 # A snapshot repo copy carries .gmcc_sandbox at its root. PARSED as data,
 # never sourced — a repo file must not get shell execution at SessionStart.
 # GMCC_ROOT selects the runtime (binaries + db); GMCC_CKFS_ROOT is the
-# daemon-down fallback claim `gm context env` checks against the db.
+# daemon-down fallback claim `gmcc_hook context env` checks against the db.
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 if [ -n "$REPO_ROOT" ] && [ -f "$REPO_ROOT/.gmcc_sandbox" ]; then
     _sb_root=$(sed -n 's/^export GMCC_ROOT="\(.*\)"$/\1/p' "$REPO_ROOT/.gmcc_sandbox" | head -1)
@@ -42,7 +42,7 @@ if [ -n "$REPO_ROOT" ] && [ -f "$REPO_ROOT/.gmcc_sandbox" ]; then
     [ -n "$_sb_ckfs" ] && export GMCC_CKFS_ROOT="$_sb_ckfs"
 fi
 
-# --- 3. Locate gm -----------------------------------------------------------
+# --- 3. Locate gmcc_hook ----------------------------------------------------
 HOOK_BIN="${GMCC_ROOT:-$HOME/gmcc}/bin/gmcc_hook"
 if [ ! -x "$HOOK_BIN" ]; then
     echo "[GMB] gmcc_hook binary missing at $HOOK_BIN — run 'bash $GMCC_PLUGIN_DIR/scripts/build_daemon.sh' to build, then restart the session"

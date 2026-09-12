@@ -43,8 +43,6 @@ case "hook":
         if let line = HookRunner.subagentStart(stdin: stdin, dryRun: dryRun, sheetText: PenSheet.text) {
             print(line)
         }
-    case "pen-attest":
-        if let line = HookRunner.penAttest(stdin: stdin) { print(line) }
     default:
         break  // an unknown event is silence, not an error
     }

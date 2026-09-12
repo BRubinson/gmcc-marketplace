@@ -344,7 +344,7 @@ public struct ConnectorPayload: Codable, Hashable, Sendable {
 /// A UML node: one element type for the whole shape vocabulary (see
 /// DiagramNodeKind), an explicit frame (the drawing_text doctrine — markdown
 /// wrapping needs a known width, and the kit never measures text), and a
-/// block-markdown interior rendered by the kit's own renderer so gm render
+/// block-markdown interior rendered by the kit's own renderer so rendering
 /// and every host draw the same thing. Chrome fields are nil-means-theme-
 /// default so an unstyled node is legible in both schemes.
 public struct UmlNodePayload: Codable, Hashable, Sendable {

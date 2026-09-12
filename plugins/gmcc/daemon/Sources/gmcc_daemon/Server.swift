@@ -264,34 +264,7 @@ final class Server: @unchecked Sendable {
         let head = EnvelopeHead(
             protocolVersion: rawHead.protocolVersion,
             type: resolvedType,
-            requestId: rawHead.requestId ?? "",
-            callerRole: rawHead.callerRole)
-
-        // ── THE DOOR ─────────────────────────────────────────────────────
-        // One guard, at the single existing choke point, before the handler
-        // switch. This is what makes "the merged clarifier seals synthesis"
-        // safe, and what replaces the payload-granular bot_summary synthesis
-        // guard deleted from gmcc_mcp.
-        //
-        // SHIPS IN .observe: refusals are LOGGED AND COUNTED, never returned,
-        // for the entire implementing run — this prompt modifies the machine
-        // executing it. The flip to .enforce is this prompt's final reviewed
-        // commit; the ledger at ~/gmcc/would_refuse.json is its precondition.
-        // See the flip-point comment in VerbRegistry.swift.
-        switch VerbRegistry.decide(resolvedType, callerRole: head.callerRole) {
-        case .allow:
-            break
-        case .wouldRefuse(let reason):
-            let ledger = VerbRegistry.noteWouldRefuse(resolvedType)
-            print("[\(Store.isoNow())] [role] WOULD REFUSE \(resolvedType.rawValue) — \(reason) (would-refuse total \(ledger.total))")
-            fflush(stdout)
-        case .refuse(let reason):
-            print("[\(Store.isoNow())] [role] REFUSED \(resolvedType.rawValue) — \(reason)")
-            fflush(stdout)
-            return errorResult(
-                type: resolvedType, requestId: head.requestId,
-                payload: ErrorPayload(code: .forbidden, message: reason))
-        }
+            requestId: rawHead.requestId ?? "")
 
         do {
             switch head.type {

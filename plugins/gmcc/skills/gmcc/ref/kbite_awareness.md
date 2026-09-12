@@ -6,10 +6,11 @@
 ## KBite Loading Protocol
 
 The KBite system provides persistent, indexed knowledge. Digested text,
-keywords, and search live in the daemon db (read via `gm kbite`); the
-filesystem keeps each kbite's identity (`{kbite_root}/{name}/KBITE_PURPOSE.md`)
-and raw-source archive (`{kbite_digested_root}/{name}/`) — both roots from
-`gm paths --json`.
+keywords, and search live in the daemon db (read with the `kbite_search` /
+`kbite_file_get` pen tools); the filesystem keeps each kbite's identity
+(`{kbite_root}/{name}/KBITE_PURPOSE.md`) and raw-source archive
+(`{kbite_digested_root}/{name}/`) — both roots from
+`gmcc_hook paths --json`.
 
 KBites are **inherited, not trigger-matched**. The kbites relevant to the
 current work are seeded down the hierarchy — project → instance → session →
@@ -18,19 +19,29 @@ no per-prompt keyword scan and no automatic activation.
 
 To use kbite knowledge:
 
-1. **Read the registry**: the active kbites for the current session are the
-   `kbite_codes` in `gm session get --json` / `gm context get --json` (for a
-   specific prompt, `gm prompt get --prompt-uuid U --json`); scoped listing
-   via `gm kbite list --scope project|instance|session|prompt`
-   (`gm kbite list --all` for every kbite in the db).
+1. **Read the registry**: the active kbites are the `kbite_codes` on
+   `prompt_get` (and on `SESSION_GET` for the session as a whole). For a
+   scoped listing:
+
+   ```bash
+   gmcc_hook call KBITE_LIST --json \
+     '{"scope":"project|instance|session|prompt","owner_uuid":"U"}'
+   # add "all": true for every kbite row in the db
+   ```
 2. **Load on demand**: for a registered kbite, read
    `{kbite_root}/{name}/KBITE_PURPOSE.md`, then query the db:
-   `gm kbite get --code {name} --json` (resources + file stubs + keywords),
-   `gm kbite search "<query>" --json` (ranked stubs across kbites; scope with
-   `--kbite-uuids`), and `gm kbite file-get --file-uuid U --json` (full file
-   content — the targeted load).
+   `kbite_search` returns ranked file stubs with their briefs across kbites
+   — read the briefs, then pull the ones that matter with `kbite_file_get`
+   (full file content — the targeted load). For a kbite's whole roster of
+   resources, file stubs and keywords:
+   `gmcc_hook call KBITE_GET --json '{"code":"{name}"}'`.
 3. **Explicit add only**: add a kbite to a registry only when the user
-   explicitly asks for it (`gm kbite add --code C --scope S [--owner-uuid U]`).
+   explicitly asks for it:
+
+   ```bash
+   gmcc_hook call KBITE_ADD --json '{"scope":"session","owner_uuid":"U","code":"C"}'
+   ```
+
    Never add one on your own initiative.
 4. **Cite sources**: when using kbite knowledge, cite the source:
    - "Per the swift_code_edit kbite..."

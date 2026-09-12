@@ -1,6 +1,6 @@
 ---
 name: gmcc_session_creation
-description: Standalone GM-CDE session bootstrapper. Ensures the current session's db rows (gm context ensure) and physical artifact home (prompts/) exist, independent of the SessionStart hook. Idempotent — never clobbers existing state.
+description: Standalone GM-CDE session bootstrapper. Ensures the current session's db rows (gmcc_hook context ensure) and physical artifact home (prompts/) exist, independent of the SessionStart hook. Idempotent — never clobbers existing state.
 user-invocable: true
 disable-model-invocation: true
 allowed-tools: Read, Write, Bash, Glob
@@ -24,7 +24,7 @@ exists as a **standalone, manually-invocable** path for when:
 
 ## When to Use
 
-- Manually, when the db has no rows for the active session (`gm context get` returns nulls).
+- Manually, when the db has no rows for the active session.
 - To recreate a deleted session artifact home (the `prompts/` directory under the session's `ckfs_relative_storage_path`).
 - As the repair target invoked by `/gmcc_session_cleanup`.
 
@@ -32,7 +32,7 @@ exists as a **standalone, manually-invocable** path for when:
 
 ## Core Principle: Idempotency
 
-Both steps are natively idempotent: `gm context ensure` upserts (reusing
+Both steps are natively idempotent: `gmcc_hook context ensure` upserts (reusing
 existing uuids, seeding kbite inheritance only at row-create time) and
 `mkdir -p` is a no-op on existing dirs. Running this twice on a healthy
 session changes nothing.
@@ -60,28 +60,28 @@ instruct the user to restart Claude Code from inside a git repo and exit.
 ### 1. Db rows (+ artifact home)
 
 ```bash
-gm context ensure --json
+gmcc_hook context ensure
 ```
 
 Run from inside the repo (git context is auto-detected). This upserts the
-db rows and creates the session's artifact home. If this exits 2
-(daemon unreachable), self-heal first:
+db rows and creates the session's artifact home, and prints the resulting
+uuids as JSON. If it fails with the daemon unreachable, self-heal first:
 
 ```bash
 bash "$GMCC_PLUGIN_ROOT/scripts/build_daemon.sh"
-gm context ensure --json
+gmcc_hook context ensure
 ```
 
 ### 2. Physical artifact home
 
-Resolve the session's `ckfs_relative_storage_path` from
-`gm session get --json`, then:
+Resolve the session's `ckfs_relative_storage_path` from the session row:
 
 ```bash
+gmcc_hook call SESSION_GET --json '{"session_uuid":"<SESSION_UUID>"}'
 mkdir -p "$GMCC_CKFS_ROOT/{ckfs_relative_storage_path}/prompts"
 ```
 
-(a no-op when `gm context ensure` already created it).
+(a no-op when `gmcc_hook context ensure` already created it).
 
 The response reports `project_uuid` / `instance_uuid` / `session_uuid` and
 `created_*` booleans telling you which rows were newly created vs. already
@@ -106,8 +106,8 @@ Session ready: {artifact home} (artifacts) + ~/gmcc/gmcc.db (data)
 ## Notes
 
 - This skill writes no yaml. Any `session_data.gmcc.yaml` /
-  `gmcc_session_file_index.yaml` still on disk is inert — `/gm_cleanup`
-  archives it to cold storage.
+  `gmcc_session_file_index.yaml` still on disk is inert —
+  `/gmcc_environment_cleanup` archives it to cold storage.
 - Kbite inheritance is seeded db-side at row-create time by
-  `gm context ensure`. Explicit registry ops afterward are
-  `gm kbite add/remove/list` — the db is the sole registry.
+  `gmcc_hook context ensure`. Explicit registry ops afterward are
+  `KBITE_ADD` / `KBITE_REMOVE` / `KBITE_LIST` — the db is the sole registry.

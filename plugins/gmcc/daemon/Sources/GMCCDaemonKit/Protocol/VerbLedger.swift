@@ -1,22 +1,14 @@
 import Foundation
 
-/// The verb registry in machine-readable form: which invocations are writes,
-/// which pen tool replaces each one for an agent, and which are the primary's
-/// gate doors.
+/// The verb registry in machine-readable form: every MessageType the daemon
+/// serves, which pen tool covers it, and whether it is a read or a write.
 ///
-/// HOISTED TO THE KIT because its most important consumer is a hook. The
-/// PreToolUse write guard shells out for this on the Bash hot path and builds
-/// its deny reason from it, so the deny names the exact replacement tool BY
-/// CONSTRUCTION rather than from a hand-maintained list that goes stale the
-/// moment the pen grows a tool. A guard whose ledger lived inside a front-end
-/// binary would lose it the moment that binary was retired.
+/// HOISTED TO THE KIT so any front-end can print it without a Store and
+/// without a socket — `gmcc_hook verbs` is the reader, and it answers even
+/// when the daemon is down.
 ///
-/// PURELY LOCAL — no daemon, no socket. A guard that needed a live daemon to
-/// decide would fail closed exactly when the daemon is down.
-///
-/// It is also the WOULD-REFUSE LEDGER'S READER: the `.observe → .enforce` flip's
-/// precondition is "the ledger names no live caller", and a precondition with no
-/// reader is a remembered one rather than a checked one.
+/// It classifies; it does not authorize. Nothing consults this to refuse a
+/// caller.
 public enum VerbLedger {
 
     /// ONE ROW PER INVOCATION SPELLING, not per MessageType. A verb with aliases
@@ -27,9 +19,9 @@ public enum VerbLedger {
         public let messageType: String
         public let gm: String
         public let penTool: String?
-        /// primary_door | record | read
+        /// record | read
         public let role: String
-        /// Is this a write (record or primary_door)?
+        /// Is this a write?
         public let write: Bool
         /// False for the canonical spelling, true for an alias of it.
         public let alias: Bool
@@ -39,28 +31,21 @@ public enum VerbLedger {
 
     public struct Payload: Encodable, Sendable {
         public let verbs: [VerbRow]
-        /// invocation -> pen tool, for every write that HAS a replacement,
-        /// aliases included. This map alone is enough to author a deny reason.
+        /// invocation -> pen tool, for every write that HAS one, aliases
+        /// included.
         public let penReplacements: [String: String]
-        /// Every gate invocation no agent may call at all.
-        public let primaryDoors: [String]
-        /// observe | enforce.
-        public let enforcement: String
-        /// The flip precondition, in machine-readable form.
-        public let wouldRefuse: VerbRegistry.WouldRefuseLedger
+        /// The four pen tools the workflow's methodology reserves for the
+        /// primary — guidance, never a refusal.
+        public let primaryPenTools: [String]
     }
 
     public static func build(writesOnly: Bool = false) -> Payload {
         var rows: [VerbRow] = []
         var replacements: [String: String] = [:]
-        var doors: [String] = []
         for spec in VerbRegistry.all {
             let role: String
             let isWrite: Bool
             switch spec.role {
-            case .primaryDoor:
-                role = "primary_door"
-                isWrite = true
             case .record:
                 role = "record"
                 isWrite = true
@@ -69,7 +54,6 @@ public enum VerbLedger {
                 isWrite = false
             }
             for (index, invocation) in spec.gmInvocations.enumerated() {
-                if case .primaryDoor = spec.role { doors.append(invocation) }
                 if isWrite, let pen = spec.penTool { replacements[invocation] = pen }
                 guard !writesOnly || isWrite else { continue }
                 rows.append(VerbRow(
@@ -85,8 +69,6 @@ public enum VerbLedger {
         return Payload(
             verbs: rows.sorted { $0.gm < $1.gm },
             penReplacements: replacements,
-            primaryDoors: doors.sorted(),
-            enforcement: VerbRegistry.enforcement.rawValue,
-            wouldRefuse: VerbRegistry.wouldRefuseLedger())
+            primaryPenTools: VerbRegistry.primaryPenTools.sorted())
     }
 }

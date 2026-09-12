@@ -1,6 +1,6 @@
 import Foundation
 
-// Typed read-side DTOs — the row shapes GMVibes renders from and gm prints.
+// Typed read-side DTOs — the row shapes GMVibes and gmcc_hook render from.
 // Same lowering conventions as Messages.swift.
 
 // MARK: - Project
@@ -15,7 +15,7 @@ public struct ProjectRow: Codable, Hashable, Sendable {
     /// BASE_DOPED_BRANCH — the branch whose SESSION_INSTANCE dope scope may
     /// promote into this project's BASE_PROJECT scope. Defaults to "main"
     /// (m0011 backfills every existing row); user-configured through
-    /// `gm project update` or GMVibes' project view.
+    /// PROJECT_UPDATE or GMVibes' project view.
     ///
     /// Defaulted rather than Optional so a stale peer that omits the key
     /// still decodes — the additive-OPTIONAL wire convention.

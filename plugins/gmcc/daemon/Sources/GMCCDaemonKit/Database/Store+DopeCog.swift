@@ -5,9 +5,9 @@ import GRDB
 // typed nodes whose per-type metadata lives in a subtype table chosen by the
 // DopeCogElementSpec registry.
 //
-// Deliberately a peer family (`gm cog`) rather than more `gm dope *-` verbs,
-// matching the in-repo precedent that `gm diagram` is a peer family over dope
-// rather than `gm dope diagram-*`.
+// Deliberately a peer verb family (DOPE_COG_*) rather than more DOPE_NODE_*
+// verbs, matching the in-repo precedent that the DIAGRAM_* family is a peer
+// over dope rather than a dope subfamily.
 // Bodies live in DopeCogRepository; these wrappers own the transaction.
 
 extension Store {

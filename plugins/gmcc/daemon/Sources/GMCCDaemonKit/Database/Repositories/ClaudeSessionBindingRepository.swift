@@ -25,7 +25,7 @@ struct ClaudeSessionBindingRepository: RepositoryContext {
     ///
     /// INSERT OR IGNORE, not a read-then-branch: the UNIQUE index on
     /// claude_session_id IS the pin-once rule, so re-running SessionStart (or
-    /// any other `gm context ensure`) bounces off the schema rather than off a
+    /// any other CONTEXT_ENSURE) bounces off the schema rather than off a
     /// condition some later caller can forget. The five base columns are
     /// written out here because `insertBase` has no conflict clause and
     /// teaching it one would put OR IGNORE within reach of every table.

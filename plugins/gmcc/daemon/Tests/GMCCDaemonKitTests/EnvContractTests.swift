@@ -89,7 +89,7 @@ final class EnvContractTests: XCTestCase {
 
     func testShimResolvesGmccRootAtCallTime() {
         XCTAssertTrue(GmccEnvironment.shimScript
-            .contains(#"exec "${GMCC_ROOT:-$HOME/gmcc}/bin/gm" "$@""#))
+            .contains(#"exec "${GMCC_ROOT:-$HOME/gmcc}/bin/gmcc_hook" "$@""#))
         XCTAssertTrue(GmccEnvironment.shimScript.hasPrefix("#!/bin/sh"))
     }
 

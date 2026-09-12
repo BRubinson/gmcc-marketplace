@@ -98,10 +98,7 @@ func runCall(_ argv: [String]) -> Int32 {
         return 2
     }
 
-    // callerRole .primary: a human at a terminal IS the primary. An agent
-    // reaching this binary is refused by the PreToolUse guard before it runs,
-    // and by the daemon's role gate if it somehow does.
-    let client = DaemonClient(callerRole: .primary)
+    let client = DaemonClient()
     defer { client.close() }
     do {
         let response: JSONValue = try client.request(type: type, payload: payload, responseType: JSONValue.self)

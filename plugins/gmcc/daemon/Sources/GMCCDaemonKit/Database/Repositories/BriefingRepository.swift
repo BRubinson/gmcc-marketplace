@@ -20,19 +20,13 @@ import GRDB
 /// ATTEMPTED AND EMPTY — because the only writer that could have meant
 /// otherwise was refused.
 ///
-/// It lives here, beside the repository, rather than in the dispatch guard:
-/// the guard runs before handlers and is MessageType-granular, and this is a
-/// payload rule. It is keyed on `CallerRole` because the primary's own CLI
-/// cannot spell "absent" at all (ArgumentParser has no empty repeated option),
-/// and the primary is not the caller this rule is about.
+/// It lives beside the repository rather than in dispatch because it is a
+/// PAYLOAD rule, and it applies to every caller: this is about the RECORD's
+/// completeness, not about who is writing it.
 public enum BriefingCompletenessRule {
 
-    /// Throws when an `.agent` caller left a ref class out of the payload.
-    /// A no-op for `.primary`.
-    public static func check(
-        _ req: BriefingCompleteRequest, callerRole: CallerRole
-    ) throws {
-        guard callerRole == .agent else { return }
+    /// Throws when the caller left a ref class out of the payload.
+    public static func check(_ req: BriefingCompleteRequest) throws {
         let missing = [
             ("dope_refs", req.dopeRefs == nil),
             ("kbite_refs", req.kbiteRefs == nil),
@@ -280,8 +274,8 @@ struct BriefingRepository: RepositoryContext {
 
     private func dopeRefRefusal(_ code: String, _ why: String) -> String {
         "dope ref '\(code)' is not a dope dot-path — \(why). A dope ref is a "
-            + "domain.entity[.property] CODE out of the dope tree (gm dope search / the "
-            + "dope_search pen tool), never a file path, a uuid, a kbite name or prose. "
+            + "domain.entity[.property] CODE out of the dope tree (the dope_search pen "
+            + "tool), never a file path, a uuid, a kbite name or prose. "
             + "Nothing was written; fix the ref and complete again."
     }
 
@@ -351,11 +345,14 @@ struct BriefingRepository: RepositoryContext {
                         "WARNING: briefing is STALE — dope scope moved "
                         + "\(staleness.stampedRevision.map(String.init) ?? "?") → "
                         + "\(staleness.currentRevision.map(String.init) ?? "?"); "
-                        + "prefer fresh gm dope search for anything load-bearing")
+                        + "prefer a fresh mcp__plugin_gmcc_pen__dope_search for anything load-bearing")
                 }
-                lines.append("Pull the full briefing FIRST: gm briefing get --briefing-uuid \(row.uuid) --json")
+                lines.append("Pull the full briefing FIRST: mcp__plugin_gmcc_pen__briefing_get "
+                             + "briefing_uuid: \(row.uuid)")
             } else {
-                lines.append("briefing: none for step '\(step)' — proceed without; gm dope search / gm kbite search are available")
+                lines.append("briefing: none for step '\(step)' — proceed without; "
+                             + "mcp__plugin_gmcc_pen__dope_search and "
+                             + "mcp__plugin_gmcc_pen__kbite_search are available")
             }
         }
         return BriefingStubResponse(stub: lines.joined(separator: "\n"))

@@ -33,9 +33,11 @@ To fix: Restart Claude Code from within a git repository.
 ```
 Exit without proceeding.
 
-1. Resolve the kbite roots from `gm paths --json` (kbite_root,
+1. Resolve the kbite roots from `gmcc_hook paths --json` (kbite_root,
    kbite_digested_root)
-2. Verify both kbites exist: known to the db (`gm kbite list --all --json`)
+2. Verify both kbites exist: known to the db (`gmcc_hook context ensure` for
+   the session uuid, then
+   `gmcc_hook call KBITE_LIST --json '{"scope":"session","owner_uuid":"{U}","all":true}'`)
    or present at `{kbite_root}/{name}/` (identity root)
 3. Parse relationship description to determine type
 
@@ -44,7 +46,7 @@ Exit without proceeding.
 [GMB] Error: Source kbite not found: {kbite_from}
 
 Available kbites:
-- {codes from gm kbite list --all}
+- {codes from the KBITE_LIST response}
 ```
 Exit without changes.
 
@@ -53,7 +55,7 @@ Exit without changes.
 [GMB] Error: Target kbite not found: {kbite_to}
 
 Available kbites:
-- {codes from gm kbite list --all}
+- {codes from the KBITE_LIST response}
 ```
 Exit without changes.
 

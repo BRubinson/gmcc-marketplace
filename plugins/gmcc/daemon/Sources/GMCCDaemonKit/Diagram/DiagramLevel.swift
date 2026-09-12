@@ -21,9 +21,9 @@ public enum DiagramTier: String, Codable, Hashable, CaseIterable, Sendable {
 
 /// diagram.visibility values — an AXIS beside the tier ladder, never a rung
 /// on it (m0024). PRIVATE lives in the db only; PUBLIC additionally
-/// serializes into the repo's committed .gmcc tree via gm diagram
-/// write-repo. PUBLIC is legal ONLY on SESSION-tier rows — the same
-/// session→instance-root gate dope write-repo uses — enforced by a Swift
+/// serializes into the repo's committed .gmcc tree via DIAGRAM_WRITE_REPO.
+/// PUBLIC is legal ONLY on SESSION-tier rows — the same
+/// session→instance-root gate DOPE_WRITE_REPO uses — enforced by a Swift
 /// store guard, not a CHECK (the rule crosses tables).
 public enum DiagramVisibility: String, Codable, Hashable, CaseIterable, Sendable {
     case `private` = "PRIVATE"

@@ -186,7 +186,7 @@ struct ExplorationRepository: RepositoryContext {
             synthesis.explorationStatus == .complete {
             throw StoreError.invalidEntityTransition(
                 entity: "exploration", from: synthesis.status, to: "rank",
-                reason: "the synthesis summary is complete — gm explore reopen it before re-ranking")
+                reason: "the synthesis summary is complete — EXPLORE_REOPEN it before re-ranking")
         }
         try findingRank.applyPromptRankBatch(promptUuid: req.promptUuid, ratings: req.ratings)
         let unranked = try findingRank.promptUnrankedCount(promptUuid: req.promptUuid)
@@ -213,7 +213,8 @@ struct ExplorationRepository: RepositoryContext {
                 throw StoreError.invalidEntityTransition(
                     entity: "exploration", from: summary.status,
                     to: ExplorationStatus.complete.rawValue,
-                    reason: "\(unranked) finding(s) unranked across the prompt — run gm explore rank first")
+                    reason: "\(unranked) finding(s) unranked across the prompt — run "
+                        + "mcp__plugin_gmcc_pen__explore_rank first")
             }
         }
         let overview = try Store.validatedOverview(req.overview, entity: "exploration")

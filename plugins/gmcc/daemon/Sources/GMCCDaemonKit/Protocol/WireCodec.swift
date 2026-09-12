@@ -26,7 +26,7 @@ public enum WireCodec {
         return decoder
     }()
 
-    /// For `gm ... --json` output: same key contract as the wire, pretty and
+    /// For `--json` client output: same key contract as the wire, pretty and
     /// deterministically ordered for terminal reading and doc greps.
     ///
     /// `.withoutEscapingSlashes` is display-only and terminal-facing — gm's

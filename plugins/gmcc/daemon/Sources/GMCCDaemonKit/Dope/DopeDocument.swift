@@ -352,7 +352,7 @@ public enum DopeDocumentCodec {
     /// Shared suffix of every per-entity/per-enum file.
     public static let persistenceFileSuffix = ".persistence.doped.json"
     public static let cogFileSuffix = ".cog.doped.json"
-    /// The retired layout, kept ONLY so boot sync and gm doctor can
+    /// The retired layout, kept ONLY so boot sync and the health check can
     /// recognise a stale tree and say so out loud instead of silently
     /// reporting "no dope here".
     public static let legacyDopeDirectoryName = "dope"

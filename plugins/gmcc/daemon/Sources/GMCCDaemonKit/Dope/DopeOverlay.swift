@@ -24,7 +24,7 @@ import Foundation
 /// re-minting when ingest churns uuids, and a wholesale promotion of the
 /// base cannot invalidate an overlay.
 ///
-/// `resolve` NEVER throws. `gm doctor` calls it best-effort and a throwing
+/// `resolve` NEVER throws. The health check calls it best-effort and a throwing
 /// merge would break doctor's exit contract; a malformed pair degrades to
 /// warnings, following DopeValidator's collect-every-error posture.
 public enum DopeOverlay {

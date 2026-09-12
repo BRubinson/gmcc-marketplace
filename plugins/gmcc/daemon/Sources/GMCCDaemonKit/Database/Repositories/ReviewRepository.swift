@@ -175,7 +175,8 @@ struct ReviewRepository: RepositoryContext {
             throw StoreError.invalidEntityTransition(
                 entity: "review", from: summary.status,
                 to: ReviewSummaryStatus.complete.rawValue,
-                reason: "\(unranked) finding(s) unranked — run gm review rank first")
+                reason: "\(unranked) finding(s) unranked — run the review rank pass "
+                    + "(mcp__plugin_gmcc_pen__review_rank) first")
         }
         let overview = try Store.validatedOverview(req.overview, entity: "review")
         try core.updateBase(

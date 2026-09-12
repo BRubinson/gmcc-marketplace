@@ -151,58 +151,6 @@ public enum HookRunner {
         return additionalContextLine(context)
     }
 
-    /// The literal a pen call must carry to be served as the PRIMARY.
-    public static let attestKey = "_gmcc_attest"
-    public static let attestPrimary = "primary"
-
-    /// PreToolUse on `mcp__plugin_gmcc_pen__.*` — stamp WHO is calling, from the
-    /// harness's own payload, into the call's arguments before it runs.
-    ///
-    /// WHY THIS EXISTS. One `gmcc_mcp` process serves the primary and every
-    /// in-process subagent over a single stdio pipe, and a `tools/call` carries
-    /// no identity of its own. Inferring "primary" from the ABSENCE of a
-    /// caller-supplied agent id is therefore forgeable by simply omitting the
-    /// argument — and omission is the default, because an agent does not know
-    /// its own agent_id to send. That is harmless while role enforcement is
-    /// advisory and becomes a real hole the moment it is enforced.
-    ///
-    /// `agent_id` is present in this payload for subagents and absent for the
-    /// primary, and the harness fills it — not the caller. Stamping it here
-    /// makes the claim unforgeable and, just as importantly, un-omittable.
-    ///
-    /// FAIL-CLOSED, BY STAMPING BOTH CASES EXPLICITLY. The primary is marked
-    /// with a positive literal rather than by absence, so a hook that does not
-    /// run — disabled, crashed, missing binary — produces a call with NO stamp,
-    /// and the server reads an unstamped call as an AGENT. The unsafe default
-    /// has to be the restrictive one; a silent failure that promoted every
-    /// caller to primary would be the exact bug this closes.
-    ///
-    /// - Returns: the PreToolUse JSON line to print, or nil to stay silent (a
-    ///   hook that cannot decide must never rewrite a call).
-    public static func penAttest(stdin: Data) -> String? {
-        guard !stdin.isEmpty,
-              let root = (try? JSONSerialization.jsonObject(with: stdin)) as? [String: Any]
-        else { return nil }
-
-        // Only ever rewrite our own tools. A matcher is configuration and can be
-        // widened by accident; this check is the code's own guard.
-        let toolName = root["tool_name"] as? String ?? ""
-        guard toolName.hasPrefix("mcp__plugin_gmcc_pen__") else { return nil }
-
-        let agentId = (root["agent_id"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-        var input = root["tool_input"] as? [String: Any] ?? [:]
-        input[attestKey] = agentId ?? attestPrimary
-
-        let response: [String: Any] = [
-            "hookSpecificOutput": [
-                "hookEventName": "PreToolUse",
-                "updatedInput": input,
-            ],
-        ]
-        guard let data = try? JSONSerialization.data(withJSONObject: response) else { return nil }
-        return String(data: data, encoding: .utf8)
-    }
-
     // MARK: - Front-end helpers
 
     /// Read the whole raw payload from stdin. Front-ends call this rather than

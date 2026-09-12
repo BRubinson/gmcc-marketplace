@@ -7,7 +7,7 @@ import GRDB
 /// The row is deliberately thin: variant + status + claim + observability.
 /// The CURRENT PHASE IS DERIVED from db evidence on every NEXT — there is
 /// no stored cursor to drift, so resume is literally the first-run code
-/// path. Gates that move the PROMPT still go through gm prompt set-status
+/// path. Gates that move the PROMPT still go through PROMPT_SET_STATUS
 /// (the single door); NEXT only reports and refuses.
 struct BotWorkflowRepository: RepositoryContext {
     let db: Database
@@ -30,11 +30,11 @@ struct BotWorkflowRepository: RepositoryContext {
         guard status == "draft" else {
             throw StoreError.invalidEntityTransition(
                 entity: "bot_workflow", from: status, to: "start",
-                reason: "gm prompt start runs on a draft prompt — use gm prompt resume")
+                reason: "PROMPT_START runs on a draft prompt — use PROMPT_RESUME")
         }
         if try fetchActive(promptUuid: req.promptUuid) != nil {
             throw StoreError.badRequest(
-                detail: "prompt \(req.promptUuid) already has an active workflow — gm prompt resume")
+                detail: "prompt \(req.promptUuid) already has an active workflow — PROMPT_RESUME it")
         }
         let sessionUuid: String = prompt["session_uuid"]
         // Moving to a new prompt releases the caller's previous hold —
@@ -310,7 +310,7 @@ struct BotWorkflowRepository: RepositoryContext {
             var unmet: [String] = []
             if !clarifyDone { unmet.append("clarification not finalized") }
             if promptStatus == "draft" || promptStatus == "clarifying" {
-                unmet.append("prompt not yet architecting (gm prompt set-status)")
+                unmet.append("prompt not yet architecting (mcp__plugin_gmcc_pen__prompt_set_status)")
             }
             return unmet
         case .planGate:
@@ -327,7 +327,7 @@ struct BotWorkflowRepository: RepositoryContext {
             var unmet: [String] = []
             if !approved { unmet.append("architecture not approved") }
             if status != "implementing" && status != "reviewing" && status != "done" {
-                unmet.append("prompt not implementing (gm prompt set-status)")
+                unmet.append("prompt not implementing (mcp__plugin_gmcc_pen__prompt_set_status)")
             }
             return unmet
         case .review:
@@ -342,7 +342,7 @@ struct BotWorkflowRepository: RepositoryContext {
             return complete ? [] : ["review not complete"]
         case .done:
             return try promptStatus(promptUuid: promptUuid) == "done"
-                ? [] : ["prompt not done (gm prompt set-status --status done)"]
+                ? [] : ["prompt not done (mcp__plugin_gmcc_pen__prompt_set_status status: done)"]
         }
     }
 
@@ -400,8 +400,8 @@ struct BotWorkflowRepository: RepositoryContext {
 
     /// Explicit prompt uuid → the caller's own active workflow (client key)
     /// → the activation-resolved prompt's workflow → the session's single
-    /// active workflow. The gm_task shadowing hazard applies — every gm bot
-    /// verb keeps an explicit --prompt-uuid escape hatch. Read verbs fall
+    /// active workflow. The task-tier shadowing hazard applies — every bot
+    /// verb keeps an explicit prompt_uuid escape hatch. Read verbs fall
     /// back to the prompt's most recent CLOSED workflow so a completed run
     /// renders as done instead of erroring SUMMARY_ABSENT.
     private func resolve(
@@ -433,11 +433,12 @@ struct BotWorkflowRepository: RepositoryContext {
             if rows.count == 1 { return rows[0] }
             if rows.count > 1 {
                 throw StoreError.badRequest(
-                    detail: "session has \(rows.count) active workflows — pass --prompt-uuid")
+                    detail: "session has \(rows.count) active workflows — pass prompt_uuid")
             }
         }
         throw StoreError.badRequest(
-            detail: "no workflow resolvable — pass --prompt-uuid (or start one with gm prompt start)")
+            detail: "no workflow resolvable — pass prompt_uuid "
+                + "(or start one with mcp__plugin_gmcc_pen__prompt_init)")
     }
 
     func fetchActive(promptUuid: String) throws -> BotWorkflowRow? {

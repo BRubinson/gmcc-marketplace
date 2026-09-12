@@ -25,7 +25,7 @@ struct DiagramOwner {
     /// DERIVED, never an ownership tier since m0021: a session's
     /// instance, resolved through the join. The diagram row no longer
     /// stores it; callers that genuinely need a checkout (nothing does,
-    /// after gm render moved to CKFS storage) still get it here.
+    /// after rendering moved to CKFS storage) still get it here.
     let instanceUuid: String?
     let sessionUuid: String?
     let promptUuid: String?
@@ -339,7 +339,7 @@ struct DiagramRepository: RepositoryContext {
 
     /// The CKFS storage directory of whichever tier owns this diagram.
     ///
-    /// This is the root `gm render` writes under. Every tier carries the
+    /// This is the root rendered output is written under. Every tier carries the
     /// column, which is precisely why CKFS storage works at project tier
     /// where an instance checkout did not.
     func diagramOwnerStoragePath(diagram: DiagramRow) throws -> String? {
@@ -577,7 +577,7 @@ struct DiagramRepository: RepositoryContext {
                     // resolves nothing and every element would ghost. This
                     // rung is what makes a project-level persistence diagram
                     // render actual cards — the masking PROJECT_ITEM scope
-                    // first, then the BASE_PROJECT scope `gm dope promote`
+                    // first, then the BASE_PROJECT scope DOPE_PROMOTE
                     // maintains, mirroring the session ladder exactly.
                     scope = try dope.dopeProjectScopeCandidates(
                         projectUuid: diagram.projectUuid, scopeType: .projectItem,

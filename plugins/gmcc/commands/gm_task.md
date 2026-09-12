@@ -1,9 +1,9 @@
 ---
 name: gm_task
-description: Load GMCC session context (via gm reads), then just do the task. Writes no prompt rows or report summaries — GMCC persistence happens only via the automatic file-change hook, an optional doper briefing for meaty tasks, or an explicitly requested retroactive write-back.
+description: Load GMCC session context (via pen reads), then just do the task. Writes no prompt rows or report summaries — GMCC persistence happens only via the automatic file-change hook, an optional doper briefing for meaty tasks, or an explicitly requested retroactive write-back.
 argument-hint: <task / request>
 disable-model-invocation: true
-allowed-tools: Bash(gm:*)
+allowed-tools: Bash(gmcc_hook:*)
 ---
 
 # GM-CDE Task (Context-loaded, no ceremony)
@@ -18,17 +18,15 @@ The contract that distinguishes this command from `/gm_bot`:
 > **Default behavior authors NOTHING in the daemon db or the ckfs.**
 > No prompt row, no clarify/arch/explore/review summaries, no artifact
 > registrations. Editing the user's *repository* files is the task and is
-> expected — and those Edit/Write changes are auto-recorded by the plugin's
-> PostToolUse hook, whose own invocation is not an agent write path:
-> `gm file-change add --auto-attribute` (unattributed when no prompt is
-> active). That hook bookkeeping is harness plumbing, not you
-> reaching for gm mutations. The two sanctioned exceptions: the optional
-> doper briefing below, and an explicitly requested retroactive write-back
-> (final section).
+> expected — and those Edit/Write changes are captured automatically by the
+> plugin's PostToolUse hook (unattributed when no prompt is active). That
+> capture is harness plumbing and needs nothing from you. The two sanctioned
+> exceptions: the optional doper briefing below, and an explicitly requested
+> retroactive write-back (final section).
 
-SessionStart injects the compact `gm cheatsheet` core; run
-`gm cheatsheet --full` for exact signatures — never `gm ... --help`
-roundtrips, never guess flags.
+SessionStart injects the pen sheet. The pen tools are typed, so there are no
+flags to guess; `gmcc_hook verbs --json` lists every MessageType the daemon
+serves for the reads that have no pen tool.
 
 ---
 
@@ -36,45 +34,48 @@ roundtrips, never guess flags.
 
 **Boot Validation**: If `$GMCC_BOOTED` is not set, output:
 ```
-[GMT] ERROR: GMCC not booted
+[GMB] ERROR: GMCC not booted
 
 GMCC environment variables are not set. Run /gmcc_boot for diagnostics.
 To fix: Restart Claude Code from within a git repository.
 ```
 Exit without proceeding.
 
-Current session state (inlined at invocation):
+Current session state (inlined at invocation — one shell, because the two
+list calls need the session uuid the first call returns):
 
-!`gm session get --json`
-!`gm prompt list --with-reports --json`
-!`gm dope list --json`
+!`U=$(gmcc_hook context ensure | sed -n 's/.*"session_uuid" : "\(.*\)".*/\1/p'); echo "session_uuid=$U"; gmcc_hook call PROMPT_LIST --json "{\"session_uuid\":\"$U\",\"with_reports\":true}"; gmcc_hook call DOPE_LIST --json "{\"session_uuid\":\"$U\"}"`
 
-If these errored with exit 2 (daemon unreachable), self-heal:
-`bash $GMCC_PLUGIN_ROOT/scripts/build_daemon.sh`, then `gm context ensure`,
-then re-run them.
+If that errored with "daemon unreachable", self-heal:
+`bash $GMCC_PLUGIN_ROOT/scripts/build_daemon.sh`, then re-run it (the next
+client call brings the daemon back up).
 
 ---
 
 ## Phase 1: Deeper Context (read-only, on demand)
 
-The inlined state above covers the default scope: session row (backstory,
-status), every prompt's clarification/architecture/exploration/review stubs,
-change summary, and dope scopes. Pull detail only where the task needs it:
+The inlined state above covers the default scope: every prompt's
+clarification/architecture/exploration/review stubs, change summary, and dope
+scopes. Pull detail only where the task needs it:
 
-- `gm clarify get` / `gm arch get` / `gm explore get` / `gm review get` for
-  full detail on the prompts that matter; `gm search "<topic>" --json` finds
-  prior work across prompts — do not grep the ckfs for it.
-  `gm artifact list --prompt-uuid U` shows files registered against a prompt.
-- **Dope on demand.** `gm dope search session "<query>"` (FTS5, dot-path
-  hits) then targeted `gm dope get --code <scope>` — never full-tree dumps.
+- `mcp__plugin_gmcc_pen__clarify_get` / `arch_get` / `explore_get` /
+  `review_get` for full detail on the prompts that matter (each narrows —
+  pass a rating window or an option/change uuid rather than pulling
+  everything). `gmcc_hook call SEARCH --json '{"query":"<topic>","session_uuid":"<U>","limit":20}'`
+  finds prior work across prompts — do not grep the ckfs for it.
+  `gmcc_hook call ARTIFACT_LIST --json '{"prompt_uuid":"<P>"}'` shows files
+  registered against a prompt.
+- **Dope on demand.** `mcp__plugin_gmcc_pen__dope_search` (FTS5, dot-path
+  hits) then targeted `mcp__plugin_gmcc_pen__dope_get` with `code` — never
+  full-tree dumps.
 - **KBites on demand.** If a task clearly benefits from a kbite:
-  `gm kbite search "<topic>" --json` for ranked stubs, read the briefs, then
-  `gm kbite file-get --file-uuid U --json` for the content that matters
-  (`gm kbite get --code {name} --json` for the overview; purpose file at
-  `{kbite_root}/{name}/KBITE_PURPOSE.md`, kbite_root from
-  `gm paths --json`). Prefer kbites already active for the session. Do not
-  block on an AskUserQuestion for kbite selection — only load what the task
-  needs.
+  `mcp__plugin_gmcc_pen__kbite_search` for ranked stubs, read the briefs, then
+  `mcp__plugin_gmcc_pen__kbite_file_get` for the content that matters
+  (`gmcc_hook call KBITE_GET --json '{"code":"{name}"}'` for the overview;
+  purpose file at `{kbite_root}/{name}/KBITE_PURPOSE.md`, kbite_root from
+  `gmcc_hook paths --json`). Prefer kbites already active for the session. Do
+  not block on an AskUserQuestion for kbite selection — only load what the
+  task needs.
 
 ### Optional: session-owned briefing for meaty tasks
 
@@ -84,8 +85,10 @@ db write — `agent_briefing` rows are context plumbing, not work records).
 There is no prompt row, so the briefing is SESSION-owned:
 
 ```bash
-gm briefing open --session-uuid U --step initial --json     # → briefing uuid
+gmcc_hook call BRIEFING_OPEN --json '{"session_uuid":"{U}","briefing_for_step":"initial"}'
 ```
+
+The response carries the briefing uuid.
 
 ```
 Task tool:
@@ -96,14 +99,13 @@ Task tool:
     Topic: {one line — what this task is about}
 ```
 
-Gate on it BY UUID as the spawn's very next call — `gm briefing get
---briefing-uuid {B} --wait --json`, where {B} was printed by your own
-`gm briefing open` — and work from its ref set (dope dot-paths, kbite
-files; briefings are opinion-free ref pre-selections since m0025) plus your
-own deeper pulls. The zero-uuid form is for SPAWNED agents; here in the primary it can
-be shadowed by this instance's lingering prompt claim (a prompt-owned
-briefing would resolve ahead of your just-built task row), and you hold the
-uuid anyway.
+Gate on it BY UUID as the spawn's very next call:
+`mcp__plugin_gmcc_pen__briefing_get --briefing-uuid {B}`, where {B} came from
+your own BRIEFING_OPEN response; poll it until it reads ready. Then work from
+its ref set (dope dot-paths, kbite files; briefings are opinion-free ref
+pre-selections) plus your own deeper pulls. `wait_for_briefing` is the
+prompt-owned form and does not apply here — this briefing hangs off the
+session, and you hold its uuid anyway.
 
 ---
 
@@ -114,12 +116,9 @@ Read / Edit / Write / Grep / Glob / Bash (and Task for subagents if a search
 genuinely warrants it).
 
 - Edit the user's repository files freely — that is the work. The
-  PostToolUse hook records those changes automatically. `/gm_task` has no
-  workflow row and spawns no pen-bearer, so the CLI named here is the
-  primary's own, not an agent write path — and here it is forbidden
-  anyway: do not add manual `gm file-change add` bookkeeping on top of
-  the hook.
-- **Do not** author gm entities (no prompt rows, no report summaries, no
+  PostToolUse hook captures those changes automatically; do not add manual
+  `file_change_add` bookkeeping on top of it.
+- **Do not** author GMCC record entities (no prompt rows, no report summaries, no
   artifact registrations, nothing under `$GMCC_CKFS_ROOT`).
 - If the task balloons in scope and would benefit from the full clarify → plan →
   review pipeline, suggest the user re-run it under `/gm_bot` (or `/gm_bot_rpi`
@@ -141,23 +140,18 @@ Two write targets are supported.
 
 ### A. Record / attribute changed files
 
-Edit/Write-driven changes were already recorded automatically (unattributed).
-What follows is the primary's or the human's hand on the CLI and is
-not an agent write path — `/gm_task` spawns nothing that holds a pen.
-Manual `gm file-change add` is needed only for:
+Edit/Write-driven changes were already captured automatically (unattributed).
+`mcp__plugin_gmcc_pen__file_change_add` is needed only for:
 
-- files changed through Bash (scripts, generators, `git mv`).
-  Again: not an agent write path.
-  ```bash
-  gm file-change add --path <repo-relative path> \
-    --kind edit|create|delete|rename [--range start:end]... \
-    [--content "<short note>"] [--prompt-uuid U]
-  ```
+- files changed through Bash (scripts, generators, `git mv`) — the hook sees
+  the Bash call, not the paths inside it:
+  `file_change_add(path: "<repo-relative path>", kind: "edit|create|delete|rename", prompt_uuid: "<U>")`
 - attributing the work to a prompt row (e.g. one created via write-back B):
-  pass `--prompt-uuid` on the rows you add.
+  pass `prompt_uuid` on the rows you add.
 
-Run from inside the repo — git context is auto-detected. `--content`
-requires exactly one `--range`.
+Run from inside the repo — git context is auto-detected.
+`mcp__plugin_gmcc_pen__file_change_list` shows what the machine believes you
+have touched.
 
 ### B. Record a prompt
 
@@ -165,18 +159,27 @@ Capture the task after the fact as a prompt row (no clarify pipeline is run,
 so it lands as `draft`):
 
 ```bash
-gm prompt create --name {name} \
-  --goal "<what the task aimed to achieve>" \
-  --detail "<how it was done — the specifics>" \
-  --command /gm_task --json
+gmcc_hook call PROMPT_CREATE --json '{
+  "session_uuid": "{U}",
+  "name": "{name}",
+  "backstory": "",
+  "goal": "<what the task aimed to achieve>",
+  "detail": "<how it was done — the specifics>",
+  "command": "/gm_task"
+}'
 ```
 
 (Retroactive capture is the one case where the bot authors `goal`/`detail` —
 it is recording work already done at the user's request, not splitting a
-human prompt. For a long write-up use `--detail-file`.) If you have
-artifacts to drop there, mkdir the memory dir at the RETURNED
-`ckfs_relative_storage_path` (relative to `gm paths` → ckfs_root) — never
-re-derive `{seq}_{name}` yourself; the daemon slugs the name — registering
-each with `gm artifact add --note "..."`.
+human prompt. For a long write-up put the whole payload in a file and use
+`--json-file <path>`: shell argument limits are far below the daemon's
+content caps.) If you have artifacts to drop there, mkdir the memory dir at
+the RETURNED `ckfs_relative_storage_path` (relative to
+`gmcc_hook paths --json` → ckfs_root) — never re-derive `{seq}_{name}`
+yourself; the daemon slugs the name — registering each with:
+
+```bash
+gmcc_hook call ARTIFACT_ADD --json '{"prompt_uuid":"{P}","file_path":"{abs path}","note":"..."}'
+```
 
 After any write-back, state plainly what was persisted and where.

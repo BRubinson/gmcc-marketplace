@@ -1,10 +1,10 @@
 import Foundation
 import GRDB
 
-// PATHS_GET / CONFIG_SET — the daemon's config subsystem (item 6). Backed by
+// PATHS_GET / CONFIG_SET — the daemon's config subsystem. Backed by
 // the daemon_config table (seeded with $HOME defaults by m0002) rather than
 // env reads: the daemon's environment is a posix_spawn snapshot of whichever
-// gm invocation autostarted it, so $GMCC_* would be stale or absent. The key
+// client invocation autostarted it, so $GMCC_* would be stale or absent. The key
 // space is enum-bound (ConfigKey) — an unknown key is BAD_REQUEST. Retires
 // GMVibes' ~/.zshrc scraping fallback.
 //

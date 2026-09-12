@@ -71,7 +71,7 @@ public struct HookPayload: Equatable {
     let agentId: String?
     /// A LABEL, never a role: it is the subagent_type for a plain subagent,
     /// the literal `workflow-subagent` for a bare workflow agent, and the
-    /// NAME for a named teammate. Authority comes from `gm agent register`.
+    /// NAME for a named teammate. Authority comes from AGENT_REGISTER.
     let agentType: String?
     let filePath: String?
     let notebookPath: String?
@@ -139,7 +139,7 @@ enum SandboxMarker {
     static let fileName = ".gmcc_sandbox"
 
     /// No-op when GMCC_ROOT is already set: an explicit runtime always wins,
-    /// and a sandbox launcher sets it before gm ever runs.
+    /// and a sandbox launcher sets it before any client ever runs.
     static func adopt(startingAt directory: String) {
         let env = ProcessInfo.processInfo.environment
         guard env["GMCC_ROOT"].map({ $0.isEmpty }) ?? true else { return }
@@ -167,8 +167,8 @@ enum SandboxMarker {
         return nil
     }
 
-    /// `export NAME="value"` lines, first wins — the same shape `gm sandbox
-    /// refresh` writes and the same two names it writes.
+    /// `export NAME="value"` lines, first wins — the same shape the sandbox
+    /// snapshot writes and the same two names it writes.
     static func parse(_ text: String) -> Roots {
         func value(_ name: String) -> String? {
             let prefix = "export \(name)=\""
@@ -585,7 +585,7 @@ enum BashToken: Equatable {
     case redirect(String)
 }
 
-/// The quoting-aware segmenter, ported from gmcc_gm_write_guard.sh.
+/// The quoting-aware segmenter behind PostToolUse Bash capture.
 ///
 /// A command line is split into COMMAND POSITIONS. The scanner walks it once
 /// carrying a context stack:

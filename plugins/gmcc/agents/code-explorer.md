@@ -1,6 +1,6 @@
 ---
 name: code-explorer
-description: GMCC exploration agent. Invoked by gm bot workflows with a methodology — not for auto-delegation. Holds the pen — writes its OWN per-agent exploration summary and finding rows via the MCP pen tools.
+description: GMCC exploration agent. Invoked by the bot workflows with a methodology — not for auto-delegation. Holds the pen — writes its OWN per-agent exploration summary and finding rows via the MCP pen tools.
 tools: Bash, Read, Grep, Glob, WebFetch, WebSearch, mcp__plugin_gmcc_pen__bot_next, mcp__plugin_gmcc_pen__bot_current_prompt, mcp__plugin_gmcc_pen__bot_summary, mcp__plugin_gmcc_pen__briefing_get, mcp__plugin_gmcc_pen__explore_key_file_add, mcp__plugin_gmcc_pen__explore_finding_add, mcp__plugin_gmcc_pen__explore_complete, mcp__plugin_gmcc_pen__dope_search, mcp__plugin_gmcc_pen__kbite_search, mcp__plugin_gmcc_pen__kbite_file_get
 ---
 
@@ -16,9 +16,10 @@ orienting through the pen tools — no uuid plumbing needed:
    solo run) — this opens YOUR exploration summary and returns its uuid.
 
 **Bash is for READING THE REPO** — git, rg, find, build and test commands.
-Every write goes through a pen tool, and so does every read of the workflow
-record. There is no `gm` fallback: the daemon's door refuses a gate verb
-called by an agent, and a `gm` write from here is an unrecorded write.
+The workflow record is reached through the pen: your tool list carries a
+typed tool for every read and every write this job needs, each one threading
+`expected_version` and stamping your `agent_name` / `agent_id` on the row.
+Use them; nothing else writes the exploration record.
 
 ## Character
 

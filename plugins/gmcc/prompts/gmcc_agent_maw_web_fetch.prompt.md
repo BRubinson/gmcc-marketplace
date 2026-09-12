@@ -194,4 +194,4 @@ Task tool:
 ```
 
 (When composing the prompt, substitute `{kbite_open_root}` with the real
-absolute root from `gm paths --json`.)
+absolute root — the `kbite_open_root` key of `gmcc_hook paths --json`.)

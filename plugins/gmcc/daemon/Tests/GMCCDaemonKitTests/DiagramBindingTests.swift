@@ -232,7 +232,7 @@ final class DiagramBindingTests: XCTestCase {
     }
 
     /// A project with no scope reports SUMMARY_ABSENT with promotion-shaped
-    /// advice — telling someone to `gm dope init` a project scope would be
+    /// advice — telling someone to DOPE_INIT a project scope would be
     /// wrong, since project scopes arrive by promotion.
     func testProjectWithNoScopeReportsAbsentWithPromotionAdvice() throws {
         XCTAssertThrowsError(try store.dopeGet(DopeGetRequest(projectUuid: "proj-1"))) {
@@ -242,7 +242,7 @@ final class DiagramBindingTests: XCTestCase {
             let payload = ($0 as? StoreError)?.errorPayload
             XCTAssertEqual(payload?.code, .summaryAbsent)
             XCTAssertTrue(payload?.message.contains("promotion") ?? false,
-                          "the hint must point at promotion, not gm dope init")
+                          "the hint must point at promotion, not DOPE_INIT")
         }
     }
 

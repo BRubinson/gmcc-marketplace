@@ -6,7 +6,7 @@ import Foundation
 /// SessionStart path, so EVERY outcome is non-throwing. "Boot must never
 /// block on a domain model" extends verbatim to publishing one.
 ///
-/// Runs immediately after DopeBootSync.run inside `gm context ensure`, so the
+/// Runs immediately after DopeBootSync.run inside CONTEXT_ENSURE, so the
 /// files -> db reconcile happens first and promotion publishes whatever that
 /// settled on.
 public enum DopePromotion {
@@ -35,7 +35,7 @@ public enum DopePromotion {
         }
     }
 
-    /// One human line for hook/CLI output; nil for the silent outcomes.
+    /// One human line for hook output; nil for the silent outcomes.
     public static func notice(for outcome: Outcome) -> String? {
         switch outcome {
         case .notPrimaryBranch, .nothingToPublish, .upToDate:
@@ -45,7 +45,8 @@ public enum DopePromotion {
             return "[GMB] dope: promoted to BASE_PROJECT: " + parts.joined(separator: ", ")
         case let .unreachable(reason):
             return "[GMB] dope: WARN — promotion skipped: \(reason) "
-                + "(inspect with: gm dope promote --dry-run)"
+                + "(inspect with: gmcc_hook call DOPE_PROMOTE --json "
+                + "'{\"session_uuid\":\"<uuid>\",\"dry_run\":true}')"
         }
     }
 }

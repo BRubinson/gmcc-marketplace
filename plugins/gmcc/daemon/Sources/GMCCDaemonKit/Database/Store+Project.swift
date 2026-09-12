@@ -1,9 +1,8 @@
 import Foundation
 import GRDB
 
-// PROJECT_UPDATE — the first project-level mutation in the CLI. Until m0011
-// the project table carried nothing a user could configure, so `gm project`
-// had only `list`.
+// PROJECT_UPDATE — the project-level mutation. The project table carries
+// exactly one settable field, which is why PROJECT_LIST long stood alone.
 //
 // Today the single settable field is primary_project_branch (the prompt's
 // BASE_DOPED_BRANCH): the branch whose SESSION_INSTANCE dope scope is

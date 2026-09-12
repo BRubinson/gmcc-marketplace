@@ -43,77 +43,31 @@ final class WireKeyTests: XCTestCase {
         XCTAssertEqual(decoded.requestId, "r-1")
     }
 
-    // MARK: - caller_role (amendment A7)
+    // MARK: - caller_role is GONE from the wire
 
-    /// THE FAIL-OPEN TRIPWIRE. A bare `case callerRoleRaw` in
-    /// RawEnvelopeHead's CodingKeys expects the wire key `caller_role_raw`
-    /// under .convertFromSnakeCase, never matches the `caller_role` the
-    /// encoder emits, and decodes to nil — and because absent means
-    /// `.primary`, every agent caller would read as the primary and the door
-    /// would refuse nothing. The raw value must be the CAMEL "callerRole",
-    /// exactly like `typeRaw = "type"`.
-    ///
-    /// Deliberately driven through the REAL WireCodec (NDJSON.encodeLine →
-    /// NDJSON.decode), not a hand-rolled encoder: the bug lives entirely in
-    /// the key STRATEGY, so an encoder that does not apply the strategy
-    /// cannot see it.
-    func testCallerRoleRoundTripsThroughTheRealCodec() throws {
+    /// The role tag was authorization machinery, and this harness authorizes
+    /// nothing. A request must carry NO caller_role key, and the head must
+    /// decode without one — a stale peer that still stamps the key is simply
+    /// ignored rather than rejected.
+    func testRequestsCarryNoCallerRoleKey() throws {
         let request = RequestEnvelope(
-            type: .reviewRank, requestId: "r-2", callerRole: .agent, payload: EmptyPayload())
+            type: .reviewRank, requestId: "r-2", payload: EmptyPayload())
         let data = try NDJSON.encodeLine(request)
         let json = try XCTUnwrap(
             JSONSerialization.jsonObject(with: data) as? [String: Any])
-        XCTAssertEqual(
-            json["caller_role"] as? String, "agent",
-            "the wire key is caller_role — NOT caller_role_raw, NOT callerRole")
-
-        let head = try NDJSON.decode(RawEnvelopeHead.self, from: data)
-        XCTAssertEqual(head.callerRoleRaw, "agent", "caller_role decoded to nil — A7's fail-open bug")
-        XCTAssertEqual(head.callerRole, .agent)
+        XCTAssertNil(json["caller_role"], "the role tag is removed from the wire")
+        XCTAssertEqual(json["type"] as? String, "REVIEW_RANK")
     }
 
-    /// Absent ⇒ `.primary` is what makes the field additive, and a primary
-    /// request must stay BYTE-FOR-BYTE what it was before the field existed.
-    func testPrimaryRequestOmitsCallerRoleEntirely() throws {
-        let request = RequestEnvelope(
-            type: .ping, requestId: "r-3", payload: EmptyPayload())
-        let data = try NDJSON.encodeLine(request)
-        let json = try XCTUnwrap(
-            JSONSerialization.jsonObject(with: data) as? [String: Any])
-        XCTAssertNil(json["caller_role"], "a primary request must not grow a new wire key")
-
-        let head = try NDJSON.decode(RawEnvelopeHead.self, from: data)
-        XCTAssertNil(head.callerRoleRaw)
-        XCTAssertEqual(head.callerRole, .primary)
-    }
-
-    /// A role this build does not know must NOT trap — the same forward-compat
-    /// rule `typeRaw` and `ErrorPayload.codeRaw` follow: the raw value is
-    /// preserved and the rest of the envelope still decodes.
-    ///
-    /// But "never trap" does not settle WHICH role it lands on, and that half
-    /// is an authorization decision, not a decoding one. `.agent` is the
-    /// RESTRICTED role; `.primary` is the privileged one. Resolving an
-    /// unrecognised value to `.primary` would make this the only fallback in
-    /// the protocol layer that GRANTS privilege on a value the build cannot
-    /// understand — so a future third role (a `teammate` stamped by whatever
-    /// runs team variants) would arrive unrestricted on every daemon built
-    /// before that role existed, silently, and with no would-refuse ledger
-    /// entry because nothing would be refused.
-    ///
-    /// ABSENT is the separate case and it still means `.primary` — see
-    /// `testPrimaryRequestOmitsCallerRoleEntirely` above. Absent is the
-    /// additive-optional contract; present-but-unknown is an unknown claim.
-    func testUnknownCallerRoleDecodesToAgentNotPrimary() throws {
+    /// A stale peer stamping `caller_role` must not break the decode — the
+    /// key is unknown data now, and unknown keys have always been ignored.
+    func testStaleCallerRoleKeyIsIgnoredNotRejected() throws {
         let line = Data(
-            #"{"protocol_version":\#(GMCCWireProtocol.version),"type":"PING","request_id":"r-4","caller_role":"teammate"}"#
+            #"{"protocol_version":\#(GMCCWireProtocol.version),"type":"PING","request_id":"r-4","caller_role":"agent"}"#
                 .utf8)
         let head = try NDJSON.decode(RawEnvelopeHead.self, from: line)
-        XCTAssertEqual(head.callerRoleRaw, "teammate", "the raw value must survive — never trap")
-        XCTAssertEqual(
-            head.callerRole, .agent,
-            "an unrecognised role must degrade to the RESTRICTED role, never to the privileged one")
-        XCTAssertEqual(head.type, .ping, "the rest of the head must still decode")
+        XCTAssertEqual(head.type, .ping, "the head must still decode")
+        XCTAssertEqual(head.requestId, "r-4")
     }
 
     func testHighTrafficRowRoundTrips() throws {

@@ -1,7 +1,7 @@
 import Foundation
 import GRDB
 
-// gm dope search — full-text over the dope tree at one of three scopes.
+// DOPE_SEARCH — full-text over the dope tree at one of three scopes.
 // Bodies live in DopeSearchRepository; this wrapper owns the transaction
 // (and the pre-transaction FTS pattern parse).
 

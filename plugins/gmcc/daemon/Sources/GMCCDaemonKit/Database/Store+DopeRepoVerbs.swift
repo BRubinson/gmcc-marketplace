@@ -24,7 +24,7 @@ extension Store {
     /// `requireSessionUuid()` is not the gate it looks like: it succeeds for
     /// BOTH `.sessionInstance` and `.sessionInstanceItem`, because
     /// `isSessionOwned` covers the overlay tier too. Without this guard,
-    /// `gm dope write-repo --scope-uuid <a PROMPT scope>` resolves the same
+    /// a DOPE_WRITE_REPO aimed at a PROMPT scope resolves the same
     /// instance root a session-base write resolves and overwrites the shared
     /// {instance_root}/.gmcc tree — and an overlay carries soft-delete
     /// tombstones, which must never reach a committed .doped.json.

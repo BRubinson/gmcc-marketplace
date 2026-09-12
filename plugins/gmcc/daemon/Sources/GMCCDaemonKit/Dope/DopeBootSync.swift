@@ -114,14 +114,15 @@ public enum DopeBootSync {
         case let .filesBehind(code, dbRevision, diskVersion):
             return "[GMB] dope: WARN — session scope '\(code)' (revision \(dbRevision)) is AHEAD of "
                 + ".gmcc (version \(diskVersion)); boot never writes files. "
-                + "Publish with: gm dope write-repo"
+                + "Publish with: gmcc_hook call DOPE_WRITE_REPO --json '{\"scope_uuid\":\"<uuid>\"}'"
         case let .legacyLayout(path):
             return "[GMB] dope: WARN — found a RETIRED .gmcc/dope tree at \(path) and no "
                 + ".gmcc/\(DopeDocumentCodec.scopeFileName). The session scope was NOT seeded from it. "
-                + "Republish with: gm dope write-repo --scope-uuid <uuid> --force, "
-                + "then: git rm -r .gmcc/dope"
+                + "Republish with: gmcc_hook call DOPE_WRITE_REPO --json "
+                + "'{\"scope_uuid\":\"<uuid>\",\"force\":true}', then: git rm -r .gmcc/dope"
         case let .unreadable(reason):
-            return "[GMB] dope: WARN — sync skipped: \(reason) (inspect with: gm dope sync)"
+            return "[GMB] dope: WARN — sync skipped: \(reason) "
+                + "(inspect with: gmcc_hook context ensure)"
         }
     }
 }

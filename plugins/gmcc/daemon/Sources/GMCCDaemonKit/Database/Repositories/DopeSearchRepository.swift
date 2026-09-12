@@ -1,7 +1,7 @@
 import Foundation
 import GRDB
 
-/// gm dope search data access — full-text over the dope tree at one of three
+/// DOPE_SEARCH data access — full-text over the dope tree at one of three
 /// scopes; --only-masks is a post-filter over resolver provenance. Runs
 /// INSIDE a Store-owned transaction; holds no dbQueue and never
 /// self-transacts.

@@ -34,10 +34,10 @@ public enum StoreError: Error, Sendable {
     /// the four prompt-shaped call sites stay untouched.
     case dopeScopeAbsent(sessionUuid: String, promptUuid: String?, code: String?)
     /// The PROJECT exists but carries no dope scope on its own ladder
-    /// (PROJECT_ITEM, then the BASE_PROJECT scope `gm dope promote`
-    /// maintains). A separate case from `dopeScopeAbsent` because the
-    /// remediation differs — a project scope arrives by PROMOTION, not by
-    /// `gm dope init`, and telling someone to init one would be wrong
+    /// (PROJECT_ITEM, then the BASE_PROJECT scope DOPE_PROMOTE maintains). A
+    /// separate case from `dopeScopeAbsent` because the remediation differs —
+    /// a project scope arrives by PROMOTION, not by DOPE_INIT, and telling
+    /// someone to init one would be wrong
     /// advice. Same `.summaryAbsent` wire code, so no new ErrorCode and a
     /// pinned-Kit GMVibes still decodes it.
     case dopeProjectScopeAbsent(projectUuid: String, code: String?)
@@ -82,19 +82,23 @@ public enum StoreError: Error, Sendable {
                 code: .invalidTransition,
                 message: "illegal prompt transition \(from.rawValue) → \(to.rawValue)\(suffix)")
         case .summaryAbsent(let entity, let uuid):
-            // The open-verb hint is entity-derived.
-            let verb: String
+            // The open hint is entity-derived, and names the pen tool wherever
+            // one covers the open; the rest go through the raw verb.
+            func rawOpen(_ type: String) -> String {
+                "gmcc_hook call \(type) --json '{\"prompt_uuid\":\"\(uuid)\"}'"
+            }
+            let hint: String
             switch entity {
-            case "clarification": verb = "gm clarify open / gm arch open"
-            case "architecture": verb = "gm clarify open / gm arch open"
-            case "exploration": verb = "gm explore open"
-            case "review": verb = "gm review open"
-            case "briefing": verb = "gm briefing open"
-            default: verb = "gm clarify open / gm arch open"
+            case "exploration": hint = "mcp__plugin_gmcc_pen__bot_summary"
+            case "briefing": hint = "mcp__plugin_gmcc_pen__init_briefing"
+            case "review": hint = rawOpen("REVIEW_OPEN")
+            case "architecture": hint = rawOpen("ARCH_OPEN")
+            case "clarification": hint = rawOpen("CLARIFY_OPEN")
+            default: hint = rawOpen("CLARIFY_OPEN (or ARCH_OPEN)")
             }
             return ErrorPayload(
                 code: .summaryAbsent,
-                message: "prompt \(uuid) has no \(entity) yet — open one (\(verb) --prompt-uuid \(uuid))")
+                message: "prompt \(uuid) has no \(entity) yet — open one (\(hint))")
         case .contentLocked(let status):
             return ErrorPayload(
                 code: .contentLocked,
@@ -122,9 +126,9 @@ public enum StoreError: Error, Sendable {
             var target = "session \(sessionUuid)"
             if let promptUuid { target += " / prompt \(promptUuid)" }
             if let code { target += " code '\(code)'" }
-            let initHint = "gm dope init --session-uuid \(sessionUuid)"
-                + (promptUuid.map { " --prompt-uuid \($0)" } ?? "")
-                + " --code \(code ?? "<code>") --name <name>"
+            let initHint = "gmcc_hook call DOPE_INIT --json '{\"session_uuid\":\"\(sessionUuid)\""
+                + (promptUuid.map { ",\"prompt_uuid\":\"\($0)\"" } ?? "")
+                + ",\"code\":\"\(code ?? "<code>")\",\"name\":\"<name>\"}'"
             return ErrorPayload(
                 code: .summaryAbsent,
                 message: "\(target) has no dope scope yet — initialize one (\(initHint))")
@@ -135,12 +139,14 @@ public enum StoreError: Error, Sendable {
                 code: .summaryAbsent,
                 message: "\(target) has no project-tier dope scope yet — a project scope "
                        + "arrives by promotion from a primary-branch session "
-                       + "(gm dope promote --session-uuid <U>), not by gm dope init")
+                       + "(gmcc_hook call DOPE_PROMOTE --json '{\"session_uuid\":\"<U>\"}'), "
+                       + "not by DOPE_INIT")
         case .diagramAbsent(let ownerKind, let ownerUuid, let code):
             var target = "\(ownerKind) \(ownerUuid)"
             if let code { target += " code '\(code)'" }
-            let initHint = "gm diagram init --\(ownerKind)-uuid \(ownerUuid)"
-                + " --code \(code ?? "<code>") --name <name>"
+            let initHint = "gmcc_hook call DIAGRAM_INIT --json "
+                + "'{\"\(ownerKind)_uuid\":\"\(ownerUuid)\",\"code\":\"\(code ?? "<code>")\","
+                + "\"name\":\"<name>\"}'"
             return ErrorPayload(
                 code: .summaryAbsent,
                 message: "\(target) has no diagram yet — initialize one (\(initHint))")

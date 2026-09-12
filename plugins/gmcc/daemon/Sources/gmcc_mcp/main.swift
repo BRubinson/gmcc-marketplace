@@ -12,20 +12,19 @@ import GMCCDaemonKit
 // the daemon already hand-rolls its own wire envelope.
 //
 // THE SURFACE IS THE PEN, AND VerbRegistry DECLARES IT. Every tool below is
-// a VerbSpec row carrying `pen:`; the primary's gate verbs (review rank,
-// arch decide, prompt set-status, care-package seal) carry none, and the
-// daemon refuses them to this client by caller role — the stamp is
-// `DaemonClient(callerRole: .agent)` at the bottom of this file. Withholding
-// a tool withholds the TOOL, never the capability (every agent also holds
-// Bash), so the door is what enforces; the roster is what makes the door
-// something an agent can comply with.
+// a VerbSpec row carrying `pen:`, and the roster is checked against the
+// registry at startup so the two cannot drift. Nothing here authorizes
+// anything: which tools an agent holds is set by its own definition, and the
+// workflow's methodology — the primary calibrates, decides and seals — is
+// GUIDANCE in that definition and in the pen sheet, not a refusal.
 //
 // READS MATTER AS MUCH AS WRITES: an agent that cannot read its own
-// exploration/review/architecture rows through the pen will shell out to gm
-// to get them, and then it is already in the CLI when it writes. Rating
-// windows exist on explore_get/review_get for the same reason — renderResult
-// caps a result at 80_000 bytes and an unnarrowable read is an incentive to
-// leave.
+// exploration/review/architecture rows through the pen will shell out to get
+// them another way, and then it is already outside the pen when it writes.
+// Every read here therefore declares a `narrowing` — the parameter that makes
+// ITS result smaller — and PenResultBudget degrades to that narrowed form
+// rather than handing back a body the harness refuses. An unnarrowable read
+// is an incentive to leave.
 //
 // Registered by the plugin as server `pen`, so tools surface as
 // mcp__plugin_gmcc_pen__<tool> (the plugin-scoped naming rule — a bare
@@ -145,6 +144,16 @@ struct Args {
         json[key]?.stringArray
     }
 
+    /// A REQUIRED boolean. `optBool` cannot serve here: false and absent are
+    /// different answers for a field like `nullable`, where guessing one is a
+    /// migration written from a value nobody supplied.
+    func bool(_ key: String) throws -> Bool {
+        guard let value = json[key]?.boolValue else {
+            throw ToolError(message: "missing required argument '\(key)' (true or false)")
+        }
+        return value
+    }
+
     /// The rating window shared by explore_get and review_get, mirroring the
     /// CLI's RatingWindowOptions: mutually exclusive, 0-999, A:B inclusive.
     /// Without it a pen read of a ranked finding set is all-or-nothing, and
@@ -177,25 +186,21 @@ struct Args {
 
 // MARK: - Tool registry
 
-/// Which client serves a tool — i.e. what role the daemon is told the call
-/// came from.
-enum ToolAudience {
-    /// Everything an agent may do. Served by the `.agent` client, and the
-    /// daemon's role gate applies exactly as it always has.
-    case agent
-    /// One of the four gate doors. Served by the `.primary` client ONLY when
-    /// the call carries a harness attestation saying the primary made it.
-    case primaryDoor
-}
-
 struct Tool {
     let name: String
     let description: String
     /// {property name: (type, description, required)}
     let params: [(String, String, String, Bool)]
-    /// Defaults to `.agent`, so a tool added without thinking about roles gets
-    /// the restrictive side rather than a door.
-    var audience: ToolAudience = .agent
+    /// What makes THIS tool's result smaller, in the tool's own argument
+    /// names. nil is a positive statement: this result cannot outgrow the
+    /// budget, or nothing about it is divisible. The guard quotes it back
+    /// verbatim on an oversize result, so a caller is never told to "narrow
+    /// the query" without being told with what.
+    var narrowing: PenNarrowing? = nil
+    /// The narrowed re-run the guard performs on an oversize result, so the
+    /// caller gets DATA plus instructions instead of a refusal plus a
+    /// truncated body. nil = there is nothing smaller to fall back to.
+    var degrade: ((Args, DaemonClient) throws -> any Encodable)? = nil
     let run: (Args, DaemonClient) throws -> any Encodable
 
     var inputSchema: [String: Any] {
@@ -283,13 +288,10 @@ let tools: [Tool] = [
         ],
         run: { args, client in
             let agentType = try args.string("agent_type")
-            // No payload-granular synthesis guard here. Authorization is the
-            // daemon's door, keyed on caller_role against VerbRegistry — and
-            // the approved invariant is "no agent may call the PRIMARY doors;
-            // any agent may seal synthesis once everything is ranked". The
-            // merged clarifier opens this row (it never explored, so nothing
-            // else can have opened one for it) and completes it in the same
-            // pass; a guard here would have made that pass impossible.
+            // No synthesis guard here, by design: any agent may open and
+            // seal the synthesis row once everything is ranked. The merged
+            // clarifier opens it (it never explored, so nothing else can have
+            // opened one for it) and completes it in the same pass.
             let (prompt, key, session) = botSelector(args, client)
             let workflow = try client.botGet(BotGetRequest(
                 promptUuid: prompt, clientKey: key, sessionUuid: session)).workflow
@@ -473,11 +475,25 @@ let tools: [Tool] = [
         }),
     Tool(
         name: "care_package_get",
-        description: "The prompt's care package — the clarified-intent bundle downstream agents load.",
-        params: [("prompt_uuid", "string", "The prompt uuid", true)],
+        description: "The prompt's care package — the clarified-intent bundle downstream agents load. The clarified intent always comes back whole; the curated exploration COPIES are what scale with agent count and what ref_uuid reads one of.",
+        params: [
+            ("prompt_uuid", "string", "The prompt uuid", true),
+            ("include_ref_bodies", "boolean", "Return every curated exploration ref's full body (default true; false leaves exploration_ref_stubs)", false),
+            ("ref_uuid", "string", "Return exactly this exploration ref's curated body in full", false),
+        ],
+        narrowing: PenNarrowing(
+            parameters: ["include_ref_bodies", "ref_uuid"],
+            retryWith: "care_package_get with include_ref_bodies=false, then ref_uuid to read one curated copy at a time"),
+        degrade: { args, client in
+            try client.carePackageGet(CarePackageGetRequest(
+                promptUuid: try args.string("prompt_uuid"),
+                includeRefBodies: false))
+        },
         run: { args, client in
             try client.carePackageGet(CarePackageGetRequest(
-                promptUuid: try args.string("prompt_uuid")))
+                promptUuid: try args.string("prompt_uuid"),
+                includeRefBodies: args.optBool("include_ref_bodies"),
+                refUuid: args.optString("ref_uuid")))
         }),
     Tool(
         name: "care_ref_add",
@@ -560,6 +576,9 @@ let tools: [Tool] = [
             ("prompt_uuid", "string", "Prompt scope selector", false),
             ("limit", "number", "Max hits", false),
         ],
+        narrowing: PenNarrowing(
+            parameters: ["limit", "scope"],
+            retryWith: "dope_search with a smaller limit, or scope narrowed to prompt"),
         run: { args, client in
             let scopeRaw = args.optString("scope") ?? "session"
             guard let scope = DopeSearchScope(rawValue: scopeRaw) else {
@@ -583,6 +602,9 @@ let tools: [Tool] = [
             ("query", "string", "The search query", true),
             ("limit", "number", "Max hits", false),
         ],
+        narrowing: PenNarrowing(
+            parameters: ["limit"],
+            retryWith: "kbite_search with a smaller limit, then kbite_file_get for the one file worth opening"),
         run: { args, client in
             try client.searchKbites(KbiteSearchRequest(
                 query: try args.string("query"),
@@ -592,6 +614,12 @@ let tools: [Tool] = [
         name: "kbite_file_get",
         description: "One kbite file's digested content (may be null — raw sources live on the filesystem).",
         params: [("file_uuid", "string", "The kbite file uuid", true)],
+        // DELIBERATELY NO NARROWING PARAMETER. The result is one digested
+        // file's content: there is no second axis to cut it on, and adding a
+        // "first N chars" knob would hand back a body the caller cannot tell
+        // from the whole one. An oversize digest is a CRUNCH-side problem —
+        // the guard says so rather than inventing a window.
+        narrowing: nil,
         run: { args, client in
             try client.getKbiteFile(KbiteFileGetRequest(fileUuid: try args.string("file_uuid")))
         }),
@@ -611,6 +639,17 @@ let tools: [Tool] = [
             promptSelectorParam,
             ("agent_type", "string", "Filter to one agent's summary (omit for all)", false),
         ] + ratingWindowParams,
+        // Already windowed — no new parameter is owed here, only the
+        // declaration that lets the guard name the one that exists.
+        narrowing: PenNarrowing(
+            parameters: ["max_rating", "rating_range", "agent_type"],
+            retryWith: "explore_get with max_rating=0 for the critical findings, or agent_type to read one methodology's summary"),
+        degrade: { args, client in
+            try client.exploreGet(ExploreGetRequest(
+                promptUuid: try resolvePromptUuid(args, client),
+                agentType: args.optString("agent_type"),
+                ratingMax: 0))
+        },
         run: { args, client in
             let window = try args.ratingWindow()
             return try client.exploreGet(ExploreGetRequest(
@@ -646,6 +685,13 @@ let tools: [Tool] = [
         name: "review_get",
         description: "The prompt's review record: summary, findings inside the rating window, stubs outside it. Same window semantics as explore_get.",
         params: [promptSelectorParam] + ratingWindowParams,
+        narrowing: PenNarrowing(
+            parameters: ["max_rating", "rating_range"],
+            retryWith: "review_get with max_rating=0 for the critical findings only"),
+        degrade: { args, client in
+            try client.reviewGet(ReviewGetRequest(
+                promptUuid: try resolvePromptUuid(args, client), ratingMax: 0))
+        },
         run: { args, client in
             let window = try args.ratingWindow()
             return try client.reviewGet(ReviewGetRequest(
@@ -657,18 +703,67 @@ let tools: [Tool] = [
     Tool(
         name: "clarify_get",
         description: "The prompt's clarification record: summary, questions (+answers), notes, and the care package with its dope staleness when one exists.",
-        params: [promptSelectorParam],
+        params: [
+            promptSelectorParam,
+            ("include_care_package", "boolean", "Embed the full care package (default true; false leaves a counts-only care_package_stub — the package reads whole through care_package_get)", false),
+            ("note_weight_max", "number", "Weight window over the notes: at or below stays a full row, above drops to note_stubs (unweighted notes are always full)", false),
+        ],
+        // Two things here grow without bound — the embedded care package and
+        // the note bodies — and each has its own switch. Questions are NOT
+        // windowed: a question plus its pre-authored options is bounded by
+        // what a human can answer.
+        narrowing: PenNarrowing(
+            parameters: ["include_care_package", "note_weight_max"],
+            retryWith: "clarify_get with include_care_package=false (then care_package_get for the package itself), and note_weight_max=0 for the critical notes only"),
+        degrade: { args, client in
+            try client.clarifyGet(ClarifyGetRequest(
+                promptUuid: try resolvePromptUuid(args, client),
+                includeCarePackage: false,
+                noteWeightMax: 0))
+        },
         run: { args, client in
             try client.clarifyGet(ClarifyGetRequest(
-                promptUuid: try resolvePromptUuid(args, client)))
+                promptUuid: try resolvePromptUuid(args, client),
+                includeCarePackage: args.optBool("include_care_package"),
+                noteWeightMax: args.optInt("note_weight_max")))
         }),
     Tool(
         name: "arch_get",
-        description: "The approved architecture with its implementation state: persistence changes before general changes, each joined to its recorded file changes, plus the touched-but-unplanned set. This is the implementation spec.",
-        params: [promptSelectorParam],
+        description: "The approved architecture with its implementation state: persistence changes before general changes, each joined to its recorded file changes, plus the touched-but-unplanned set. This is the implementation spec. Option bodies and change_code are STUBBED by default — pass option_uuid / change_uuid / full to read one in full.",
+        params: [
+            promptSelectorParam,
+            ("include_options", "boolean", "Return every architect option's full BODY inline (default false — stubs carry uuid, agent, status, selected, body_chars)", false),
+            ("option_uuid", "string", "Return exactly this option's body in full", false),
+            ("full", "boolean", "Return every general change's change_code verbatim (default false — stubs carry a leading excerpt + change_code_chars)", false),
+            ("change_uuid", "string", "Return exactly this general change's change_code in full", false),
+            ("limit", "number", "Page size over the general change rows (persistence changes are never paged)", false),
+            ("cursor", "string", "Continuation from a previous result's change_page.next_cursor", false),
+        ],
+        // THE PEN IS WHAT NARROWS, NOT THE DAEMON. ArchGetRequest's wire
+        // default is still "everything full" so every existing caller —
+        // GMVibes building against this package included — is unchanged by
+        // construction. It is this client, the one feeding an agent harness
+        // with a hard result cap, that opts into the stub form; the schema
+        // above is how an agent opts back out.
+        narrowing: PenNarrowing(
+            parameters: ["limit", "cursor", "option_uuid", "change_uuid"],
+            retryWith: "arch_get with limit (e.g. 10) and a cursor to page the general changes; then option_uuid / change_uuid to read one body at a time"),
+        degrade: { args, client in
+            try client.archGet(ArchGetRequest(
+                promptUuid: try resolvePromptUuid(args, client),
+                includeOptions: false,
+                full: false,
+                limit: 10))
+        },
         run: { args, client in
             try client.archGet(ArchGetRequest(
-                promptUuid: try resolvePromptUuid(args, client)))
+                promptUuid: try resolvePromptUuid(args, client),
+                includeOptions: args.optBool("include_options") ?? false,
+                optionUuid: args.optString("option_uuid"),
+                full: args.optBool("full") ?? false,
+                changeUuid: args.optString("change_uuid"),
+                limit: args.optInt("limit"),
+                cursor: args.optString("cursor")))
         }),
     Tool(
         name: "file_change_list",
@@ -679,6 +774,18 @@ let tools: [Tool] = [
             ("path", "string", "Filter to one repo-relative path", false),
             ("limit", "number", "Max rows", false),
         ],
+        narrowing: PenNarrowing(
+            parameters: ["limit", "path"],
+            retryWith: "file_change_list with limit (e.g. 100), or path to scope to one file"),
+        degrade: { args, client in
+            let session = args.optString("session_uuid")
+            let prompt = session == nil ? try resolvePromptUuid(args, client) : args.optString("prompt_uuid")
+            return try client.listFileChanges(FileChangeListRequest(
+                sessionUuid: session,
+                promptUuid: prompt,
+                relativePath: args.optString("path"),
+                limit: 100))
+        },
         run: { args, client in
             let session = args.optString("session_uuid")
             // An explicit session read is session-scoped; otherwise the
@@ -699,6 +806,13 @@ let tools: [Tool] = [
             ("session_uuid", "string", "Explicit session uuid (default: YOUR session)", false),
             ("resolved", "boolean", "Merge the masking overlay over its base", false),
         ],
+        // `code` is the window and it is already required in practice — but
+        // there is no safe automatic degrade: the guard cannot GUESS which
+        // subtree the caller meant, and picking one would answer a different
+        // question than the one asked.
+        narrowing: PenNarrowing(
+            parameters: ["code"],
+            retryWith: "dope_get with code set to one subtree's dot-path (dope_search finds the path)"),
         run: { args, client in
             var session = args.optString("session_uuid")
             if session == nil { session = try? ContextBuilder.resolveSessionUuid(client) }
@@ -719,7 +833,6 @@ let tools: [Tool] = [
             try client.getPrompt(PromptGetRequest(promptUuid: try args.string("prompt_uuid")))
         }),
 ] + makeFastPathTools() + makePrimaryDoorTools()
-
 // MARK: - Upfront loading
 
 // EVERY PEN TOOL LOADS UPFRONT, declared once as `"alwaysLoad": true` on this
@@ -777,29 +890,28 @@ let tools: [Tool] = [
 
 // MARK: - Rendering (byte-budgeted)
 
-/// Tool results are the wire response as sorted-key JSON — the same shape
-/// `--json` prints, which is the form agents parse. Budgeted under the MCP
-/// output cap (rating windows on the big gets do the real limiting).
-func renderResult(_ value: any Encodable) throws -> String {
-    let encoder = JSONEncoder()
-    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-    let data = try encoder.encode(value)
-    let budget = 80_000
-    guard data.count > budget else {
-        return String(data: data, encoding: .utf8) ?? "{}"
-    }
-    // Clip BYTES (the budget's unit — a Character prefix could emit ~4x the
-    // budget on multibyte payloads), then back off to a UTF-8 boundary by
-    // dropping continuation bytes.
-    var clippedData = data.prefix(budget)
-    while let last = clippedData.last, last & 0b1100_0000 == 0b1000_0000 {
-        clippedData = clippedData.dropLast()
-    }
-    if let last = clippedData.last, last & 0b1000_0000 != 0 {
-        clippedData = clippedData.dropLast()
-    }
-    let clipped = String(data: Data(clippedData), encoding: .utf8) ?? "{}"
-    return clipped + "\n… [TRUNCATED at \(budget) bytes — narrow the query (rating windows, limit) and retry]"
+/// Tool results are the wire response as sorted-key JSON — the same shape the
+/// daemon's `--json` prints, which is the form agents parse.
+///
+/// THIS NO LONGER CLIPS. The previous implementation cut the JSON at 80,000
+/// bytes and appended "narrow the query (rating windows, limit) and retry" —
+/// advice `arch_get` could not take, since ArchGetRequest had nothing to
+/// narrow. Worse, sorted keys meant the cut landed inside `options` and ate
+/// `persistence_changes` whole, silently. A caller hand-parsing a truncated
+/// body is the failure being fixed, so the guard degrades to the narrowed
+/// form (or to a note alone) and never emits invalid JSON.
+///
+/// The threshold and the envelope shape live in `PenResultBudget` in
+/// GMCCDaemonKit — the pen binary cannot be linked into the test target, and
+/// a size guard nothing can test is a size guard nobody trusts.
+func renderResult(
+    tool: Tool, args: Args, client: DaemonClient, value: any Encodable
+) throws -> String {
+    try PenResultBudget.render(
+        tool: tool.name,
+        narrowing: tool.narrowing,
+        value: value,
+        degrade: tool.degrade.map { degrade in { try degrade(args, client) } })
 }
 
 // MARK: - JSON-RPC loop
@@ -826,31 +938,11 @@ if let projectDir = ProcessInfo.processInfo.environment["CLAUDE_PROJECT_DIR"],
     FileManager.default.changeCurrentDirectoryPath(projectDir)
 }
 
-// TWO CLIENTS, NOT ONE MUTABLE ROLE. `DaemonClient.callerRole` is a `let` read
-// inside a locked `request()` on an `@unchecked Sendable` type — flipping it
-// per call would be a data race. Two sockets is both smaller and correct.
-//
-// The agent client serves every tool and is unchanged. The primary client
-// serves the four gate doors and ONLY when the PreToolUse attestation says the
-// primary is calling; an agent reaching for a door is handed the agent client
-// and refused by the daemon, which is the same answer it has always got.
-let client = DaemonClient(callerRole: .agent)
-let primaryClient = DaemonClient(callerRole: .primary)
+// ONE CLIENT, ONE SOCKET. Every pen tool is served by the same connection —
+// there is no caller role on the wire and nothing for the daemon to decide
+// about who is on the other end.
+let client = DaemonClient()
 defer { client.close() }
-defer { primaryClient.close() }
-
-/// Resolve which client serves this call.
-///
-/// UNSTAMPED READS AS AN AGENT. The attestation is a positive literal written by
-/// the PreToolUse hook, so a hook that did not run leaves no stamp at all — and
-/// that must land on the restrictive side. Inferring the primary from absence is
-/// precisely the forgery this closes: an agent does not know its own agent_id,
-/// so omitting it is the DEFAULT path, not an exotic one.
-func clientFor(_ tool: Tool, _ args: Args) -> DaemonClient {
-    guard tool.audience == .primaryDoor else { return client }
-    let attested = args.optString(HookRunner.attestKey)
-    return attested == HookRunner.attestPrimary ? primaryClient : client
-}
 
 validateRosterAgainstRegistry()
 
@@ -897,9 +989,10 @@ while let line = readLine(strippingNewline: true) {
             continue
         }
         do {
-            let result = try tool.run(arguments, clientFor(tool, arguments))
+            let result = try tool.run(arguments, client)
             respond(id: id, result: [
-                "content": [["type": "text", "text": try renderResult(result)]],
+                "content": [["type": "text", "text": try renderResult(
+                    tool: tool, args: arguments, client: client, value: result)]],
                 "isError": false,
             ])
         } catch {

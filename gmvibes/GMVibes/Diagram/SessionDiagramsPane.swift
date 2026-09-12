@@ -118,7 +118,7 @@ struct SessionDiagramsPane: View {
         } else {
             Button("Make Public") { setVisibility(row, .public) }
                 .help("PUBLIC session diagrams can serialize into the repo's "
-                      + "committed .gmcc tree via gm diagram write-repo")
+                      + "committed .gmcc tree via DIAGRAM_WRITE_REPO")
         }
         Divider()
         Button("Delete Diagram", role: .destructive) { delete(row) }

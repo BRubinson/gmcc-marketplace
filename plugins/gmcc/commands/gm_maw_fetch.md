@@ -23,7 +23,7 @@ To fix: Restart Claude Code from within a git repository.
 ```
 Exit without proceeding.
 
-1. Resolve the kbite roots from `gm paths --json` (kbite_open_root)
+1. Resolve the kbite roots from `gmcc_hook paths --json` (kbite_open_root)
 2. Parse `{kbite_name}` from first token of `$ARGUMENTS`
 3. Verify maw exists at `{kbite_open_root}/{kbite_name}/`
 4. Read MAW_INDEX.md for current state

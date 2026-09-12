@@ -3,7 +3,7 @@ import GRDB
 
 // CLARIFY_* — the db-native clarification machine (replaces qualified.md).
 // building → answering → complete, plus the complete → answering revision
-// edge. Clarify verbs NEVER touch prompt.status — gm prompt set-status is the
+// edge. Clarify verbs NEVER touch prompt.status — PROMPT_SET_STATUS is the
 // single front door for prompt transitions; the shared ensure helper is what
 // both doors call, so UNIQUE(prompt_uuid) can never double-create.
 // Bodies live in ClarificationRepository; these wrappers own the transaction.

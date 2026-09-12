@@ -175,7 +175,7 @@ final class DopeMachineTests: XCTestCase {
                 }
                 let payload = (error as! StoreError).errorPayload
                 XCTAssertEqual(payload.code, .summaryAbsent)
-                XCTAssertTrue(payload.message.contains("gm dope init"), payload.message)
+                XCTAssertTrue(payload.message.contains("DOPE_INIT"), payload.message)
             }
         }
     }

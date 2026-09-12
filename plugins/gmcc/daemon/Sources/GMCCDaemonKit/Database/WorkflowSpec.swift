@@ -9,17 +9,17 @@ import Foundation
 /// BotWorkflowRepository against these codes, and a new phase or variant is an
 /// entry here rather than a schema change.
 ///
-/// Instruction prose is compiled into the binary (the Cheatsheet precedent)
-/// and drift-guarded by WorkflowSpecTests, which asserts more than presence:
-/// WHERE A PEN TOOL EXISTS, THE PROSE MUST NAME THE PEN TOOL. This text is
-/// served verbatim through bot_next to the agents doing the work, so a block
-/// that hands out a `gm` command has handed out the CLI, and an agent already
-/// in the CLI writes from there too.
+/// Instruction prose is compiled into the binary and drift-guarded by
+/// WorkflowSpecTests, which asserts more than presence: WHERE A PEN TOOL
+/// EXISTS, THE PROSE MUST NAME THE PEN TOOL. This text is served verbatim
+/// through bot_next to the agents doing the work, so a block that names the
+/// wrong write path is the wrong write path, everywhere, at once.
 ///
-/// `gm` survives in exactly two places, and VerbRegistry is what says which:
-/// the primary's four gate doors — mcp__plugin_gmcc_pen__prompt_set_status, mcp__plugin_gmcc_pen__arch_decide,
-/// mcp__plugin_gmcc_pen__review_rank, mcp__plugin_gmcc_pen__care_package_complete — which no agent may walk
-/// through, and verbs that have no pen tool at all.
+/// Verbs with no pen tool are written the way every other daemon verb is
+/// reachable: `gmcc_hook call <MESSAGE_TYPE> --json '{...}'` (or `--json-file`
+/// when the body is larger than an argv can carry). Keys are the wire's
+/// snake_case, sent verbatim. `gmcc_hook verbs --json` lists every type the
+/// daemon serves.
 public enum WorkflowSpec {
 
     /// Phase codes, in canonical order of appearance across variants.
@@ -68,19 +68,19 @@ public enum WorkflowSpec {
     }
 
     /// Compiled-in instruction text per (variant, phase). Less is more: each
-    /// block is what its reader needs NOW — the tool, the gate, and nothing
+    /// block is what its reader needs NOW — the call, the gate, and nothing
     /// else. WorkflowSpecTests fails the build on an empty pair, and on a
-    /// block that names a `gm` write the pen already covers.
+    /// block that names an invocation the pen already covers.
     public static func instructions(variant: BotVariant, phase: Phase) -> String {
         switch phase {
         case .briefing:
             return """
-            gm briefing open --prompt-uuid <prompt> --step initial (no pen tool — \
-            opening the briefing is the primary's). Spawn the haiku doper: it orients \
-            itself with mcp__plugin_gmcc_pen__bot_current_prompt and writes the ref set \
-            with mcp__plugin_gmcc_pen__briefing_complete. Then gate on gm briefing get \
-            --step initial --wait. The machine refuses to leave this phase until the \
-            briefing row is ready.
+            mcp__plugin_gmcc_pen__init_briefing opens the briefing row (step: initial). \
+            Spawn the haiku doper: it orients itself with \
+            mcp__plugin_gmcc_pen__bot_current_prompt and writes the ref set \
+            with mcp__plugin_gmcc_pen__briefing_complete. Then gate on \
+            mcp__plugin_gmcc_pen__wait_for_briefing. The machine refuses to leave this \
+            phase until the briefing row is ready.
             """
         case .explore:
             let agents = expectedExplorationAgents(for: variant)
@@ -106,7 +106,7 @@ public enum WorkflowSpec {
             mcp__plugin_gmcc_pen__explore_complete seals THAT row. Leave the findings \
             unranked here — calibration is cross-agent and belongs to one reader.
             When every expected row is complete: mcp__plugin_gmcc_pen__prompt_set_status status: clarifying \
-            (the primary's door; it creates the clarification summary), then \
+            (the primary's call; it creates the clarification summary), then \
             \(clarifierNote) for the merged pass — rank, seal the synthesis row, then \
             author the question and note suite. Sealing synthesis is what moves the \
             machine into clarify_open.
@@ -127,34 +127,40 @@ public enum WorkflowSpec {
             4. mcp__plugin_gmcc_pen__clarify_question_add (with ordered options) and \
             mcp__plugin_gmcc_pen__clarify_note_add (weight 0-999, 0 = critical), written \
             from the ranked record rather than from a re-read of the repo.
-            The primary seals the suite with gm clarify seal when the pass returns.
+            When the pass returns, the primary seals the suite: \
+            gmcc_hook call CLARIFY_SEAL --json \
+            '{"summary_uuid":"<clarification>","expected_version":V}'.
             """
         case .clarifyUser:
             var text = """
             Ask the user each open question (AskUserQuestion; options mirror the option \
-            rows), record with gm clarify answer --question-uuid (--select <option-uuid>... \
-            and/or --answer text; --skip to skip). At most 2 generative follow-up passes: \
-            question-add stays legal while the summary is answering, so add the follow-ups \
-            and ask them in the same conversation.
+            rows), record each answer with gmcc_hook call CLARIFY_ANSWER --json \
+            '{"question_uuid":"Q","expected_version":V,"answer_text":"...", \
+            "selected_option_uuids":["<option>"],"skip":false}'. At most 2 generative \
+            follow-up passes: question-add stays legal while the summary is answering, so \
+            add the follow-ups and ask them in the same conversation.
             """
             if variant == .bot {
                 text += """
-                 When every question is answered or skipped: gm clarify finalize \
-                --summary-uuid <clarification> --expected-version V (pure gate), then \
-                mcp__plugin_gmcc_pen__prompt_set_status status: architecting.
+                 When every question is answered or skipped: gmcc_hook call \
+                CLARIFY_FINALIZE --json \
+                '{"summary_uuid":"<clarification>","expected_version":V}' (pure gate), \
+                then mcp__plugin_gmcc_pen__prompt_set_status status: architecting.
                 """
             }
             return text
         case .carePackage:
             return """
-            gm clarify package-open --summary-uuid <clarification summary> (no pen tool — \
-            the primary opens it), then curate through the pen: \
+            Open the package: gmcc_hook call CARE_PACKAGE_OPEN --json \
+            '{"summary_uuid":"<clarification summary>"}'. Then curate through the pen: \
             mcp__plugin_gmcc_pen__care_ref_add with kind dope|kbite|exploration \
             (exploration entries are COPIES of ranked findings written with more intent — \
-            never re-explore). Finish at the primary's door: mcp__plugin_gmcc_pen__care_package_complete \
-            --intent-file <clarified intent: backstory+goal+detail, clarified>. The intent \
+            never re-explore). Finish with mcp__plugin_gmcc_pen__care_package_complete, \
+            clarified_intent being backstory+goal+detail as clarified. The intent \
             lives ONLY here — it is never written back to the prompt row. Then \
-            gm clarify finalize (pure gate) and mcp__plugin_gmcc_pen__prompt_set_status status: architecting.
+            gmcc_hook call CLARIFY_FINALIZE --json \
+            '{"summary_uuid":"<clarification>","expected_version":V}' (pure gate) and \
+            mcp__plugin_gmcc_pen__prompt_set_status status: architecting.
             """
         case .archOptions:
             return """
@@ -166,36 +172,41 @@ public enum WorkflowSpec {
         case .architecture:
             if variant == .team {
                 return """
-                Read the options (gm arch get) and pick the winner at the primary's door: \
-                mcp__plugin_gmcc_pen__arch_decide --option-uuid <winner> --rationale-file P (stamps selected, \
-                rejects siblings, records why — offer unused-option features to the user \
-                later). Then expand ONLY the selected option into rows: persistence FIRST \
-                (gm arch persist-add --change-kind add|modify|rename|delete --dope-ref \
-                <entity code>; gm arch field-add --change-kind ... --renamed-from ... \
-                --dope-property-ref <property code>), then gm arch general-add, then \
-                gm arch summarize. Write each general-add row as the instruction its \
+                Read the options (mcp__plugin_gmcc_pen__arch_get) and pick the winner with \
+                mcp__plugin_gmcc_pen__arch_decide (option_uuid, expected_version, \
+                rationale — it stamps selected, rejects siblings, records why; offer \
+                unused-option features to the user later). Then expand ONLY the selected \
+                option into rows, persistence FIRST: gmcc_hook call ARCH_PERSIST_ADD \
+                --json '{"summary_uuid":"S","class_name":"...","file_path":"...", \
+                "reason_brief":"...","change_kind":"add|modify|rename|delete", \
+                "dope_ref":"<entity code>"}', then ARCH_FIELD_ADD (change_kind, \
+                renamed_from, dope_property_ref: <property code>), then ARCH_GENERAL_ADD, \
+                then ARCH_SUMMARIZE. Write each general row as the instruction its \
                 implementer will execute, and name the file_path that implementer owns.
                 """
             }
             return """
             Design in context (bot) or via your single subagent (rpi) from the clarified \
             record — in rpi the subagent PROPOSES and returns its proposal in its final \
-            message; the primary is what persists it. The primary writes every row \
-            db-natively: persistence rows FIRST (gm arch persist-add \
-            --change-kind add|modify|rename|delete --dope-ref <entity code>; gm arch \
-            field-add with --dope-property-ref for renames and deletes), then \
-            gm arch general-add — each row the instruction its implementer will execute, \
-            naming the file_path that implementer owns — then gm arch summarize. Those \
-            four have no pen tool: they are the primary's, and the daemon refuses them \
-            to an agent.
+            message; the primary is what persists it. Every row is written db-natively, \
+            persistence FIRST: gmcc_hook call ARCH_PERSIST_ADD --json \
+            '{"summary_uuid":"S","class_name":"...","file_path":"...", \
+            "reason_brief":"...","change_kind":"add|modify|rename|delete", \
+            "dope_ref":"<entity code>"}', then ARCH_FIELD_ADD (dope_property_ref for \
+            renames and deletes), then ARCH_GENERAL_ADD — each row the instruction its \
+            implementer will execute, naming the file_path that implementer owns — then \
+            ARCH_SUMMARIZE. The architecture rows are one author's work: they are written \
+            once, in order, against a single summary_uuid.
             """
         case .planGate:
             return """
-            gm arch propose, then present the plan for user sign-off — ALWAYS include the \
-            full persistence delta table (positive AND negative changes, dope refs shown). \
-            Approve → gm arch approve + mcp__plugin_gmcc_pen__prompt_set_status status: implementing (the \
-            primary's door; it claims the activation). Modify → gm arch revise and return \
-            to architecture.
+            gmcc_hook call ARCH_PROPOSE --json '{"summary_uuid":"S","expected_version":V}', \
+            then present the plan for user sign-off — ALWAYS include the full persistence \
+            delta table (positive AND negative changes, dope refs shown). Approve → \
+            gmcc_hook call ARCH_APPROVE --json '{"summary_uuid":"S","expected_version":V}' \
+            + mcp__plugin_gmcc_pen__prompt_set_status status: implementing (it claims the \
+            activation). Modify → gmcc_hook call ARCH_REVISE --json \
+            '{"summary_uuid":"S","expected_version":V}' and return to architecture.
             """
         case .implement:
             switch variant {
@@ -239,27 +250,32 @@ public enum WorkflowSpec {
             case .team: spawn = "Run the review workflow — one reviewer per methodology."
             }
             return """
-            mcp__plugin_gmcc_pen__prompt_set_status status: reviewing (the primary's door), then \
-            gm review open --prompt-uuid <prompt> (no pen tool — the primary opens it). \
+            mcp__plugin_gmcc_pen__prompt_set_status status: reviewing, then open the \
+            summary: gmcc_hook call REVIEW_OPEN --json '{"prompt_uuid":"<prompt>"}'. \
             \(spawn) Reviewers scope themselves with mcp__plugin_gmcc_pen__arch_get and \
             mcp__plugin_gmcc_pen__file_change_list, read the record so far with \
             mcp__plugin_gmcc_pen__review_get, and write their findings with \
-            mcp__plugin_gmcc_pen__review_finding_add. Calibrate at the primary's door \
-            (mcp__plugin_gmcc_pen__review_rank), then seal: gm review complete --verdict \
-            approved|approved_with_nits|changes_requested (it refuses unranked findings).
+            mcp__plugin_gmcc_pen__review_finding_add, each rating its own. The primary \
+            then runs the one cross-agent calibration pass \
+            (mcp__plugin_gmcc_pen__review_rank) and seals with gmcc_hook call \
+            REVIEW_COMPLETE, whose payload is summary_uuid, expected_version, overview and \
+            verdict (approved|approved_with_nits|changes_requested). It refuses unranked \
+            findings. Write the payload to a file and pass --json-file: an overview is \
+            routinely larger than an argv can carry.
             """
         case .reviewFix:
             return """
             Clarify fix intent with the user (fix all / fix critical / proceed), then run \
-            the fix loop: every finding under rating 100 gets gm review resolve \
-            --finding-uuid F --status fixed|accepted|wont_fix (legal after complete by \
-            design — the fix loop runs post-seal). The fixes are implementation and carry \
-            implementation's proof: the documented build loop, run and reported. Team: the \
-            fixes themselves may run as a workflow.
+            the fix loop: every finding under rating 100 gets gmcc_hook call \
+            REVIEW_RESOLVE --json '{"finding_uuid":"F","expected_version":V, \
+            "status":"fixed|accepted|wont_fix"}' (legal after complete by design — the fix \
+            loop runs post-seal). The fixes are implementation and carry implementation's \
+            proof: the documented build loop, run and reported. Team: the fixes themselves \
+            may run as a workflow.
             """
         case .done:
             return """
-            mcp__plugin_gmcc_pen__prompt_set_status status: done (the primary's door; it releases the \
+            mcp__plugin_gmcc_pen__prompt_set_status status: done (it releases the \
             activation claim and closes the workflow row). Present the completion summary \
             — the db rows are the record, and there are no phase-history files.
             """

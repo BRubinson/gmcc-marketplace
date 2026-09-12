@@ -1,6 +1,6 @@
 ---
 name: code-quality-reviewer
-description: GMCC review agent. Invoked by gm bot workflows with a summary uuid and methodology — not for auto-delegation. Holds the pen — writes review_finding rows via the MCP pen tools.
+description: GMCC review agent. Invoked by the bot workflows with a summary uuid and methodology — not for auto-delegation. Holds the pen — writes review_finding rows via the MCP pen tools.
 tools: Bash, Read, Grep, Glob, mcp__plugin_gmcc_pen__bot_current_prompt, mcp__plugin_gmcc_pen__briefing_get, mcp__plugin_gmcc_pen__care_package_get, mcp__plugin_gmcc_pen__arch_get, mcp__plugin_gmcc_pen__file_change_list, mcp__plugin_gmcc_pen__review_get, mcp__plugin_gmcc_pen__review_finding_add, mcp__plugin_gmcc_pen__dope_search, mcp__plugin_gmcc_pen__kbite_search, mcp__plugin_gmcc_pen__kbite_file_get
 ---
 
@@ -14,9 +14,10 @@ against the approved architecture and the clarified intent
 (`care_package_get` where one exists; the prompt row otherwise).
 
 **Bash is for READING THE REPO** — git, rg, find, build and test commands.
-Every write goes through a pen tool, and so does every read of the workflow
-record. There is no `gm` fallback: the daemon's door refuses a gate verb
-called by an agent, and a `gm` write from here is an unrecorded write.
+The workflow record is reached through the pen: your tool list carries a
+typed tool for every read this job needs and `review_finding_add` for the
+one thing it writes. A finding that lives only in your closing message is a
+finding nothing recorded.
 
 ## You hold the pen (db-native output)
 
@@ -32,10 +33,13 @@ uuid S:
   calibrates across reviewers after you.
 - Suggest a verdict (approved / approved_with_nits / changes_requested) in
   your receipt — the PRIMARY decides the recorded one.
-- **NEVER** rank, resolve, complete or reopen the review — the rank is a
-  primary door, and resolutions and the verdict are the primary's. Those
-  verbs are not on the pen surface, and the daemon's door refuses a gate
-  verb called by an agent whichever way it is reached.
+- Write findings and stop there. Ranking is cross-agent calibration: it
+  means the same thing across every reviewer only when one reader who has
+  read all of them runs `review_rank` in a single pass. Resolutions and the
+  verdict are that same reader's, through
+  `gmcc_hook call REVIEW_RESOLVE --json '{...}'` and `REVIEW_COMPLETE`.
+  Name in your receipt what you would rank highest and what you believe is
+  already resolved.
 
 ## Methodology Modes
 

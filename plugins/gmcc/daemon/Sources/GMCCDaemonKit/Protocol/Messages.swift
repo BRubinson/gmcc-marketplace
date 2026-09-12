@@ -1971,11 +1971,116 @@ public struct ClarifyFinalizeResponse: Codable, Hashable, Sendable {
     }
 }
 
+/// Same additive-optional narrowing contract as ArchGetRequest: nil means
+/// "what CLARIFY_GET has always returned", so an unnarrowed request is
+/// byte-identical and no wire bump is owed. Two things here grow without
+/// bound — the embedded care package (its clarified intent plus N curated
+/// exploration COPIES) and the note bodies — and each has its own switch.
+/// Questions are NOT windowed: a question plus its pre-authored options is
+/// bounded by what a human can answer, and the count is small by design.
 public struct ClarifyGetRequest: Codable, Hashable, Sendable {
     public let promptUuid: String
+    /// nil/true = the package rides along (the historical response). false
+    /// replaces it with `carePackageStub`, because the whole package is
+    /// separately readable through CARE_PACKAGE_GET and duplicating it here
+    /// is the single largest avoidable weight in this response.
+    public let includeCarePackage: Bool?
+    /// Weight window over the notes, mirroring the rating windows: a note at
+    /// or below this weight stays a full row, the rest drop to `noteStubs`.
+    /// Notes with NO weight are ALWAYS full — the same "unranked is the work
+    /// queue" rule EXPLORE_GET applies to unranked findings. nil = every note
+    /// full.
+    public let noteWeightMax: Int?
 
-    public init(promptUuid: String) {
+    public init(promptUuid: String, includeCarePackage: Bool? = nil, noteWeightMax: Int? = nil) {
         self.promptUuid = promptUuid
+        self.includeCarePackage = includeCarePackage
+        self.noteWeightMax = noteWeightMax
+    }
+
+    public var isNarrowed: Bool { includeCarePackage != nil || noteWeightMax != nil }
+}
+
+/// A note with its body replaced by a leading excerpt and its true length.
+/// A note has no title, so a body-less stub would be unreadable — the excerpt
+/// is what makes "is this one worth widening for" answerable.
+public struct ClarificationNoteStub: Codable, Hashable, Sendable {
+    public let uuid: String
+    public let weight: Int?
+    public let agentName: String?
+    public let questionUuid: String?
+    public let bodyExcerpt: String
+    public let bodyChars: Int
+    public let bodyTruncated: Bool
+
+    public init(
+        uuid: String,
+        weight: Int?,
+        agentName: String?,
+        questionUuid: String?,
+        bodyExcerpt: String,
+        bodyChars: Int,
+        bodyTruncated: Bool
+    ) {
+        self.uuid = uuid
+        self.weight = weight
+        self.agentName = agentName
+        self.questionUuid = questionUuid
+        self.bodyExcerpt = bodyExcerpt
+        self.bodyChars = bodyChars
+        self.bodyTruncated = bodyTruncated
+    }
+}
+
+/// The care package as counts — enough to know it EXISTS, what state it is
+/// in, and how big it is, without carrying a byte of its content. Emitted in
+/// `carePackage`'s place when CLARIFY_GET narrowed it away, so nil-package
+/// and narrowed-away-package stay distinguishable (both-nil means the prompt
+/// genuinely has no package).
+public struct CarePackageStub: Codable, Hashable, Sendable {
+    public let uuid: String
+    public let version: Int64
+    public let status: String
+    public let clarifiedIntentChars: Int
+    public let dopeRefCount: Int
+    public let kbiteRefCount: Int
+    public let explorationRefCount: Int
+    public let dopeScopeUuid: String?
+    public let dopeScopeRevision: Int64?
+
+    public init(
+        uuid: String,
+        version: Int64,
+        status: String,
+        clarifiedIntentChars: Int,
+        dopeRefCount: Int,
+        kbiteRefCount: Int,
+        explorationRefCount: Int,
+        dopeScopeUuid: String?,
+        dopeScopeRevision: Int64?
+    ) {
+        self.uuid = uuid
+        self.version = version
+        self.status = status
+        self.clarifiedIntentChars = clarifiedIntentChars
+        self.dopeRefCount = dopeRefCount
+        self.kbiteRefCount = kbiteRefCount
+        self.explorationRefCount = explorationRefCount
+        self.dopeScopeUuid = dopeScopeUuid
+        self.dopeScopeRevision = dopeScopeRevision
+    }
+
+    public init(package: CarePackageRow) {
+        self.init(
+            uuid: package.uuid,
+            version: package.version,
+            status: package.status,
+            clarifiedIntentChars: package.clarifiedIntent.count,
+            dopeRefCount: package.dopeRefs.count,
+            kbiteRefCount: package.kbiteRefs.count,
+            explorationRefCount: package.explorationRefs.count,
+            dopeScopeUuid: package.dopeScopeUuid,
+            dopeScopeRevision: package.dopeScopeRevision)
     }
 }
 
@@ -2023,19 +2128,31 @@ public struct ClarifyGetResponse: Codable, Hashable, Sendable {
     /// ADDITIVE OPTIONAL (no wire bump — decodes as nil on a stale peer).
     /// INVARIANT: non-nil IFF `carePackage` is non-nil.
     public let carePackageStaleness: CarePackageStaleness?
+    /// ADDITIVE OPTIONAL (no wire bump). Non-nil ONLY when
+    /// `includeCarePackage: false` narrowed a package that DOES exist —
+    /// so `carePackage == nil && carePackageStub == nil` still means, as it
+    /// always has, that no package was ever opened.
+    public let carePackageStub: CarePackageStub?
+    /// ADDITIVE OPTIONAL. Non-nil ONLY when a weight window was applied:
+    /// the notes outside it, as excerpts.
+    public let noteStubs: [ClarificationNoteStub]?
 
     public init(
         summary: ClarificationSummaryRow,
         questions: [ClarificationQuestionRow],
         notes: [ClarificationNoteRow],
         carePackage: CarePackageRow?,
-        carePackageStaleness: CarePackageStaleness? = nil
+        carePackageStaleness: CarePackageStaleness? = nil,
+        carePackageStub: CarePackageStub? = nil,
+        noteStubs: [ClarificationNoteStub]? = nil
     ) {
         self.summary = summary
         self.questions = questions
         self.notes = notes
         self.carePackage = carePackage
         self.carePackageStaleness = carePackageStaleness
+        self.carePackageStub = carePackageStub
+        self.noteStubs = noteStubs
     }
 }
 
@@ -2054,10 +2171,54 @@ public struct CarePackageOpenRequest: Codable, Hashable, Sendable {
 public struct CarePackageResponse: Codable, Hashable, Sendable {
     public let package: CarePackageRow
     public let created: Bool
+    /// ADDITIVE OPTIONAL (no wire bump). Non-nil ONLY when CARE_PACKAGE_GET
+    /// narrowed the curated exploration COPIES away: `package.explorationRefs`
+    /// then holds just the refs whose bodies were asked for, and this holds
+    /// the complete roster as excerpts. NARROWING EMPTIES AN ARRAY AND NAMES
+    /// WHAT LEFT IT — it never rewrites a row's fields, so no value inside a
+    /// CarePackageRow is ever a truncated lie.
+    public let explorationRefStubs: [CarePackageExplorationRefStub]?
 
-    public init(package: CarePackageRow, created: Bool = false) {
+    public init(
+        package: CarePackageRow,
+        created: Bool = false,
+        explorationRefStubs: [CarePackageExplorationRefStub]? = nil
+    ) {
         self.package = package
         self.created = created
+        self.explorationRefStubs = explorationRefStubs
+    }
+}
+
+/// A curated exploration COPY with its body replaced by a leading excerpt.
+public struct CarePackageExplorationRefStub: Codable, Hashable, Sendable {
+    public let uuid: String
+    public let curatedTitle: String
+    public let filePath: String?
+    public let sourceFindingUuid: String?
+    public let seq: Int
+    public let curatedBodyExcerpt: String
+    public let curatedBodyChars: Int
+    public let curatedBodyTruncated: Bool
+
+    public init(
+        uuid: String,
+        curatedTitle: String,
+        filePath: String?,
+        sourceFindingUuid: String?,
+        seq: Int,
+        curatedBodyExcerpt: String,
+        curatedBodyChars: Int,
+        curatedBodyTruncated: Bool
+    ) {
+        self.uuid = uuid
+        self.curatedTitle = curatedTitle
+        self.filePath = filePath
+        self.sourceFindingUuid = sourceFindingUuid
+        self.seq = seq
+        self.curatedBodyExcerpt = curatedBodyExcerpt
+        self.curatedBodyChars = curatedBodyChars
+        self.curatedBodyTruncated = curatedBodyTruncated
     }
 }
 
@@ -2121,12 +2282,29 @@ public struct CarePackageCompleteRequest: Codable, Hashable, Sendable {
     }
 }
 
+/// Additive-optional narrowing, same contract as the other two: nil = the
+/// historical full package.
+///
+/// `clarifiedIntent` is deliberately NOT narrowable. It is ONE blob written
+/// by ONE agent and it is the entire reason downstream agents read this
+/// package; a package whose intent had to be fetched in a second round trip
+/// would just be read twice. The curated exploration COPIES are the part that
+/// scales with agent count, so they are the part with a switch.
 public struct CarePackageGetRequest: Codable, Hashable, Sendable {
     public let promptUuid: String
+    /// nil/true = curated exploration bodies inline (the historical
+    /// response). false moves the roster to `explorationRefStubs`.
+    public let includeRefBodies: Bool?
+    /// Return exactly this exploration ref's curated body in full.
+    public let refUuid: String?
 
-    public init(promptUuid: String) {
+    public init(promptUuid: String, includeRefBodies: Bool? = nil, refUuid: String? = nil) {
         self.promptUuid = promptUuid
+        self.includeRefBodies = includeRefBodies
+        self.refUuid = refUuid
     }
+
+    public var isNarrowed: Bool { includeRefBodies != nil || refUuid != nil }
 }
 
 // MARK: - ARCH_* (v7)
@@ -2318,11 +2496,166 @@ public struct ArchReviseRequest: Codable, Hashable, Sendable {
     }
 }
 
+/// Structurally-partitioned read — the ARCH analogue of the rating windows
+/// on EXPLORE_GET / REVIEW_GET. Architecture rows carry no rating, so the
+/// window is STRUCTURAL rather than numeric: option bodies, change_code, and
+/// a page over the general change rows.
+///
+/// THE WIRE DEFAULT IS UNCHANGED BY CONSTRUCTION. Every field below is an
+/// additive OPTIONAL whose nil means "what ARCH_GET has always returned":
+/// full option bodies, verbatim change_code, every row, and none of the new
+/// response keys emitted at all. A caller that ships no new field — GMVibes'
+/// local package build, any older peer — gets a byte-identical response,
+/// which is exactly why this does NOT bump GMCCWireProtocol.version.
+///
+/// THE NARROWING IS APPLIED BY THE PEN, NOT THE DAEMON. gmcc_mcp's `arch_get`
+/// passes includeOptions=false / full=false / limit by DEFAULT and exposes
+/// include_options / option_uuid / full / change_uuid / limit / cursor in its
+/// tool schema so an agent can widen. The agent harness — not the daemon — is
+/// where an 80 KB result gets refused, so the client that feeds the harness
+/// is the client that narrows.
+///
+/// persistenceChanges are NEVER narrowed and NEVER paged. They are the
+/// persistence-first contract, and they were the silent casualty of the
+/// unwindowed response: sorted-key JSON puts "options" before
+/// "persistence_changes", so a clip mid-array ate the whole persistence set
+/// without saying so.
 public struct ArchGetRequest: Codable, Hashable, Sendable {
     public let promptUuid: String
+    /// nil/true = option BODIES inline (the historical response). false drops
+    /// the bodies to `optionStubs` — the option ROSTER never disappears, so
+    /// narrowing can hide content but never existence. nil with an
+    /// `optionUuid` set means "only that one body".
+    public let includeOptions: Bool?
+    /// Return exactly this option's body in full. In team flows the options
+    /// are four architect essays and this is how you read one.
+    public let optionUuid: String?
+    /// nil/true = general change_code verbatim (the store caps it at 2 MB
+    /// EACH, which is the other half of the weight). false drops every
+    /// general row to `generalChangeStubs` — leading excerpt + true length.
+    /// nil with a `changeUuid` set means "only that one body".
+    public let full: Bool?
+    /// Return exactly this general change's change_code in full. Pins one
+    /// row, so it ignores limit/cursor.
+    public let changeUuid: String?
+    /// Page size over the GENERAL change rows (nil = every row).
+    public let limit: Int?
+    /// Opaque continuation token — the `changePage.nextCursor` of the
+    /// previous page, never constructed by hand.
+    public let cursor: String?
 
-    public init(promptUuid: String) {
+    public init(
+        promptUuid: String,
+        includeOptions: Bool? = nil,
+        optionUuid: String? = nil,
+        full: Bool? = nil,
+        changeUuid: String? = nil,
+        limit: Int? = nil,
+        cursor: String? = nil
+    ) {
         self.promptUuid = promptUuid
+        self.includeOptions = includeOptions
+        self.optionUuid = optionUuid
+        self.full = full
+        self.changeUuid = changeUuid
+        self.limit = limit
+        self.cursor = cursor
+    }
+
+    /// True when the caller asked for ANY narrowing. Drives the
+    /// byte-identical-default guarantee: false ⇒ none of the additive
+    /// response keys is emitted.
+    public var isNarrowed: Bool {
+        includeOptions != nil || optionUuid != nil || full != nil
+            || changeUuid != nil || limit != nil || cursor != nil
+    }
+}
+
+/// An option with its BODY replaced by a length. Carries everything needed to
+/// decide whether to fetch the body (`ArchGetRequest.optionUuid`) — including
+/// which one won. The decision RATIONALE is not duplicated here: it lives on
+/// `ArchitectureSummaryRow.decisionRationale`, which every form of the
+/// response carries in full.
+public struct ArchitectureOptionStub: Codable, Hashable, Sendable {
+    public let uuid: String
+    public let agentName: String
+    public let agentId: String?
+    public let status: String
+    public let selected: Bool
+    public let bodyChars: Int
+
+    public init(
+        uuid: String,
+        agentName: String,
+        agentId: String?,
+        status: String,
+        selected: Bool,
+        bodyChars: Int
+    ) {
+        self.uuid = uuid
+        self.agentName = agentName
+        self.agentId = agentId
+        self.status = status
+        self.selected = selected
+        self.bodyChars = bodyChars
+    }
+}
+
+/// A general change row with change_code replaced by a leading excerpt and
+/// its true length. Every OTHER field — path, reason, depth, and the derived
+/// implementation state — stays verbatim, because those are what an
+/// implementation audit actually reads.
+public struct ArchGeneralChangeStub: Codable, Hashable, Sendable {
+    public let uuid: String
+    public let seq: Int64
+    public let filePath: String
+    public let className: String?
+    public let reasonBrief: String
+    public let changeDepth: String
+    public let changeCodeExcerpt: String
+    public let changeCodeChars: Int
+    public let changeCodeTruncated: Bool
+    public let implementation: ChangeImplementationState
+
+    public init(
+        uuid: String,
+        seq: Int64,
+        filePath: String,
+        className: String?,
+        reasonBrief: String,
+        changeDepth: String,
+        changeCodeExcerpt: String,
+        changeCodeChars: Int,
+        changeCodeTruncated: Bool,
+        implementation: ChangeImplementationState
+    ) {
+        self.uuid = uuid
+        self.seq = seq
+        self.filePath = filePath
+        self.className = className
+        self.reasonBrief = reasonBrief
+        self.changeDepth = changeDepth
+        self.changeCodeExcerpt = changeCodeExcerpt
+        self.changeCodeChars = changeCodeChars
+        self.changeCodeTruncated = changeCodeTruncated
+        self.implementation = implementation
+    }
+}
+
+/// Where the general-change page sits in the whole ordered set. `total` is
+/// the unpaged count, so a caller always knows what it has NOT seen.
+public struct ArchChangePage: Codable, Hashable, Sendable {
+    public let limit: Int?
+    public let returned: Int
+    public let totalGeneralChanges: Int
+    /// nil = this is the last page.
+    public let nextCursor: String?
+
+    public init(limit: Int?, returned: Int, totalGeneralChanges: Int, nextCursor: String?) {
+        self.limit = limit
+        self.returned = returned
+        self.totalGeneralChanges = totalGeneralChanges
+        self.nextCursor = nextCursor
     }
 }
 
@@ -2341,6 +2674,16 @@ public struct ArchGetResponse: Codable, Hashable, Sendable {
     public let generalChanges: [ArchGeneralChangeRow]
     public let unplannedChanges: [UnplannedChangeRow]
     public let orderingRespected: Bool?
+    /// ADDITIVE OPTIONAL (no wire bump — absent on every unnarrowed read and
+    /// on any stale peer). Non-nil ONLY when the request narrowed options:
+    /// the complete roster, so a dropped body is never a dropped option.
+    public let optionStubs: [ArchitectureOptionStub]?
+    /// ADDITIVE OPTIONAL. Non-nil ONLY when the request narrowed change_code
+    /// or paged: the stub form of the general rows in this page.
+    public let generalChangeStubs: [ArchGeneralChangeStub]?
+    /// ADDITIVE OPTIONAL. Non-nil ONLY on a narrowed read — where the page
+    /// sits in the whole set.
+    public let changePage: ArchChangePage?
 
     public init(
         summary: ArchitectureSummaryRow,
@@ -2348,7 +2691,10 @@ public struct ArchGetResponse: Codable, Hashable, Sendable {
         persistenceChanges: [ArchPersistenceChangeRow],
         generalChanges: [ArchGeneralChangeRow],
         unplannedChanges: [UnplannedChangeRow],
-        orderingRespected: Bool?
+        orderingRespected: Bool?,
+        optionStubs: [ArchitectureOptionStub]? = nil,
+        generalChangeStubs: [ArchGeneralChangeStub]? = nil,
+        changePage: ArchChangePage? = nil
     ) {
         self.summary = summary
         self.options = options
@@ -2356,6 +2702,9 @@ public struct ArchGetResponse: Codable, Hashable, Sendable {
         self.generalChanges = generalChanges
         self.unplannedChanges = unplannedChanges
         self.orderingRespected = orderingRespected
+        self.optionStubs = optionStubs
+        self.generalChangeStubs = generalChangeStubs
+        self.changePage = changePage
     }
 }
 
@@ -4489,4 +4838,171 @@ public struct DopeResolveResponse: Codable, Hashable, Sendable {
         self.resolved = resolved
         self.takeOurs = takeOurs
     }
+}
+
+// MARK: - Pen result budget (the generic oversize guard)
+
+/// Excerpting policy shared by every stub in this file. One constant, so a
+/// stub is the same size wherever it comes from.
+public enum PenExcerpt {
+    /// Long enough to recognize what a body is about; short enough that a
+    /// hundred stubs still fit inside the result budget below.
+    public static let chars = 400
+
+    /// (excerpt, true length, whether anything was dropped). Character-based,
+    /// never byte-based: an excerpt is shown to a reader, and clipping a
+    /// grapheme in half would put mojibake in the record.
+    public static func take(_ body: String, chars limit: Int = PenExcerpt.chars)
+        -> (excerpt: String, chars: Int, truncated: Bool)
+    {
+        let total = body.count
+        guard total > limit else { return (body, total, false) }
+        return (String(body.prefix(limit)), total, true)
+    }
+}
+
+/// What a pen read tool can be told to make itself smaller. Data, not prose,
+/// so the guard below can quote it back to the caller in a form the caller
+/// can act on without reading English.
+public struct PenNarrowing: Codable, Hashable, Sendable {
+    /// The tool's own argument names, in the order worth trying.
+    public let parameters: [String]
+    /// The exact next call to make.
+    public let retryWith: String
+
+    public init(parameters: [String], retryWith: String) {
+        self.parameters = parameters
+        self.retryWith = retryWith
+    }
+}
+
+/// The machine-readable header stamped on an over-budget result. NEVER a
+/// prose apology and NEVER a clipped JSON body: the failure mode being fixed
+/// is a caller hand-parsing truncated JSON, so an over-budget read returns a
+/// well-formed envelope that names the parameter which narrows THIS tool.
+public struct PenOversizeNote: Codable, Hashable, Sendable {
+    public let tool: String
+    /// "degraded" = a narrowed payload rides along under `result`.
+    /// "withheld" = even the narrowed form did not fit; there is no payload.
+    public let outcome: String
+    /// Size of the response the tool actually produced.
+    public let bytes: Int
+    /// Size of what is being returned instead (nil when withheld).
+    public let degradedBytes: Int?
+    public let budgetBytes: Int
+    public let parameters: [String]
+    public let retryWith: String
+
+    public init(
+        tool: String,
+        outcome: String,
+        bytes: Int,
+        degradedBytes: Int?,
+        budgetBytes: Int,
+        parameters: [String],
+        retryWith: String
+    ) {
+        self.tool = tool
+        self.outcome = outcome
+        self.bytes = bytes
+        self.degradedBytes = degradedBytes
+        self.budgetBytes = budgetBytes
+        self.parameters = parameters
+        self.retryWith = retryWith
+    }
+}
+
+/// THE GENERIC RESPONSE-SIZE GUARD. Every pen read passes through here before
+/// it is handed to the harness, because arch_get is merely the one that got
+/// caught: a 79,598-character ARCH_GET was REFUSED for exceeding max tokens,
+/// spilled to a file, and had to be hand-parsed from a body that had been cut
+/// mid-array — so `persistence_changes` (which sorts after `options`) vanished
+/// silently.
+///
+/// THRESHOLD. `maxBytes` is 45,000. The refusal ceiling is measured, not
+/// guessed: 79,598 characters was refused, so the real per-result cap sits
+/// below that. Taking the harness's 25,000-token result cap and a pessimistic
+/// 2.5 bytes/token for pretty-printed JSON carrying escaped source code
+/// (`\"`, `\n`, and identifiers that tokenize badly), 45,000 bytes is ~18,000
+/// tokens — comfortably inside the cap with headroom for the MCP envelope,
+/// and a little over half the size that actually got refused. Typical JSON
+/// runs nearer 3.5 bytes/token, so the common case is ~13,000 tokens.
+public enum PenResultBudget {
+    public static let maxBytes = 45_000
+
+    public static func encoder() -> JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return encoder
+    }
+
+    /// Render a tool result under the budget.
+    ///
+    /// 1. Fits → the payload verbatim, exactly as before.
+    /// 2. Over → re-run `degrade` (the tool's own narrowed call) and return
+    ///    `{"gmcc_oversize": <note>, "result": <narrowed payload>}`.
+    /// 3. Still over, or nothing to degrade to → the note ALONE. A caller
+    ///    that gets no `result` key knows it got no data, which is a fact it
+    ///    can act on; a truncated body is a fact it cannot.
+    public static func render(
+        tool: String,
+        narrowing: PenNarrowing?,
+        value: any Encodable,
+        degrade: (() throws -> any Encodable)? = nil
+    ) throws -> String {
+        let encoder = encoder()
+        let data = try encoder.encode(AnyEncodable(value))
+        guard data.count > maxBytes else {
+            return String(data: data, encoding: .utf8) ?? "{}"
+        }
+        let parameters = narrowing?.parameters ?? []
+        let retryWith = narrowing?.retryWith
+            ?? "this tool has no narrowing parameter — its result is one indivisible record; read it through a different tool or a narrower subject"
+
+        if let degrade {
+            let narrowed = try encoder.encode(AnyEncodable(try degrade()))
+            if narrowed.count <= maxBytes {
+                let note = PenOversizeNote(
+                    tool: tool, outcome: "degraded", bytes: data.count,
+                    degradedBytes: narrowed.count, budgetBytes: maxBytes,
+                    parameters: parameters, retryWith: retryWith)
+                return try envelope(note: note, payload: narrowed, encoder: encoder)
+            }
+            let note = PenOversizeNote(
+                tool: tool, outcome: "withheld", bytes: data.count,
+                degradedBytes: narrowed.count, budgetBytes: maxBytes,
+                parameters: parameters, retryWith: retryWith)
+            return try envelope(note: note, payload: nil, encoder: encoder)
+        }
+        let note = PenOversizeNote(
+            tool: tool, outcome: "withheld", bytes: data.count,
+            degradedBytes: nil, budgetBytes: maxBytes,
+            parameters: parameters, retryWith: retryWith)
+        return try envelope(note: note, payload: nil, encoder: encoder)
+    }
+
+    /// Compose note + optional payload into ONE well-formed JSON document.
+    /// The payload is spliced as already-encoded bytes rather than re-encoded
+    /// through JSONSerialization, so nothing in it can be reshaped on the way
+    /// out.
+    static func envelope(
+        note: PenOversizeNote, payload: Data?, encoder: JSONEncoder
+    ) throws -> String {
+        let noteText = String(data: try encoder.encode(note), encoding: .utf8) ?? "{}"
+        guard let payload, let payloadText = String(data: payload, encoding: .utf8) else {
+            return "{\n  \"gmcc_oversize\" : \(noteText)\n}"
+        }
+        return "{\n  \"gmcc_oversize\" : \(noteText),\n  \"result\" : \(payloadText)\n}"
+    }
+}
+
+/// Type-erasing shim so `any Encodable` can be handed to JSONEncoder.
+struct AnyEncodable: Encodable {
+    private let encodeTo: (Encoder) throws -> Void
+
+    init(_ wrapped: any Encodable) {
+        encodeTo = { encoder in try wrapped.encode(to: encoder) }
+    }
+
+    func encode(to encoder: Encoder) throws { try encodeTo(encoder) }
 }

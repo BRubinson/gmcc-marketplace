@@ -1,65 +1,59 @@
 ---
 name: gm_screenshot_session_domain_diagram_state
-description: Render the current session's domain diagram headlessly to CKFS storage and return the image path for an agent to read.
-argument-hint: [diagram-code] [--prompt] [light|dark]
+description: Read the current session's domain diagram out of the db and report its state — elements, geometry, dope bindings, revision.
+argument-hint: [diagram-code] [--prompt]
 disable-model-invocation: true
 allowed-tools: Bash, Read
 ---
 
-# Render the Session Domain Diagram State
+# Read the Session Domain Diagram State
 
-Render the session's diagram to a PNG via `gm render` — a pure client-side
-headless render (zero db writes) into the owner's CKFS storage at
-`{ckfs_root}/{owner ckfs path}/{gmcc_diagram_path or 'diagrams'}/screenshots/{code}.png`.
+Pull the session's diagram tree from the db and describe what it holds. The
+db is the canvas of record: GMVibes renders the same tree live, so anything
+reported here is exactly what a viewer sees.
 
 Two things to know before using it:
 
-- **The file is CKFS-rooted, not repo-rooted.** It lives outside the git
-  checkout entirely, so there is no `.gitignore` to manage and a
-  PROJECT-tier diagram renders as happily as a session-tier one. (`gm
-  diagram screenshot`, which wrote into `{instance_root}/.gmcc/.screenshots/`,
-  was retired in prompt 9 — it could not serve project-tier diagrams at all.)
-- **One mutable file per diagram code**, not one per revision. `gm render`
-  decides freshness by comparing a fingerprint sidecar written beside the
-  PNG, so re-running it when nothing changed costs nothing and re-renders
-  nothing. The fingerprint covers the diagram's revision AND every bound
-  dope scope's revision — a dope edit changes the picture without touching
-  the diagram row, and a timestamp check would miss exactly that.
+- **Tiers never union.** A diagram hangs off exactly one owner — session,
+  prompt, instance or project — and a list or get names that owner. Asking
+  for the session's diagrams will not surface a prompt-tier one.
+- **Dope bindings resolve at READ time.** DIAGRAM_GET returns each
+  `dope_entity` / `dope_scope_persistence_layer` element together with the
+  dope node it currently binds to. A binding that resolves to nothing is a
+  ghost — a legal state, not a failure, and usually means the dope tree moved
+  under a diagram that was generated earlier.
 
 ## Steps
 
 1. **Boot check.** If `$GMCC_BOOTED` is not set, stop with
    `[GMB] ERROR: GMCC not booted` (run /gmcc_boot for diagnostics).
 
-2. **Resolve context.** `gm session get --json` for the current
-   session uuid. If the user passed `--prompt`, also resolve the active
-   prompt uuid from the same response (or ask which prompt).
+2. **Resolve context.** `gmcc_hook context ensure` returns project_uuid,
+   instance_uuid and session_uuid. If the user passed `--prompt`, also
+   resolve the active prompt uuid (or ask which prompt).
 
-3. **Pick the diagram.** With an argument, use it as `--code`. Otherwise
-   enumerate: `gm diagram list --session-uuid <U> --json` (or
-   `--prompt-uuid <U>` in prompt mode — tiers never union). Zero rows ⇒
-   report that no diagram exists yet and suggest
-   `gm diagram init --session-uuid <U> --code <code> --name <name>`.
-   Exactly one ⇒ use it. Several ⇒ pass the first by code order and mention
-   the others.
-
-4. **Render.**
+3. **Pick the diagram.** With an argument, use it as the `code`. Otherwise
+   enumerate:
    ```bash
-   gm render --session-uuid <U> [--code <C>] [--scheme light|dark] --json
+   gmcc_hook call DIAGRAM_LIST --json '{"session_uuid":"<U>"}'
    ```
-   (`--prompt-uuid <U>` instead when prompt-scoped. The verb fetches
-   DIAGRAM_GET + one DOPE_GET per resolved dope binding, renders on the CLI
-   main actor, and writes one file per code. Dangling dope bindings render
-   as ghost cards — a legal state, not a failure. Pass `--force` only to
-   defeat the freshness check deliberately.)
+   (`{"prompt_uuid":"<P>"}` in prompt mode.) Zero rows ⇒ report that no
+   diagram exists yet and suggest `/gm_diagram_from_dope` to generate one, or
+   `gmcc_hook call DIAGRAM_INIT --json '{"session_uuid":"<U>","code":"<code>","name":"<name>"}'`
+   for an empty canvas. Exactly one ⇒ use it. Several ⇒ take the first by
+   code order and mention the others.
 
-5. **Read it.** The printed path is the deliverable: `Read` it so the image
-   enters context. `rendered: false` in the JSON means the existing file was
-   already current — that is a success, not a no-op to retry.
+4. **Read the tree.**
+   ```bash
+   gmcc_hook call DIAGRAM_GET --json '{"diagram_uuid":"<D>"}'
+   ```
+   (or `{"session_uuid":"<U>","code":"<C>"}` when you only hold the code).
 
-6. **Report.** Print the path and revision. Optionally register the
-   artifact: re-run with `--artifact --artifact-prompt-uuid <P>` when the
-   render documents a prompt's work.
+5. **Report.** The diagram's code, name, revision, element count by kind, the
+   per-domain grouping, and any ghost bindings by name. Keep it to the shape
+   of the picture — what is on the canvas and how it is arranged — not a
+   dump of every coordinate.
 
-Never write into the CKFS screenshots directory directly, and never restart
-the daemon.
+The rendered canvas itself lives in GMVibes, which follows the same diagram
+off the daemon event stream; point the user there when they want to look at
+it. Never edit the repo's root `.gitignore`, and never stop the daemon.

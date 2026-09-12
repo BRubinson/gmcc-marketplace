@@ -17,7 +17,7 @@ import GRDB
 
 /// Registry-governed vocabularies (the m0021 element_type rule): the columns
 /// carry NO db CHECK, so a future step or status is an entry here — never a
-/// migration. The role map is what lets `gm briefing stub` resolve an agent
+/// migration. The role map is what lets BRIEFING_STUB resolve an agent
 /// type to its step without the hook script knowing anything.
 public enum BriefingStepSpec {
     /// m0025: pre_architecture is RETIRED — the care package replaced it

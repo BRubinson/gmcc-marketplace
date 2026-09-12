@@ -371,7 +371,7 @@ struct DopeRepository: RepositoryContext {
     /// Project-tier scope candidates — the rung the ladder never had.
     ///
     /// `dopeScopeCandidates` is `WHERE session_uuid = ?`, so BASE_PROJECT
-    /// scopes were unaddressable: `gm dope promote` has been populating them
+    /// scopes were unaddressable: DOPE_PROMOTE has been populating them
     /// all along and nothing could read one back. That was invisible while
     /// every diagram was session-owned, and becomes a wall the moment a
     /// PROJECT-tier diagram tries to bind a scope — it resolves nothing and
@@ -428,7 +428,7 @@ struct DopeRepository: RepositoryContext {
 
         // PROJECT-tier addressing: its own two-rung ladder, mirroring
         // the session one. Reached by a project-tier diagram's bindings
-        // and by `gm dope get --project-uuid`.
+        // and by a DOPE_GET carrying project_uuid.
         if let projectUuid = req.projectUuid {
             guard req.sessionUuid.isEmpty else {
                 throw StoreError.badRequest(
@@ -1299,7 +1299,7 @@ struct DopeRepository: RepositoryContext {
 
     func dopeNodeAdd(_ req: DopeNodeAddRequest) throws -> DopeNodeResponse {
         guard req.level != .scope else {
-            throw StoreError.badRequest(detail: "scopes are created with gm dope init, not node-add")
+            throw StoreError.badRequest(detail: "scopes are created with DOPE_INIT, not node-add")
         }
         let spec = DopeLevelSpec.spec(for: req.level)
         try requireOwnedFields(req.fields, level: req.level)

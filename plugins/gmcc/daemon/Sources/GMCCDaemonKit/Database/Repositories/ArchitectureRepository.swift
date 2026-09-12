@@ -293,11 +293,16 @@ struct ArchitectureRepository: RepositoryContext {
                 entity: "architecture", promptUuid: req.promptUuid)
         }
         let touched = try touchedPaths(promptUuid: req.promptUuid)
+        // PERSISTENCE IS NEVER NARROWED AND NEVER PAGED. It is the
+        // persistence-first contract, and it is what a clipped response ate
+        // silently — so it comes back whole in every form of this response.
         let persistence = try fetchPersistenceChanges(summaryUuid: summary.uuid, touched: touched)
-        let general = try fetchGeneralChanges(summaryUuid: summary.uuid, touched: touched)
+        // The UNPAGED general set. Every derived verdict below is computed
+        // from it, so asking for one page can never change an audit answer.
+        let allGeneral = try fetchGeneralChanges(summaryUuid: summary.uuid, touched: touched)
 
         // Scope drift: this prompt's touched paths absent from the plan.
-        let plannedPaths = Set(persistence.map(\.filePath) + general.map(\.filePath))
+        let plannedPaths = Set(persistence.map(\.filePath) + allGeneral.map(\.filePath))
         let unplanned = touched.values
             .filter { !plannedPaths.contains($0.path) }
             .sorted { $0.path < $1.path }
@@ -306,22 +311,116 @@ struct ArchitectureRepository: RepositoryContext {
         // must precede every general path's first touch. Vacuously nil
         // when either side is empty or untouched.
         let persistenceFirsts = persistence.compactMap(\.implementation.firstChangedAt)
-        let generalFirsts = general.compactMap(\.implementation.firstChangedAt)
+        let generalFirsts = allGeneral.compactMap(\.implementation.firstChangedAt)
         let orderingRespected: Bool?
         if let latestPersistence = persistenceFirsts.max(), let earliestGeneral = generalFirsts.min() {
             orderingRespected = latestPersistence <= earliestGeneral
         } else {
             orderingRespected = nil
         }
+
+        let allOptions = try fetchOptions(
+            where: "architecture_summary_uuid = ?", arguments: [summary.uuid])
+
+        // THE UNNARROWED REQUEST IS THE HISTORICAL RESPONSE, BYTE FOR BYTE.
+        // No new key is emitted at all, so a peer built against the old
+        // package (GMVibes) is unchanged by construction — which is why the
+        // narrowing fields are additive optionals and the wire did not bump.
+        guard req.isNarrowed else {
+            return ArchGetResponse(
+                summary: summary,
+                options: allOptions,
+                persistenceChanges: persistence,
+                generalChanges: allGeneral,
+                unplannedChanges: unplanned,
+                orderingRespected: orderingRespected)
+        }
+
+        // An explicit includeOptions/full wins; otherwise naming ONE uuid
+        // means "that one body, and nothing else's".
+        let wantEveryOptionBody = req.includeOptions ?? (req.optionUuid == nil)
+        let wantEveryChangeCode = req.full ?? (req.changeUuid == nil)
+
+        let options: [ArchitectureOptionRow]
+        let optionStubs: [ArchitectureOptionStub]?
+        if wantEveryOptionBody {
+            options = allOptions
+            optionStubs = nil
+        } else {
+            options = req.optionUuid.map { uuid in allOptions.filter { $0.uuid == uuid } } ?? []
+            // The ROSTER is always complete: a body can be withheld, an
+            // option's existence cannot.
+            optionStubs = allOptions.map { option in
+                ArchitectureOptionStub(
+                    uuid: option.uuid,
+                    agentName: option.agentName,
+                    agentId: option.agentId,
+                    status: option.status,
+                    selected: option.status == "selected",
+                    bodyChars: option.body.count)
+            }
+        }
+
+        // changeUuid pins one row by identity, so it ignores limit/cursor —
+        // "give me this" is not a page.
+        var window = allGeneral
+        var nextCursor: String?
+        if req.changeUuid == nil {
+            if let cursor = req.cursor {
+                guard let afterSeq = Int64(cursor) else {
+                    throw StoreError.badRequest(
+                        detail: "cursor must be a change_page.next_cursor value (got '\(cursor)')")
+                }
+                window = window.filter { $0.seq > afterSeq }
+            }
+            if let limit = req.limit {
+                guard limit > 0 else {
+                    throw StoreError.badRequest(detail: "limit must be positive (got \(limit))")
+                }
+                if window.count > limit {
+                    nextCursor = String(window[limit - 1].seq)
+                    window = Array(window.prefix(limit))
+                }
+            }
+        }
+
+        let generalChanges: [ArchGeneralChangeRow]
+        let generalChangeStubs: [ArchGeneralChangeStub]?
+        if wantEveryChangeCode {
+            generalChanges = window
+            generalChangeStubs = nil
+        } else {
+            generalChanges = req.changeUuid.map { uuid in allGeneral.filter { $0.uuid == uuid } } ?? []
+            generalChangeStubs = window.map { change in
+                let code = PenExcerpt.take(change.changeCode)
+                return ArchGeneralChangeStub(
+                    uuid: change.uuid,
+                    seq: change.seq,
+                    filePath: change.filePath,
+                    className: change.className,
+                    reasonBrief: change.reasonBrief,
+                    changeDepth: change.changeDepth,
+                    changeCodeExcerpt: code.excerpt,
+                    changeCodeChars: code.chars,
+                    changeCodeTruncated: code.truncated,
+                    implementation: change.implementation)
+            }
+        }
+
         return ArchGetResponse(
             summary: summary,
-            options: try fetchOptions(
-                where: "architecture_summary_uuid = ?", arguments: [summary.uuid]),
+            options: options,
             persistenceChanges: persistence,
-            generalChanges: general,
+            generalChanges: generalChanges,
             unplannedChanges: unplanned,
-            orderingRespected: orderingRespected
-        )
+            orderingRespected: orderingRespected,
+            optionStubs: optionStubs,
+            generalChangeStubs: generalChangeStubs,
+            changePage: ArchChangePage(
+                limit: req.limit,
+                returned: window.count,
+                totalGeneralChanges: allGeneral.count,
+                nextCursor: nextCursor))
     }
 
     // MARK: - Option guard (m0025)
@@ -341,7 +440,7 @@ struct ArchitectureRepository: RepositoryContext {
         guard selected == 1 else {
             throw StoreError.invalidEntityTransition(
                 entity: "architecture", from: "options_undecided", to: verb,
-                reason: "\(total) option(s) exist with none selected — gm arch decide first; only the selected option expands into change rows")
+                reason: "\(total) option(s) exist with none selected — run arch_decide first; only the selected option expands into change rows")
         }
     }
 

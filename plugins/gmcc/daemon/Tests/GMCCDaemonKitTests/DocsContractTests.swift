@@ -267,10 +267,10 @@ final class DocsContractTests: XCTestCase {
         XCTAssertEqual(hits, [], "a cheatsheet paste mandate resurfaced:\n" + hits.joined(separator: "\n"))
     }
 
-    /// gmcc_daemon/SKILL.md drifted 5 wire versions behind the compiled sheet
-    /// because it duplicated signatures and version literals. Structural fix:
-    /// the skill may not carry a wire/schema-version literal or gm signature
-    /// lines — the compiled `gm cheatsheet --full` is the sole authority.
+    /// gmcc_daemon/SKILL.md is a ROUTING skill: it says which door to knock on,
+    /// never what the signatures behind that door are. Duplicated signatures
+    /// and version literals are what let it drift; the pen tools' own schemas
+    /// and `gmcc_hook verbs --json` are the authority it must point at instead.
     func testDaemonSkillCarriesNoVersionLiteralsOrSignatures() throws {
         let skill = pluginRoot.appendingPathComponent("skills/gmcc_daemon/SKILL.md")
         let text = try String(contentsOf: skill, encoding: .utf8)
@@ -282,11 +282,11 @@ final class DocsContractTests: XCTestCase {
             let range = NSRange(text.startIndex..., in: text)
             XCTAssertNil(
                 regex.firstMatch(in: text, range: range),
-                "gmcc_daemon/SKILL.md carries a version literal (pattern \(pattern)) — the compiled cheatsheet is the only authority")
+                "gmcc_daemon/SKILL.md carries a version literal (pattern \(pattern)) — the live catalogue is the only authority")
         }
         XCTAssertTrue(
-            text.contains("gm cheatsheet --full"),
-            "gmcc_daemon/SKILL.md must route signature questions to gm cheatsheet --full")
+            text.contains("gmcc_hook verbs --json"),
+            "gmcc_daemon/SKILL.md must route MessageType questions to gmcc_hook verbs --json")
     }
 
     /// The retired identity-file agent system: nothing may point agents at
@@ -521,10 +521,7 @@ final class DocsContractTests: XCTestCase {
     ///
     /// Not asserted here, because it is not a shell property: a hook that
     /// WRITES is additionally refused daemon-side unless the payload's
-    /// session_id has a row in the claude-session binding. `gmcc_gm_write_guard.sh`
-    /// is exempt from that layer by contract — it writes nothing, ever, and
-    /// emits only an allow/deny decision — so this shell contract is the whole
-    /// of its no-op story and must not be "fixed" by adding a binding check.
+    /// session_id has a row in the claude-session binding.
     func testNonBootHookScriptsResolveGmWithoutInheritedEnv() throws {
         /// A spelling that reads inherited state, and why it is refused. The
         /// message names the reason so the next author reads an argument

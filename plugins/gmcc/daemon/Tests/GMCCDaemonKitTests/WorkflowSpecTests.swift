@@ -333,38 +333,31 @@ final class WorkflowSpecTests: XCTestCase {
             "agent-facing doc teaches a pen-replaced `gm` write:\n" + hits.joined(separator: "\n"))
     }
 
-    /// THE DOORS NOW CARRY PEN TOOLS, and each must be reachable from the prose
-    /// or the primary has no documented way through its own gate.
+    /// THE FOUR THAT ADVANCE THE MACHINE must each carry a pen tool and be
+    /// named in some instruction block, or the primary has no documented way to
+    /// move the workflow forward.
     ///
-    /// This inverts the rule that stood here before ("a door never carries a pen
-    /// tool"), and the inversion is deliberate. That rule was right while the
-    /// CLI was the primary's surface: withholding the tool made the compliant
-    /// path obvious without pretending to be a boundary. With the CLI deleted it
-    /// becomes a capability hole — these four verbs would be reachable by nobody
-    /// at all, and a bot run could not advance past its own gates.
-    ///
-    /// WHAT STILL ENFORCES IS UNCHANGED, and that is the point: the daemon's
-    /// role gate refuses a `.primaryDoor` verb arriving as `.agent` exactly as
-    /// before. The tool existing does not widen who may walk through it; the MCP
-    /// server picks the primary client only for a call the PreToolUse hook
-    /// attested, and an unattested call is served as an agent.
-    func testPrimaryDoorsCarryPenToolsAndAreNamedForThePrimary() {
-        let doors = VerbRegistry.all.filter { $0.role == .primaryDoor }
-        XCTAssertEqual(doors.count, 4, "the approved invariant names exactly four doors")
+    /// It is a REACHABILITY test, not an authorization one: nothing refuses a
+    /// caller for using these. What reserves them for the primary is
+    /// methodology — cross-agent calibration and the choice among options
+    /// belong to one reader — and that is carried by the pen sheet and by each
+    /// agent's own tool list.
+    func testPrimaryPenToolsAreServedAndNamedInTheInstructions() {
+        let primaryTools = VerbRegistry.primaryPenTools
+        XCTAssertEqual(primaryTools.count, 4, "the machine advances through exactly four tools")
         var everyBlock = ""
         for variant in BotVariant.allCases {
             for phase in WorkflowSpec.phases(for: variant) {
                 everyBlock += WorkflowSpec.instructions(variant: variant, phase: phase) + "\n"
             }
         }
-        for door in doors {
-            let pen = try? XCTUnwrap(
-                door.penTool,
-                "\(door.gmInvocation) is a door with no pen tool — with the CLI gone it is reachable by nobody")
-            guard let pen else { continue }
+        for pen in primaryTools.sorted() {
+            XCTAssertTrue(
+                VerbRegistry.penToolNames.contains(pen),
+                "\(pen) is named as the primary's call but no VerbSpec serves it")
             XCTAssertTrue(
                 names("mcp__plugin_gmcc_pen__" + pen, in: everyBlock),
-                "no instruction block tells the primary to walk `\(pen)`")
+                "no instruction block tells the primary to call `\(pen)`")
         }
     }
 

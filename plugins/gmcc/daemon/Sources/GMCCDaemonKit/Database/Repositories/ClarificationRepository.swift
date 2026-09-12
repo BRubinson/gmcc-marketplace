@@ -261,14 +261,14 @@ struct ClarificationRepository: RepositoryContext {
                 throw StoreError.invalidEntityTransition(
                     entity: "clarification", from: summary.status,
                     to: ClarificationStatus.complete.rawValue,
-                    reason: "the \(variantRaw) variant requires a READY care package before finalize — gm clarify package-open/add/complete first")
+                    reason: "the \(variantRaw) variant requires a READY care package before finalize — gmcc_hook call CARE_PACKAGE_OPEN, then care_ref_add, then care_package_complete first")
             }
         } else if let package {
             guard package.status == "ready" else {
                 throw StoreError.invalidEntityTransition(
                     entity: "clarification", from: summary.status,
                     to: ClarificationStatus.complete.rawValue,
-                    reason: "care package is still building — gm clarify package-complete first")
+                    reason: "care package is still building — run care_package_complete first")
             }
         }
         try core.updateBase(
@@ -299,23 +299,70 @@ struct ClarificationRepository: RepositoryContext {
                 entity: "clarification", promptUuid: req.promptUuid)
         }
         let package = try fetchPackage(bySummary: summary.uuid)
+        let questions = try fetchQuestions(summaryUuid: summary.uuid)
+        let allNotes = try fetchNotes(summaryUuid: summary.uuid)
+        let staleness: CarePackageStaleness? = try package.map { pkg in
+            let s = try dope.scopeStaleness(
+                scopeUuid: pkg.dopeScopeUuid,
+                stampedRevision: pkg.dopeScopeRevision,
+                dotPaths: pkg.dopeRefs.map(\.dopeCode))
+            return CarePackageStaleness(
+                stampedRevision: s.stamped,
+                currentRevision: s.current,
+                drifted: s.drifted,
+                ghostDotPaths: s.ghosts)
+        }
+
+        // THE UNNARROWED REQUEST IS THE HISTORICAL RESPONSE, BYTE FOR BYTE —
+        // no additive key emitted, so an older peer sees no change at all.
+        guard req.isNarrowed else {
+            return ClarifyGetResponse(
+                summary: summary,
+                questions: questions,
+                notes: allNotes,
+                carePackage: package,
+                // INVARIANT: non-nil IFF carePackage is non-nil.
+                carePackageStaleness: staleness)
+        }
+
+        // Weight window, mirroring the rating windows: an UNWEIGHTED note is
+        // always full — the same rule that keeps unranked findings full in
+        // EXPLORE_GET, because unrated is a work queue, not a low priority.
+        let notes: [ClarificationNoteRow]
+        let noteStubs: [ClarificationNoteStub]?
+        if let ceiling = req.noteWeightMax {
+            notes = allNotes.filter { ($0.weight ?? Int.min) <= ceiling }
+            noteStubs = allNotes
+                .filter { ($0.weight ?? Int.min) > ceiling }
+                .map { note in
+                    let body = PenExcerpt.take(note.body)
+                    return ClarificationNoteStub(
+                        uuid: note.uuid,
+                        weight: note.weight,
+                        agentName: note.agentName,
+                        questionUuid: note.questionUuid,
+                        bodyExcerpt: body.excerpt,
+                        bodyChars: body.chars,
+                        bodyTruncated: body.truncated)
+                }
+        } else {
+            notes = allNotes
+            noteStubs = nil
+        }
+
+        // Dropping the package keeps its EXISTENCE visible: carePackage nil
+        // WITH a stub means narrowed away, carePackage nil WITHOUT one means
+        // never opened. The staleness invariant holds either way — it rides
+        // with the package it describes.
+        let keepPackage = req.includeCarePackage ?? true
         return ClarifyGetResponse(
             summary: summary,
-            questions: try fetchQuestions(summaryUuid: summary.uuid),
-            notes: try fetchNotes(summaryUuid: summary.uuid),
-            carePackage: package,
-            // INVARIANT: non-nil IFF carePackage is non-nil.
-            carePackageStaleness: try package.map { pkg in
-                let s = try dope.scopeStaleness(
-                    scopeUuid: pkg.dopeScopeUuid,
-                    stampedRevision: pkg.dopeScopeRevision,
-                    dotPaths: pkg.dopeRefs.map(\.dopeCode))
-                return CarePackageStaleness(
-                    stampedRevision: s.stamped,
-                    currentRevision: s.current,
-                    drifted: s.drifted,
-                    ghostDotPaths: s.ghosts)
-            })
+            questions: questions,
+            notes: notes,
+            carePackage: keepPackage ? package : nil,
+            carePackageStaleness: keepPackage ? staleness : nil,
+            carePackageStub: keepPackage ? nil : package.map(CarePackageStub.init(package:)),
+            noteStubs: noteStubs)
     }
 
     // DELIBERATELY NOT DONE: no `staleness` on CarePackageResponse
@@ -486,7 +533,45 @@ struct ClarificationRepository: RepositoryContext {
         guard let package = try fetchPackage(bySummary: summary.uuid) else {
             throw StoreError.summaryAbsent(entity: "care_package", promptUuid: req.promptUuid)
         }
-        return CarePackageResponse(package: package)
+        // Unnarrowed = the historical response, byte for byte.
+        guard req.isNarrowed else { return CarePackageResponse(package: package) }
+
+        let wantEveryBody = req.includeRefBodies ?? (req.refUuid == nil)
+        guard !wantEveryBody else { return CarePackageResponse(package: package) }
+
+        // NARROWING EMPTIES AN ARRAY; IT NEVER REWRITES A ROW'S FIELDS. Every
+        // CarePackageExplorationRefRow still carried below is verbatim — the
+        // ones left out are named, in full, by the stub roster.
+        let kept = req.refUuid.map { uuid in package.explorationRefs.filter { $0.uuid == uuid } } ?? []
+        let stubs = package.explorationRefs.map { ref -> CarePackageExplorationRefStub in
+            let body = PenExcerpt.take(ref.curatedBody)
+            return CarePackageExplorationRefStub(
+                uuid: ref.uuid,
+                curatedTitle: ref.curatedTitle,
+                filePath: ref.filePath,
+                sourceFindingUuid: ref.sourceFindingUuid,
+                seq: ref.seq,
+                curatedBodyExcerpt: body.excerpt,
+                curatedBodyChars: body.chars,
+                curatedBodyTruncated: body.truncated)
+        }
+        return CarePackageResponse(
+            package: CarePackageRow(
+                uuid: package.uuid,
+                version: package.version,
+                clarificationSummaryUuid: package.clarificationSummaryUuid,
+                // The intent blob is the point of the package and is never
+                // excerpted — see CarePackageGetRequest.
+                clarifiedIntent: package.clarifiedIntent,
+                status: package.status,
+                dopeScopeUuid: package.dopeScopeUuid,
+                dopeScopeRevision: package.dopeScopeRevision,
+                dopeRefs: package.dopeRefs,
+                kbiteRefs: package.kbiteRefs,
+                explorationRefs: kept,
+                createdAt: package.createdAt,
+                updatedAt: package.updatedAt),
+            explorationRefStubs: stubs)
     }
 
     // MARK: - Shared transition + fetch helpers

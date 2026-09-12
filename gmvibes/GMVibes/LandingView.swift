@@ -430,7 +430,7 @@ private struct EmptyDatabaseState: View {
                 .frame(maxWidth: 480)
 
             VStack(spacing: 10) {
-                CommandCopyRow(command: "gm context ensure")
+                CommandCopyRow(command: "gmcc_hook context ensure")
             }
             .frame(maxWidth: 480)
         }
@@ -456,7 +456,7 @@ private struct CatalogErrorState: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 520)
-            Text("If this appeared after a daemon rebuild (\"no such column\"), restart the daemon (gm daemon restart) so migrations run. The database is append-only history — never delete it; take a snapshot first with gm backup if you need to investigate.")
+            Text("If this appeared after a daemon rebuild (\"no such column\"), restart the daemon (gmcc_hook call SHUTDOWN --json '{}', then gmcc_hook ping to autostart) so migrations run. The database is append-only history — never delete it; take a snapshot first with gmcc_hook call BACKUP --json '{}' if you need to investigate.")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)

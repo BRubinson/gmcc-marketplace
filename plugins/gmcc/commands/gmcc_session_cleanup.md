@@ -11,10 +11,11 @@ allowed-tools: Read, Write, Bash, Glob, AskUserQuestion
 Run the GM-CDE **session-scoped** cleanup auditor. Cross-checks only the
 current session — the session's artifact home on disk
 (`$GMCC_CKFS_ROOT/{session ckfs_relative_storage_path}`, from
-`gm session get --json`) vs this session's db rows via
-`gm` (not the whole environment — that is `/gmcc_environment_cleanup`),
-reports non-compliant state, and prompts per-finding for an action. Full
-spec in `$GMCC_PLUGIN_ROOT/skills/gmcc_session_cleanup/SKILL.md`.
+`gmcc_hook call SESSION_GET --json '{"session_uuid":"{U}"}'`) vs this
+session's db rows (not the whole environment — that is
+`/gmcc_environment_cleanup`), reports non-compliant state, and prompts
+per-finding for an action. Full spec in
+`$GMCC_PLUGIN_ROOT/skills/gmcc_session_cleanup/SKILL.md`.
 
 ---
 
@@ -28,9 +29,10 @@ Restart Claude Code from within a git repository, then retry.
 ```
 Exit without proceeding.
 
-Verify the session's artifact home exists (resolve it as
+Verify the session's artifact home exists: `gmcc_hook context ensure` gives
+the session uuid, then resolve
 `$GMCC_CKFS_ROOT/{ckfs_relative_storage_path}` from
-`gm session get --json`). If not, the environment never
+`gmcc_hook call SESSION_GET --json '{"session_uuid":"{U}"}'`. If not, the environment never
 resolved a session — suggest restarting Claude Code from inside a git repo (or
 running the `gmcc_session_creation` skill) and exit.
 
@@ -44,13 +46,15 @@ session-scoped walk strategy and finding categories.
 
 Follow that skill's protocol:
 
-1. Health first: `gm ping`, `gm context get --json`.
+1. Health first: `gmcc_hook ping`, `gmcc_hook context ensure`.
 2. Cross-check db → disk and disk → db per the skill (prompt rows vs
    folders, artifact pointers vs `memory/*.md`, file-change trail).
 3. Print the audit report.
 4. **NEVER auto-fix.** For each finding, AskUserQuestion with the per-category
    options (default first, always non-destructive).
-5. Apply the user's chosen action (db repairs via `gm` only).
+5. Apply the user's chosen action (db repairs go through the daemon only —
+   the pen tools, or `gmcc_hook call <MESSAGE_TYPE>`; never touch the
+   sqlite file).
 6. Print the cleanup-complete summary.
 
 ---

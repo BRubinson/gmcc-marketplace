@@ -6,27 +6,35 @@ Read this **only when you are building or editing a repo's `.doped.json`
 files directly** — authoring a tree from scratch, repairing a hand-edit, or
 reviewing a diff of `.gmcc/`.
 
-A normal bot run does **not** need this file. The bot tiers consume the DOPE
-dump (`gm dope list` → `gm dope get` → inject into explore agents) and never
-touch the files; that protocol lives in `ref/bot_workflows.md` and is
-unaffected by anything here.
+A normal bot run does **not** need this file. The bot tiers reach dope
+search-first through the pen (`dope_search`, then targeted `dope_get` by
+`code`) and never touch the files; that protocol lives in
+`ref/bot_workflows.md` and is unaffected by anything here.
 
 ## The supported path
 
 The db is the editing surface. The files are a **publication** of it.
+Granular edits are one verb per level, reached through the passthrough:
 
-```
-gm dope persistence-add / entity-add / property-add / enum-add / option-add
-gm dope persistence-update / entity-update / ... --expected-version V
-gm dope write-repo --scope-uuid U        # db -> files
+```bash
+gmcc_hook call DOPE_NODE_ADD --json \
+  '{"level":"persistence|entity|property|enum|option",
+    "parent_uuid":"P","fields":{...}}'
+
+gmcc_hook call DOPE_NODE_UPDATE --json \
+  '{"level":"entity","node_uuid":"N","expected_version":V,"fields":{...}}'
+
+gmcc_hook call DOPE_WRITE_REPO --json '{"scope_uuid":"U"}'      # db -> files
 ```
 
 Hand-editing is the exception, not the workflow. When it happens:
 
-```
-gm dope read-repo  (--scope-uuid U | --dir-path P)   # parse + validate, never writes
-gm dope merge-plan --scope-uuid U                    # db vs files, read-only
-gm dope resolve    --scope-uuid U --take ours|theirs [--path <dot.path>]
+```bash
+# parse + validate, never writes — one of scope_uuid or dir_path
+gmcc_hook call DOPE_READ_REPO  --json '{"scope_uuid":"U"}'
+gmcc_hook call DOPE_MERGE_PLAN --json '{"scope_uuid":"U"}'      # db vs files, read-only
+gmcc_hook call DOPE_RESOLVE    --json \
+  '{"scope_uuid":"U","take_ours":true,"dot_path":"<dot.path>"}'
 ```
 
 Only a `SESSION_INSTANCE` scope is repo-writable.
@@ -73,11 +81,12 @@ Two shape facts that are easy to miss:
   key decodes with it ignored.
 - Every **persistence** file carries `version`. **Cog index files do not.**
 
-**Fields are owned by the verbs.** The keys on each body are exactly the
-flags of `gm dope persistence-add` / `entity-add` / `property-add` /
-`enum-add` / `option-add` — see the DOPE section of `gm cheatsheet`, printed
-into every session. Do not invent keys, and do not expect a field list here:
-duplicating one is how a reference goes stale.
+**Fields are owned by the level.** The keys on each body are exactly the
+`fields` a `DOPE_NODE_ADD` carries at that level, and `DopeLevelSpec`'s
+`ownedFields` registry (`Dope/DopeLevel.swift`) states which subset is legal
+where — a misdirected field is a precise `BAD_REQUEST`, not a silent no-op.
+Do not invent keys, and do not expect a field list here: duplicating one is
+how a reference goes stale.
 
 ## Rules that refuse a write
 
@@ -187,9 +196,9 @@ the writer never produces one.
 
 ## Reconciling a hand-edit
 
-`gm dope merge-plan --scope-uuid U` reports a per-element decision, judged
-against the stored merge base. It is **read-only** — it never ingests, never
-writes files, never blocks:
+`DOPE_MERGE_PLAN` reports a per-element decision, judged against the stored
+merge base. It is **read-only** — it never ingests, never writes files,
+never blocks:
 
 | Decision | Meaning |
 |---|---|
@@ -199,12 +208,13 @@ writes files, never blocks:
 | `keepOursLocalAddition` | exists only in the db |
 | `deletedHere` | removed on one side |
 
-Settle with `gm dope resolve --take ours|theirs [--path <dot.path>]`. Omit
-`--path` for all of them. `theirs` clears the dirty flag so the file wins on
-the next sync; `ours` re-bases onto the file's current hash so the local edit
-survives. Either way the conflict is gone on the next plan.
+Settle with `DOPE_RESOLVE`: `take_ours` true or false, and `dot_path` to
+name one element — omit it for all of them. `take_ours: false` clears the
+dirty flag so the file wins on the next sync; `take_ours: true` re-bases
+onto the file's current hash so the local edit survives. Either way the
+conflict is gone on the next plan.
 
-`gm dope ingest` is the blunt instrument: a whole-tree **overwrite** with no
+`DOPE_INGEST` is the blunt instrument: a whole-tree **overwrite** with no
 smart diff, minting fresh child uuids, and it requires the on-disk `version`
 to be **exactly** db revision + 1. If you hand-edited, bump the version by
-one everywhere and let `read-repo` validate before you go near it.
+one everywhere and let `DOPE_READ_REPO` validate before you go near it.

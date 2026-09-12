@@ -28,7 +28,7 @@ import GRDB
 /// on done and historical prompts. Do not move them into entryBlockers.
 ///
 /// Both predicates are plain indexed counts over rows
-/// `ArchitectureRepository.get` already computes for `gm arch get` and nobody
+/// `ArchitectureRepository.get` already computes for ARCH_GET and nobody
 /// reads as a gate — this is a second reader of existing evidence, not a new
 /// source of truth. `derivePhase` is on `FileChangeRepository.add`'s hot path
 /// (one sweep writes N rows), so the call site opts in rather than out.
@@ -71,7 +71,7 @@ enum WorkflowGates {
                     + "file change (the edit never happened, or the plan is stale)")
         }
 
-        // (2) persistence-first ordering, same rule as gm arch get: the LAST
+        // (2) persistence-first ordering, same rule as ARCH_GET: the LAST
         // persistence path to be first touched must not be later than the
         // FIRST general path to be first touched. Either side empty ⇒ vacuous.
         let persistenceLatestFirstTouch = try String.fetchOne(db, sql: """
@@ -97,7 +97,7 @@ enum WorkflowGates {
             unmet.append(
                 "persistence-first ordering not respected (a general change landed "
                     + "\(generalEarliestFirstTouch), a persistence change only "
-                    + "\(persistenceLatestFirstTouch)) — see gm arch get")
+                    + "\(persistenceLatestFirstTouch)) — see mcp__plugin_gmcc_pen__arch_get")
         }
 
         // (3) a plan with general rows and not one recorded change.
@@ -125,7 +125,7 @@ enum WorkflowGates {
     /// finding rated below the read threshold (0 = critical, 999 = tombstone,
     /// 100 = the read threshold — the polarity is inverted from the retired
     /// 1-8 scale). Unranked findings carry a NULL rating and are deliberately
-    /// not counted here; ranking them is `gm review rank`'s job, and a prompt
+    /// not counted here; ranking them is the review rank pass's job, and a prompt
     /// cannot reach review_fix without the review being complete.
     ///
     /// Empty = nothing to say.
@@ -141,7 +141,8 @@ enum WorkflowGates {
             """, arguments: [promptUuid]) ?? 0
         guard open > 0 else { return [] }
         return [
-            "\(open) open finding(s) rated below 100 (gm review resolve, or rank them out)"
+            "\(open) open finding(s) rated below 100 — resolve them (REVIEW_RESOLVE) "
+                + "or rank them out"
         ]
     }
 }

@@ -55,7 +55,7 @@ extension Store {
     /// judged against the stored base.
     ///
     /// Read-only and non-blocking by construction — it never ingests, never
-    /// writes files, and never mutates provenance. `gm dope sync` calls it to
+    /// writes files, and never mutates provenance. Boot sync calls it to
     /// report rather than to decide, which is what keeps the documented
     /// "boot must never block on a domain model" contract true.
     public func dopeMergePlan(scopeUuid: String) throws -> [DopeMerge.Outcome] {

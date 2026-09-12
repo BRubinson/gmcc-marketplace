@@ -1,18 +1,18 @@
 ---
 name: gm_bot_team
-description: Agent-team GMCC workflow (variant team). Dynamic workflows drive briefing+explore+clarify-open, implementation, and review-fix; four methodology personas per fan-out phase; architecture optioning with the decide gate.
+description: Agent-team GMCC workflow (variant team). Dynamic workflows drive briefing+explore+clarify-open, implementation, and review-fix; four methodology personas per fan-out phase; architecture optioning with one decide step.
 argument-hint: <prompt-name|seq> <task/prompt content>
 disable-model-invocation: true
-allowed-tools: Bash(gm:*)
+allowed-tools: Bash(gmcc_hook:*)
 ---
 
 # GM-CDE Bot Team (variant: team)
 
 You are executing the **team** variant: methodology fan-outs
 (conservative / aggressive / pragmatic / alternative) run as persona subagents
-or inside dynamic workflows you author; the daemon machine (`gm bot next`)
-serves every phase's instructions and enforces the gates. Canonical
-reference: `skills/gmcc/ref/bot_workflows.md`.
+or inside dynamic workflows you author; the daemon machine
+(`mcp__plugin_gmcc_pen__bot_next`) serves every phase's instructions and its
+gate blockers. Canonical reference: `skills/gmcc/ref/bot_workflows.md`.
 
 ## Pre-Flight
 
@@ -60,29 +60,30 @@ Same as /gm_bot (resume by seq / create by slug — STAY TRUE), with
   into change rows — persistence first, change kinds + dope refs.
 - **Plan gate** — propose → user sign-off with the full persistence delta
   table → approve → implementing.
-- **Review** — four `gmcc:code-quality-reviewer` personas pen finding rows;
-  you calibrate at your own door (`mcp__plugin_gmcc_pen__review_rank`) and complete with the
-  verdict, clarify fix intent with the user, run review-fix (as a workflow
-  when the fixes fan out), done.
+- **Review** — four `gmcc:code-quality-reviewer` personas pen finding rows,
+  each rating only its own; you run the ONE calibrated rank batch across all
+  of them (`mcp__plugin_gmcc_pen__review_rank` — calibration is cross-agent
+  and belongs to one reader) and complete with the verdict, clarify fix
+  intent with the user, run review-fix (as a workflow when the fixes fan
+  out), done.
 
 Spawn every persona by `subagent_type` — `gmcc:doper`, `gmcc:code-explorer`,
 `gmcc:clarifier`, `gmcc:code-architect`, `gmcc:code-quality-reviewer` — and pass
 NO spawn name. A name routes the spawn down the teammate path, where the agent
 definition never binds: the persona comes up with a general tool set instead of
-its own, holds no pen tools, reaches for `gm` over Bash, and registers under the
-name rather than its type. Resume a running persona by the agent id its spawn
-returned.
+its own, holds no pen tools, and registers under the name rather than its type.
+Resume a running persona by the agent id its spawn returned.
 
 Spawn prompts carry ONLY the methodology, the summary uuid where the def asks
-for one, and the one-line target — plus the explicit `--prompt-uuid` pull line
-(personas hold no activation claim). Never paste cheatsheets, briefings, or dope
-dumps into spawn prompts. There is no tear-down step.
+for one, and the one-line target — plus the explicit `prompt_uuid` pull line
+(personas hold no activation claim). Do not paste briefings or dope dumps into
+spawn prompts. There is no tear-down step.
 
 ## Error handling
 
 Persona spawn failure → fall back to the rpi shape for that phase, say so.
-A persona that reports missing pen tools, or reaches for `gm` over Bash, is a
-spawn that did not bind its definition — re-check the Pre-Flight pen line and
-the no-name rule rather than letting it write through any other channel.
+A persona that reports missing pen tools is a spawn that did not bind its
+definition — re-check the Pre-Flight pen line and the no-name rule; a write
+the pen cannot make is a write nothing records.
 Everything else (VERSION_CONFLICT, SUMMARY_ABSENT, daemon unreachable, dead
 doper): `bot_workflows.md`.

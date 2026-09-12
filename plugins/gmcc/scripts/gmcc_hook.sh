@@ -1,7 +1,7 @@
 #!/bin/bash
 # Every non-SessionStart GMCC hook, fronted by ONE script. The event name
 # arrives as argv; the raw payload rides stdin straight through to
-# `gm hook <event>`, which owns every decision past this point.
+# `gmcc_hook hook <event>`, which owns every decision past this point.
 #
 # ONE shim rather than one prelude per event. N near-identical preludes drift
 # apart: a fix applied to three of them and missed on the fourth is invisible
@@ -13,7 +13,7 @@
 #   1. gmcc_hook is located from THIS SCRIPT'S OWN LOCATION plus an upward
 #      `.gmcc_sandbox` walk. Never PATH, never `command -v`, never an
 #      inherited GMCC_* variable. A hook runs with whatever environment the
-#      harness hands it, which is NOT the environment `gm context env`
+#      harness hands it, which is NOT the environment `gmcc_hook context env`
 #      provisioned the session with — a resolution that depends on either one
 #      is a hook that stops firing without ever saying so.
 #   2. A missing binary is a silent `exit 0`. A hook may never block a tool

@@ -4,7 +4,8 @@ import Foundation
 
 // Client-side identity derivation, shared by every DAEMON CLIENT that needs
 // the project → instance → session triple or the calling Claude instance's
-// key — gm and the gmcc_mcp server alike (m0025 moved this here from gm's
+// key — gmcc_hook and the gmcc_mcp server alike (m0025 moved this here from the
+// client's
 // Support/ so the MCP server never grows a parallel implementation).
 
 /// A client-context failure (not inside a git repo, detached HEAD, …).
@@ -35,7 +36,7 @@ public struct GitContext {
         branch.replacingOccurrences(of: "/", with: "__")
     }
 
-    /// The calling process's own working directory — every interactive gm
+    /// The calling process's own working directory — every interactive client
     /// invocation.
     public static func detect() throws -> GitContext {
         try detect(in: nil)
@@ -52,14 +53,14 @@ public struct GitContext {
     public static func detect(in directory: String?) throws -> GitContext {
         let at = directory.map { ["-C", $0] } ?? []
         guard let repoRoot = runGit(at + ["rev-parse", "--show-toplevel"]) else {
-            throw ClientContextError("not inside a git repository — gm needs git context")
+            throw ClientContextError("not inside a git repository — a GMCC client needs git context")
         }
         // Detached HEAD prints nothing here. Fail loudly instead of falling
         // back to "main": the daemon-side SESSION_RESOLVE reports detached as
-        // "nothing checked out", and a silent main fallback would have gm
+        // "nothing checked out", and a silent main fallback would have the client
         // writing into the main session while the daemon disagrees.
         guard let branch = runGit(at + ["branch", "--show-current"]), !branch.isEmpty else {
-            throw ClientContextError("HEAD is detached — gm needs a checked-out branch for session context")
+            throw ClientContextError("HEAD is detached — a GMCC client needs a checked-out branch for session context")
         }
         return GitContext(
             repoRoot: repoRoot,
@@ -200,13 +201,13 @@ public enum ContextBuilder {
 /// pid + start time (start time defeats pid reuse). Every process a Claude
 /// instance spawns — Bash tool commands, hook scripts, Task subagents — is a
 /// descendant of that instance, so they all resolve the SAME key, while a
-/// second Claude instance running a different prompt on the same gm session
+/// second Claude instance running a different prompt on the same GMCC session
 /// resolves a different one. That is what lets the daemon's activation
 /// registry keep several prompts active per session without last-writer-wins
 /// clobbering, and what makes a spawned agent's briefing lookup
 /// deterministic (no uuid has to survive a spawn prompt).
 ///
-/// nil when no claude ancestor exists (a bare terminal running gm by hand):
+/// nil when no claude ancestor exists (a bare terminal running gmcc_hook by hand):
 /// callers omit the key and the daemon falls back to the session's single
 /// activation when unambiguous.
 public enum ClientKey {

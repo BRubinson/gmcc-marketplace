@@ -263,8 +263,8 @@ struct FileChangeRepository: RepositoryContext {
             payload: Store.jsonPayload(payload))
     }
 
-    /// Read-only bootedness: has this repo ever been through `gm context
-    /// ensure`? Tested at the INSTANCE rather than the session, because a
+    /// Read-only bootedness: has this repo ever been through CONTEXT_ENSURE?
+    /// Tested at the INSTANCE rather than the session, because a
     /// branch whose session row is missing is exactly the state an unbound
     /// payload comes from — calling that "unbooted" would silence the case
     /// the event exists for.

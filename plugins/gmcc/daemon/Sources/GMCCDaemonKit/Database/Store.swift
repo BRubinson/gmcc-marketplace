@@ -3,8 +3,8 @@ import GRDB
 
 // StoreError lives in StoreError.swift; PersistedEvent in PersistedEvent.swift.
 
-/// SQLite access layer. The daemon is the ONLY caller — gm and GMVibes reach
-/// the db exclusively through the socket. DatabaseQueue serializes all access,
+/// SQLite access layer. The daemon is the ONLY caller — every other client
+/// (gmcc_hook, gmcc_mcp, GMVibes) reaches the db through the socket. DatabaseQueue serializes all access,
 /// making the single-writer invariant structural rather than conventional.
 ///
 /// Domain methods live in per-family extensions (Store+Context, Store+Session,
@@ -79,7 +79,7 @@ public final class Store: @unchecked Sendable {
     // calls `store.insertBase(db, table:extra:)` directly, so it must remain an
     // instance method with this exact signature, defaulted parameters and
     // @discardableResult included. The statics keep ~100 internal `Store.X`
-    // references, 45 test call sites and the gm CLI compiling unchanged —
+    // references and 45 test call sites compiling unchanged —
     // rewriting those to `StoreCore.` would be churn with no structural payoff.
 
     @discardableResult

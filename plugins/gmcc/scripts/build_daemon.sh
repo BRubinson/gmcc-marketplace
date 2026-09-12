@@ -51,7 +51,7 @@ if [ "$needs_build" -eq 0 ]; then
 fi
 
 # --- BuildInfo stamping -----------------------------------------------------
-# Generated (gitignored) build identity returned by `gm ping` / PING. A dev
+# Generated (gitignored) build identity returned by `gmcc_hook ping` / PING. A dev
 # placeholder is written by hand once so bare `swift build` compiles; this
 # overwrites it with the real sha + date before every scripted build.
 GENERATED_DIR="$DAEMON_PKG/Sources/gmcc_daemon/Generated"
