@@ -351,6 +351,16 @@ final class DaemonConnectionModel {
             // scope, and the subject is the kbite uuid — not routable to the
             // prompts whose pills just lost an entry. Wake open prompt panes.
             hub.invalidateAllPrompts()
+        case .hookUnbound, .agentUnregistered:
+            // Capture-health diagnostics, not data changes: HOOK_UNBOUND means a
+            // payload-borne write named a Claude conversation no binding row
+            // resolves (so the write was refused — nothing to refetch), and
+            // AGENT_UNREGISTERED means the daemon invented a registration the
+            // spawner never made. Neither moves anything this app renders, so
+            // there is no subscriber surface to bump. They are deliberately
+            // durable and noisy on the daemon side; surfacing them in the status
+            // indicator is a real feature, not a routing concern.
+            break
         case .promptMemoryChange:
             // Ephemeral (id 0, never a replay cursor). The daemon resolves the
             // storage path server-side and the subject IS the prompt uuid — no
