@@ -24,6 +24,13 @@ If `$GMCC_BOOTED` is not set:
 
 Exit without proceeding.
 
+Then confirm `mcp__plugin_gmcc_pen__*` is in your own tool list. This variant
+pens its rows from primary context and spawns the doper, so an unserved pen
+means nothing this run produces can be recorded. Absent pen = report it and
+exit; the session must be restarted, not worked around. `claude mcp list`
+reporting the server healthy does NOT settle it — that check spawns a fresh
+probe process, while what matters is whether THIS session registered the tools.
+
 ## Arguments
 
 - **Numeric seq** → resume: find the prompt via `gm prompt list --json`,
@@ -46,8 +53,9 @@ gm bot next
 - Haiku doper briefing, then YOU run exploration in context: open your
   `general` summary (`mcp__plugin_gmcc_pen__bot_summary --agent-type
   general`), pen the finding rows yourself, complete it. The pen is loaded
-  for you too — `.mcp.json` sets `alwaysLoad`, so running the phase in the
-  primary's own context is no reason to reach for the CLI.
+  for you too — running the phase in the primary's own context is no reason
+  to reach for the CLI. What the pen withholds from the primary is the gate
+  doors, refused per-verb by role; the read and record verbs are yours.
 - Clarification: you run the merged clarifier pass in context — rank
   prompt-wide from your own self-ratings, open + complete the `synthesis`
   summary, author the questions/notes, seal, run the user conversation

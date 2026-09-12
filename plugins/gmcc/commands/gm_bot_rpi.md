@@ -24,6 +24,13 @@ If `$GMCC_BOOTED` is not set:
 
 Exit without proceeding.
 
+Then confirm `mcp__plugin_gmcc_pen__*` is in your own tool list. Every subagent
+this variant spawns records through the pen and nothing else, so an unserved pen
+means no spawn can write. Absent pen = report it and exit; the session must be
+restarted, not worked around. `claude mcp list` reporting the server healthy does
+NOT settle it — that check spawns a fresh probe process, while what matters is
+whether THIS session registered the tools.
+
 ## Arguments
 
 Same as /gm_bot (resume by seq / create by slug — STAY TRUE), with
