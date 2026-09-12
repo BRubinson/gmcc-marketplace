@@ -227,8 +227,7 @@ public enum WorkflowSpec {
                 the pen. Each agent takes only its assigned file_path slice and must not \
                 touch another's. Each proves its work with the repo's documented build \
                 loop and reports the real output; tests are not written or run unless the \
-                prompt asked. Capture is automatic; gm bot reconcile at the gate is the \
-                backstop for writes no turn could attribute. \
+                prompt asked. Capture is automatic — no self-reporting. \
                 mcp__plugin_gmcc_pen__arch_get audits progress.
                 """
             }

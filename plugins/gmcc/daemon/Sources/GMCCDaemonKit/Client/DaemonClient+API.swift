@@ -394,8 +394,8 @@ extension DaemonClient {
         try request(type: .botGet, payload: req, responseType: BotWorkflowResponse.self)
     }
 
-    public func botSetBaseline(_ req: BotSetBaselineRequest) throws -> BotWorkflowResponse {
-        try request(type: .botSetBaseline, payload: req, responseType: BotWorkflowResponse.self)
+    public func agentRegister(_ req: AgentRegisterRequest) throws -> AgentRegisterResponse {
+        try request(type: .agentRegister, payload: req, responseType: AgentRegisterResponse.self)
     }
 
     public func archGet(_ req: ArchGetRequest) throws -> ArchGetResponse {

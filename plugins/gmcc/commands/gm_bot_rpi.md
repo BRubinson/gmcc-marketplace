@@ -45,7 +45,7 @@ Same as /gm_bot (resume by seq / create by slug — STAY TRUE), with
   proposal-only); you persist the rows (persistence first), propose →
   sign-off (full persistence delta table) → approve → implementing.
 - Implement with up to 2 implementation subagents (persistence first;
-  `gm bot reconcile` at the gate). Review: ONE `gmcc:code-quality-reviewer`
+  capture is the PostToolUse hook alone). Review: ONE `gmcc:code-quality-reviewer`
   (general); you complete with the verdict and run the fix loop; done.
 
 Spawn prompts carry ONLY: the methodology (`general`), the summary uuid

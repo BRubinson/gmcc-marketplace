@@ -1,10 +1,12 @@
 #!/bin/bash
 
-# GM-CDE SessionStart bootstrap. Three jobs only: confirm we're in a git
-# repo, find the plugin root, and find the right gm binary. Everything else
-# — identity, paths, env emission, the artifact home, dope boot sync, the
-# cheatsheet — is owned by the gm binary (`gm context ensure` +
-# `gm context env`). This script computes NOTHING the daemon computes.
+# GM-CDE SessionStart bootstrap. Four jobs only: confirm we're in a git repo,
+# find the plugin root, find the right gm binary, and hand the hook payload on
+# stdin to `gm context ensure`. Everything else — identity, paths, env
+# emission, the artifact home, dope boot sync, the cheatsheet — is owned by
+# the gm binary (`gm context ensure` + `gm context env`). This script computes
+# NOTHING the daemon computes, and it does not read the payload: the session
+# uuid inside it is sliced out in Swift, so no jq is on this path either.
 #
 # Anything outside a git repo: silent exit with no GMCC vars set.
 
@@ -12,6 +14,16 @@
 if ! git rev-parse --git-dir > /dev/null 2>&1; then
     exit 0
 fi
+
+# --- 0b. The hook payload ---------------------------------------------------
+# Held verbatim and piped into `gm context ensure --hook-payload`, which pins
+# its session_id to the ensured session in claude_session_binding. That
+# binding is what every later hook write resolves its gmcc session through, so
+# a SessionStart that drops the payload leaves the whole capture surface
+# writing nothing. `[ -t 0 ]` keeps a hand-run of this script off a blocking
+# read — under the harness stdin is always a pipe.
+payload=""
+[ -t 0 ] || payload="$(cat 2>/dev/null)"
 
 # --- 1. Plugin root from this script's location -----------------------------
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -37,8 +49,9 @@ if [ ! -x "$GM_BIN" ]; then
     exit 0
 fi
 
-# --- 4. Rows + artifact home + dope boot sync (stderr = notices) ------------
-warnings=$( (cd "$REPO_ROOT" && "$GM_BIN" context ensure >/dev/null) 2>&1 )
+# --- 4. Rows + binding + artifact home + dope boot sync (stderr = notices) --
+warnings=$( (cd "$REPO_ROOT" && printf '%s' "$payload" \
+    | "$GM_BIN" context ensure --hook-payload >/dev/null) 2>&1 )
 if [ $? -ne 0 ]; then
     warnings="$warnings
 [GMB] daemon unavailable — context not ensured (run 'bash $GMCC_PLUGIN_DIR/scripts/build_daemon.sh' or /gmcc_daemon, then 'gm context ensure')"

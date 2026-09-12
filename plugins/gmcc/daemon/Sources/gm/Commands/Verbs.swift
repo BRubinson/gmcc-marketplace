@@ -31,9 +31,8 @@ struct Verbs: ParsableCommand {
     var writesOnly = false
 
     /// ONE ROW PER `gm` SPELLING, not per MessageType. A verb with aliases
-    /// (`gm bot summary` for EXPLORE_OPEN, `gm bot sweep` for the reconcile
-    /// engine) emits one row each, all carrying the same message type, role
-    /// and pen tool. That is what lets `gmcc_gm_write_guard.sh` keep matching
+    /// (`gm bot summary` for EXPLORE_OPEN) emits one row each, all carrying
+    /// the same message type, role and pen tool. That is what lets `gmcc_gm_write_guard.sh` keep matching
     /// on a flat `.verbs[] | .gm` list and still see every spelling — the
     /// guard needs no change to gain alias coverage.
     ///

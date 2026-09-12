@@ -1,11 +1,11 @@
 {
   "code" : "file_change_origin",
-  "description" : "Provenance of a file_change row (m0025): the hook's own records vs manual adds vs the gate-boundary reconcile sweep vs the per-turn sweep",
+  "description" : "Provenance of a file_change row. The column has no CHECK, so rows written under an older vocabulary keep their values; this enum governs what may be written now",
   "name" : "File Change Origin",
   "options" : [
     {
       "code" : "hook",
-      "description" : "The PostToolUse hook (provenance channel)",
+      "description" : "The PostToolUse hook, from an Edit/Write/NotebookEdit payload — exact paths, exact structuredPatch ranges",
       "name" : "Hook",
       "sort_order" : 1
     },
@@ -16,18 +16,12 @@
       "sort_order" : 2
     },
     {
-      "code" : "reconcile",
-      "description" : "gm bot reconcile's git-diff completeness sweep",
-      "name" : "Reconcile",
+      "code" : "command",
+      "description" : "Inferred from the paths a Bash command NAMED (the write allowlist) — marked as inference, never mistakable for exact",
+      "name" : "Command",
       "sort_order" : 3
-    },
-    {
-      "code" : "turn",
-      "description" : "gm bot sweep — the per-turn Stop/SubagentStop sweep, not only at phase gates",
-      "name" : "Turn",
-      "sort_order" : 4
     }
   ],
   "sort_order" : 23,
-  "version" : 763
+  "version" : 764
 }

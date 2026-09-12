@@ -76,7 +76,7 @@
     {
       "code" : "reconcile_git_head",
       "data_type" : "text",
-      "description" : "git head at the last reconcile sweep (reserved baseline)",
+      "description" : "DEAD COLUMN — no reader, no writer, no record property; kept because dropping it is a full rebuild for no gain",
       "is_unique" : false,
       "name" : "Reconcile Git Head",
       "nullable" : true,
@@ -85,5 +85,5 @@
   ],
   "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Repositories/BotWorkflowRepository.swift",
   "sort_order" : 30,
-  "version" : 763
+  "version" : 764
 }

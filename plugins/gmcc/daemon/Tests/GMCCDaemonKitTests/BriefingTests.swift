@@ -563,15 +563,19 @@ final class BriefingTests: XCTestCase {
         XCTAssertFalse(reranker.stub.contains("briefing_uuid"))
     }
 
-    // MARK: - Auto-attribute ladder on file changes
+    // MARK: - Auto-attribute on file changes
 
-    func testFileChangeAutoAttributeUsesCallerClaim() throws {
-        try store.dbQueue.write { db in
-            try self.store.claimActivation(
-                db, sessionUuid: "sess-1", promptUuid: "prompt-a", clientKey: "test-instance-one")
-            try self.store.claimActivation(
-                db, sessionUuid: "sess-1", promptUuid: "prompt-b", clientKey: "test-instance-two")
-        }
+    /// THE NARROWED SCOPE of prompt_activation, pinned. FileChangeAdd carries
+    /// no clientKey — the field does not exist — and the ClientKey activation
+    /// ladder no longer participates in file-change attribution at all, so a
+    /// live claim attributes NOTHING. That split is structural rather than
+    /// conventional precisely so the two ladders can never disagree about one
+    /// row; activation survives for non-hook CLI claiming, which has no
+    /// payload-based replacement.
+    ///
+    /// The ladder that DOES attribute (active workflow, then the single
+    /// implementing prompt) is proved in AttributionTests.
+    func testFileChangeAttributionIgnoresTheActivationClaim() throws {
         let project = ProjectContext(
             gitRepoName: "repo", code: "repo", name: "repo",
             ckfsRelativeStoragePath: "projects/repo")
@@ -581,11 +585,11 @@ final class BriefingTests: XCTestCase {
         let session = SessionContext(
             code: "main", name: "main", ckfsRelativeStoragePath: "x")
 
-        func add(clientKey: String?, auto: Bool) throws -> String? {
+        func add(auto: Bool) throws -> String? {
             let response = try store.addFileChange(FileChangeAdd(
                 project: project, instance: instance, session: session,
                 relativePath: "Sources/File.swift", changeKind: .edit, ranges: [],
-                autoAttribute: auto ? true : nil, clientKey: clientKey))
+                autoAttribute: auto ? true : nil))
             return try store.dbQueue.read { db in
                 try String.fetchOne(
                     db, sql: "SELECT prompt_uuid FROM file_change WHERE uuid = ?",
@@ -593,12 +597,24 @@ final class BriefingTests: XCTestCase {
             }
         }
 
-        // Caller's own claim wins.
-        XCTAssertEqual(try add(clientKey: "test-instance-two", auto: true), "prompt-b")
-        // Ambiguous keyless auto-attribution stays unattributed.
-        XCTAssertNil(try add(clientKey: nil, auto: true))
-        // Without the opt-in flag, nothing changes at all.
-        XCTAssertNil(try add(clientKey: "test-instance-two", auto: false))
+        try store.dbQueue.write { db in
+            try self.store.claimActivation(
+                db, sessionUuid: "sess-1", promptUuid: "prompt-a", clientKey: "test-instance-one")
+        }
+        // One live, unambiguous claim on prompt-a — and the change is still
+        // session-scoped, because nothing about a change reads this table.
+        XCTAssertNil(try add(auto: true))
+        // Without the opt-in flag, nothing resolves either.
+        XCTAssertNil(try add(auto: false))
+
+        // The same claim still drives the ladder it was kept for: briefing
+        // resolution for a CLI caller that holds a client key.
+        XCTAssertEqual(
+            try store.dbQueue.read { db in
+                try SessionRepository(db: db, core: self.store.core).resolveActivePrompt(
+                    sessionUuid: "sess-1", clientKey: "test-instance-one")
+            },
+            "prompt-a")
     }
 
     // MARK: - Set-status side effect

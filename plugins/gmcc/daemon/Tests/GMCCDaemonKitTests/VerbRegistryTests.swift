@@ -105,12 +105,12 @@ final class VerbRegistryTests: XCTestCase {
     /// never drift") is worth exactly as much as its CLI coverage, because
     /// `gmcc_gm_write_guard.sh` matches the string an agent TYPES.
     ///
-    /// One `gmInvocation` per MessageType was not that. `gm` ships wrappers:
-    /// `Bot.Summary.run()` issues `client.exploreOpen` as `gm bot summary`,
-    /// and `gm bot sweep` is the reconcile engine — both writes the deny set
-    /// could not see, and `gm bot summary` is the spelling the cheatsheet core
-    /// hands to every spawned agent. One missing spelling is a bug; a registry
-    /// that cannot tell you a spelling is missing is the defect.
+    /// One `gmInvocation` per MessageType is not that. `gm` ships wrappers:
+    /// `Bot.Summary.run()` issues `client.exploreOpen` as `gm bot summary`, a
+    /// write the deny set would not see under a per-MessageType row, and the
+    /// spelling the cheatsheet core hands to every spawned agent. One missing
+    /// spelling is a bug; a registry that cannot tell you a spelling is
+    /// missing is the defect.
     ///
     /// Walking `gm`'s own ArgumentParser tree (the CheatsheetTests precedent)
     /// is what turns the NEXT such wrapper into a build failure instead of a

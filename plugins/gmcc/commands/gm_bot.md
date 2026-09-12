@@ -56,8 +56,8 @@ gm bot next
 - Architecture: design in context; persistence rows first (change kinds +
   dope refs); propose → user sign-off with the full persistence delta
   table → approve → set-status implementing.
-- Implement in context (persistence first; run `gm bot reconcile` at the
-  gate), review in context against your general review summary, complete
+- Implement in context (persistence first; capture is the PostToolUse hook
+  alone), review in context against your general review summary, complete
   with a verdict, run the fix loop, set-status done.
 
 Every step's exact commands come from `gm bot next` — trust the machine,

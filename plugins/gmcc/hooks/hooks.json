@@ -21,7 +21,7 @@
           {
             "type": "command",
             "timeout": 5,
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/gmcc_subagent_context.sh"
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/gmcc_hook.sh subagent-start"
           }
         ]
       }
@@ -40,12 +40,12 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Edit|Write|NotebookEdit",
+        "matcher": "Edit|Write|NotebookEdit|Bash",
         "hooks": [
           {
             "type": "command",
             "async": true,
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/gmcc_file_change_hook.sh"
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/gmcc_hook.sh post-tool-use"
           }
         ]
       }

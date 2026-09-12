@@ -23,7 +23,6 @@ struct BotWorkflowRecord: BaseRecordFields {
     var status: String
     var clientKey: String?
     var lastServedPhase: String?
-    var reconcileGitHead: String?
 }
 
 extension BotWorkflowRecord {
@@ -33,7 +32,6 @@ extension BotWorkflowRecord {
             uuid: uuid, version: version, sessionUuid: sessionUuid,
             promptUuid: promptUuid, variant: variant, status: status,
             clientKey: clientKey, lastServedPhase: lastServedPhase,
-            reconcileGitHead: reconcileGitHead,
             createdAt: createdAt, updatedAt: updatedAt)
     }
 }

@@ -1,7 +1,7 @@
 {
   "base_composable_ref" : "base.base_entity",
   "code" : "agent_briefing",
-  "description" : "A point-in-time OPINION-FREE ref pre-selection a doper assembles per (owner, step); open on an existing pair RESETS to building and truncates the ref children. m0025 retired body and the TEXT-JSON ref columns — refs are typed child rows (dope children carry ghost-legal dot-path CODES; kbite/file-change children carry uuid FKs). Staleness = server-stamped scope revision, compared live at read (warn, never block)",
+  "description" : "A point-in-time OPINION-FREE ref pre-selection a doper assembles per (owner, step); open on an existing pair RESETS to building and truncates the ref children. Refs are typed child rows (dope children carry ghost-legal dot-path CODES; kbite/file-change children carry uuid FKs). Staleness = server-stamped scope revision, compared live at read (warn, never block). BOUNDARY: a briefing answers 'what refs did this agent get'; agent_registration answers 'who is agent X'.",
   "entity_type" : "MODEL",
   "name" : "Agent Briefing",
   "properties" : [
@@ -86,5 +86,5 @@
   ],
   "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Store+Briefing.swift",
   "sort_order" : 21,
-  "version" : 763
+  "version" : 764
 }

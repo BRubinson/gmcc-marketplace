@@ -171,7 +171,8 @@ final class MigrationTests: XCTestCase {
                  try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM prompt_artifact") ?? -1,
                  try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM prompt WHERE status = 'done'") ?? -1,
                  try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM prompt WHERE status = 'clarified'") ?? -1,
-                 try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM clarification") ?? 0,
+                 (try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM user_clarification_question") ?? 0)
+                     + (try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM internal_clarification_note") ?? 0),
                  try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM review_finding") ?? 0,
                  try String.fetchAll(db, sql: "SELECT uuid || ':' || id FROM prompt ORDER BY uuid"))
             }
@@ -184,37 +185,75 @@ final class MigrationTests: XCTestCase {
             XCTAssertEqual(
                 try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM prompt WHERE status = 'done'"),
                 before.done + before.clarified)
-            // m0005's rebuilds move values, never rows: the clarification and
-            // review_finding populations survive intact (the latter through
-            // the CASCADE-parent review_summary rebuild).
+            // Rebuilds move values, never rows: the clarification population
+            // (questions plus internal notes) and review_finding survive
+            // intact, the latter through the CASCADE-parent review_summary
+            // rebuild.
             XCTAssertEqual(
-                try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM clarification"), before.clarifications)
+                (try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM user_clarification_question") ?? 0)
+                    + (try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM internal_clarification_note") ?? 0),
+                before.clarifications)
             XCTAssertEqual(
                 try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM review_finding"), before.reviewFindings)
             XCTAssertEqual(
-                try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM clarification WHERE category = 'yeet_type'"), 0)
-            XCTAssertEqual(
                 try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM review_summary WHERE verdict = 'legacy_unstated'"), 0)
-            // The backfill leaves no prompt without either summary.
+            // The backfill leaves no PRE-EXISTING prompt without either
+            // summary — scoped by the ledger's own applied_at, because a
+            // prompt opened afterwards reaches `clarifying` long before it
+            // has an architecture and must not be read as a backfill miss.
             XCTAssertEqual(try Int.fetchOne(db, sql: """
-                SELECT COUNT(*) FROM prompt p WHERE p.status != 'draft' AND NOT EXISTS
+                SELECT COUNT(*) FROM prompt p
+                 WHERE p.status != 'draft'
+                   AND p.created_at < (SELECT applied_at FROM schema_migrations WHERE version = 5)
+                   AND NOT EXISTS
                     (SELECT 1 FROM clarification_summary c WHERE c.prompt_uuid = p.uuid)
                 """), 0)
             XCTAssertEqual(try Int.fetchOne(db, sql: """
-                SELECT COUNT(*) FROM prompt p WHERE p.status != 'draft' AND NOT EXISTS
+                SELECT COUNT(*) FROM prompt p
+                 WHERE p.status != 'draft'
+                   AND p.created_at < (SELECT applied_at FROM schema_migrations WHERE version = 5)
+                   AND NOT EXISTS
                     (SELECT 1 FROM architecture_summary a WHERE a.prompt_uuid = p.uuid)
                 """), 0)
-            // No draft prompt keeps an m0005 placeholder (m0006).
+            // No draft prompt keeps an m0005 placeholder (m0006). The
+            // placeholder text now sits in the care package m0025 seeded from
+            // the summary's authored columns, so that is where it is hunted.
             XCTAssertEqual(try Int.fetchOne(db, sql: """
-                SELECT COUNT(*) FROM clarification_summary c
+                SELECT COUNT(*) FROM care_package cp
+                  JOIN clarification_summary c ON c.uuid = cp.clarification_summary_uuid
                   JOIN prompt p ON p.uuid = c.prompt_uuid
                  WHERE p.status = 'draft'
-                   AND c.backstory_note = 'Backfilled by m0005; not authored by a bot run.'
+                   AND cp.clarified_intent LIKE '%Backfilled by m0005%'
                 """), 0)
             XCTAssertEqual(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM prompt WHERE status = 'clarified'"), 0)
             XCTAssertEqual(
                 try String.fetchAll(db, sql: "SELECT uuid || ':' || id FROM prompt ORDER BY uuid"),
                 before.uuidIds)
+            // m0026 lands on a table with thousands of accumulated rows. It
+            // ADDs columns, so every one of them must be present and NULL —
+            // nothing outside a payload can know a tool_use_id, and a
+            // backfill that invented one would be the misattribution this
+            // axis exists to prevent.
+            for column in ["claude_session_id", "claude_turn_id", "tool_use_id", "tool_name",
+                           "agent_type", "permission_mode", "duration_ms", "transcript_path",
+                           "agent_registration_uuid"] {
+                XCTAssertEqual(
+                    try Int.fetchOne(db, sql: """
+                        SELECT COUNT(*) FROM pragma_table_info('file_change') WHERE name = ?
+                        """, arguments: [column]), 1, "file_change lost \(column)")
+            }
+            XCTAssertEqual(
+                try Int.fetchOne(db, sql: """
+                    SELECT COUNT(*) FROM file_change WHERE tool_use_id IS NOT NULL
+                    """), 0, "m0026 invented a tool_use_id for a pre-existing row")
+            // The partial UNIQUE applied cleanly, which it only can if no two
+            // accumulated rows already share a (tool call, file) pair.
+            XCTAssertEqual(
+                try Int.fetchOne(db, sql: """
+                    SELECT COUNT(*) FROM sqlite_master
+                     WHERE type = 'index' AND name = 'idx_file_change_tool_use'
+                    """), 1)
+
             XCTAssertTrue(try Row.fetchAll(db, sql: "PRAGMA foreign_key_check").isEmpty)
             XCTAssertEqual(try String.fetchOne(db, sql: "PRAGMA integrity_check"), "ok")
         }
@@ -508,6 +547,163 @@ final class MigrationTests: XCTestCase {
                            Migrations.currentSchemaVersion)
             XCTAssertTrue(try Row.fetchAll(db, sql: "PRAGMA foreign_key_check").isEmpty)
             XCTAssertEqual(try String.fetchOne(db, sql: "PRAGMA integrity_check"), "ok")
+        }
+    }
+
+    /// m0026 is pure ADD, so the interesting assertions are not "did the
+    /// table appear" but "do the three indexes actually decide what they were
+    /// designed to decide". Each one has a silent failure mode: a missing
+    /// UNIQUE on claude_session_id lets a conversation re-pin to a second
+    /// session and attribution starts drifting mid-run; a wider key than
+    /// agent_id alone puts the spawner's authority write out of reach of its
+    /// only identifier; and a BARE UNIQUE(tool_use_id) would silently make
+    /// one `sed -i a b c` unrecordable past its first file.
+    func testM0026AttributionKeysDecideWhatTheyAreFor() throws {
+        let dbPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("m0026-\(UUID().uuidString).db").path
+        defer { try? FileManager.default.removeItem(atPath: dbPath) }
+        let store = try Store(path: dbPath)
+        try store.migrate()
+
+        let now = Store.isoNow()
+        try store.dbQueue.write { db in
+            try db.execute(sql: """
+                INSERT INTO project (uuid, version, created_at, updated_at,
+                    git_repo_name, code, name, ckfs_relative_storage_path)
+                VALUES ('proj-1', 0, '\(now)', '\(now)', 'r', 'r', 'r', 'p/r');
+                INSERT INTO instance (uuid, version, created_at, updated_at,
+                    project_uuid, code, name, absolute_file_system_path, ckfs_relative_storage_path)
+                VALUES ('inst-1', 0, '\(now)', '\(now)', 'proj-1', 'r_1', 'r_1', '/tmp/r', 'p/r/i');
+                INSERT INTO session (uuid, version, created_at, updated_at,
+                    instance_uuid, code, name, backstory, goal, status, ckfs_relative_storage_path)
+                VALUES ('sess-main', 0, '\(now)', '\(now)', 'inst-1', 'main', 'main', '', '', 'active', 'p/r/i/s'),
+                       ('sess-other', 0, '\(now)', '\(now)', 'inst-1', 'other', 'other', '', '', 'active', 'p/r/i/s2');
+                INSERT INTO prompt (uuid, version, created_at, updated_at,
+                    session_uuid, seq, code, name, backstory, goal, detail, command, status,
+                    ckfs_relative_storage_path)
+                VALUES ('prompt-x', 0, '\(now)', '\(now)', 'sess-main', 1, 'p1', 'one', '', '', '', '', 'draft', '');
+                INSERT INTO session_file (uuid, version, created_at, updated_at,
+                    session_uuid, relative_path, active)
+                VALUES ('sf-a', 0, '\(now)', '\(now)', 'sess-main', 'Sources/A.swift', 1),
+                       ('sf-b', 0, '\(now)', '\(now)', 'sess-main', 'Sources/B.swift', 1);
+                """)
+        }
+
+        try store.dbQueue.write { db in
+            // ---- The pin holds once, and a re-run bounces off the index
+            // rather than off a branch in Swift.
+            try db.execute(sql: """
+                INSERT INTO claude_session_binding (uuid, version, created_at, updated_at,
+                    claude_session_id, session_uuid)
+                VALUES ('csb-1', 0, '\(now)', '\(now)', 'claude-abc', 'sess-main')
+                """)
+            XCTAssertThrowsError(try db.execute(sql: """
+                INSERT INTO claude_session_binding (uuid, version, created_at, updated_at,
+                    claude_session_id, session_uuid)
+                VALUES ('csb-2', 0, '\(now)', '\(now)', 'claude-abc', 'sess-other')
+                """), "a second pin for one conversation was accepted")
+            try db.execute(sql: """
+                INSERT OR IGNORE INTO claude_session_binding (uuid, version, created_at, updated_at,
+                    claude_session_id, session_uuid)
+                VALUES ('csb-3', 0, '\(now)', '\(now)', 'claude-abc', 'sess-other')
+                """)
+            XCTAssertEqual(
+                try String.fetchOne(db, sql: """
+                    SELECT session_uuid FROM claude_session_binding WHERE claude_session_id = 'claude-abc'
+                    """), "sess-main", "the pin moved")
+
+            // ---- agent_id ALONE: a differing conversation does not buy a
+            // second row for the same agent.
+            try db.execute(sql: """
+                INSERT INTO agent_registration (uuid, version, created_at, updated_at,
+                    agent_id, claude_session_id, claude_turn_id, session_uuid, prompt_uuid,
+                    agent_type, role, methodology, workflow_phase)
+                VALUES ('areg-1', 0, '\(now)', '\(now)', 'a1f2', 'claude-abc', 'turn-1',
+                        'sess-main', 'prompt-x', 'gmcc:code-explorer', NULL, NULL, NULL)
+                """)
+            XCTAssertThrowsError(try db.execute(sql: """
+                INSERT INTO agent_registration (uuid, version, created_at, updated_at,
+                    agent_id, claude_session_id)
+                VALUES ('areg-dup', 0, '\(now)', '\(now)', 'a1f2', 'claude-zzz')
+                """), "UNIQUE(agent_id) is not on agent_id alone")
+            // The authority half merges into the identity row, late.
+            try db.execute(sql: """
+                UPDATE agent_registration
+                   SET role = 'explorer', methodology = 'data_flow', workflow_phase = 'exploring'
+                 WHERE agent_id = 'a1f2'
+                """)
+            // Four same-typed personas coexist — the case agent_briefing's
+            // (prompt_uuid, step) key cannot hold.
+            for i in 0..<4 {
+                try db.execute(sql: """
+                    INSERT INTO agent_registration (uuid, version, created_at, updated_at,
+                        agent_id, prompt_uuid, agent_type, methodology)
+                    VALUES ('areg-p\(i)', 0, '\(now)', '\(now)', 'a-explorer-\(i)', 'prompt-x',
+                            'gmcc:code-explorer', 'm\(i)')
+                    """)
+            }
+            XCTAssertEqual(try Int.fetchOne(db, sql: """
+                SELECT COUNT(*) FROM agent_registration
+                 WHERE prompt_uuid = 'prompt-x' AND agent_type = 'gmcc:code-explorer'
+                """), 5)
+
+            // ---- (tool call, file) is the unit: one Bash tool_use_id across
+            // two files is two legal rows; the same pair twice is not.
+            func insertChange(_ uuid: String, file: String, toolUse: String?, reg: String?) throws {
+                try db.execute(sql: """
+                    INSERT INTO file_change (uuid, version, created_at, updated_at,
+                        session_file_uuid, session_uuid, prompt_uuid, change_kind,
+                        origin, claude_session_id, claude_turn_id, tool_use_id, tool_name,
+                        agent_id, agent_type, permission_mode, duration_ms, transcript_path,
+                        agent_registration_uuid)
+                    VALUES (?, 0, ?, ?, ?, 'sess-main', 'prompt-x', 'edit',
+                            'command', 'claude-abc', 'turn-1', ?, 'Bash',
+                            'a1f2', 'gmcc:code-explorer', 'acceptEdits', 120, '/t/x.jsonl', ?)
+                    """, arguments: [uuid, now, now, file, toolUse, reg])
+            }
+            try insertChange("fc-1", file: "sf-a", toolUse: "toolu_bash", reg: "areg-1")
+            try insertChange("fc-2", file: "sf-b", toolUse: "toolu_bash", reg: "areg-1")
+            XCTAssertThrowsError(
+                try insertChange("fc-3", file: "sf-a", toolUse: "toolu_bash", reg: "areg-1"),
+                "a replay of one (tool call, file) was accepted twice")
+
+            // The index is partial: manual rows carry no tool call and must
+            // not collide with each other.
+            try insertChange("fc-4", file: "sf-a", toolUse: nil, reg: nil)
+            try insertChange("fc-5", file: "sf-a", toolUse: nil, reg: nil)
+
+            // ---- The registration FK is real, and NULL is legal because the
+            // primary has no agent_id to point at.
+            XCTAssertThrowsError(
+                try insertChange("fc-bad", file: "sf-b", toolUse: "toolu_x", reg: "areg-missing"),
+                "agent_registration_uuid accepted a dangling uuid")
+            try insertChange("fc-primary", file: "sf-b", toolUse: "toolu_primary", reg: nil)
+
+            XCTAssertEqual(try Int.fetchOne(db, sql: "SELECT MAX(version) FROM schema_migrations"),
+                           Migrations.currentSchemaVersion)
+            XCTAssertTrue(try Row.fetchAll(db, sql: "PRAGMA foreign_key_check").isEmpty)
+        }
+
+        // Every index the attribution path reads through exists under the
+        // name the repositories will query by.
+        try store.dbQueue.read { db in
+            let indexes = try Set(String.fetchAll(
+                db, sql: "SELECT name FROM sqlite_master WHERE type = 'index'"))
+            for index in ["idx_claude_session_binding_claude_session_id",
+                          "idx_claude_session_binding_session_fk",
+                          "idx_agent_registration_agent_id",
+                          "idx_agent_registration_prompt_fk",
+                          "idx_file_change_tool_use",
+                          "idx_file_change_claude_session_id",
+                          "idx_file_change_agent_id",
+                          "idx_file_change_agent_registration_fk"] {
+                XCTAssertTrue(indexes.contains(index), "missing index \(index)")
+            }
+            // change_kind keeps its CHECK: m0026 ADDs columns and never
+            // rebuilds this table, so the one constraint it has survives.
+            let fileChangeSql = try String.fetchOne(
+                db, sql: "SELECT sql FROM sqlite_master WHERE name = 'file_change'") ?? ""
+            XCTAssertTrue(fileChangeSql.contains("CHECK (change_kind IN"), fileChangeSql)
         }
     }
 }

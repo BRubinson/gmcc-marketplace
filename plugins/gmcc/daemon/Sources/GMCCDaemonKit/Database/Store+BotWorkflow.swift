@@ -23,8 +23,4 @@ extension Store {
     public func botGet(_ req: BotGetRequest) throws -> BotWorkflowResponse {
         try dbQueue.read { db in try BotWorkflowRepository(db: db, core: core).get(req) }
     }
-
-    public func botSetBaseline(_ req: BotSetBaselineRequest) throws -> BotWorkflowResponse {
-        try dbQueue.write { db in try BotWorkflowRepository(db: db, core: core).setBaseline(req) }
-    }
 }

@@ -40,7 +40,7 @@ struct FileChange: ParsableCommand {
         @Option(name: .long, help: "Self-reported agent/persona name.")
         var agentName: String?
 
-        @Option(name: .long, help: "hook|manual|reconcile (default hook). workflow_phase is stamped daemon-side, never passed.")
+        @Option(name: .long, help: "hook|manual|command (default hook). workflow_phase is stamped daemon-side, never passed.")
         var origin: String?
 
         func run() throws {
@@ -58,7 +58,6 @@ struct FileChange: ParsableCommand {
                 changeKind: kind,
                 ranges: ranges,
                 autoAttribute: autoAttribute ? true : nil,
-                clientKey: autoAttribute ? ClientKey.resolve() : nil,
                 agentId: agentId,
                 agentName: agentName,
                 origin: origin

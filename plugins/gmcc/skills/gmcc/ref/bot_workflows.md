@@ -100,9 +100,14 @@ copy is retired. The clarified intent lives on the CARE PACKAGE.
 8. **plan_gate** — `gm arch propose`, user sign-off ALWAYS showing the full
    persistence delta table (positive AND negative changes), `gm arch
    approve` + `set-status implementing` (claims the activation) or `revise`.
-9. **implement** — persistence changes first. Edit/Write is hook-recorded;
-   `gm bot reconcile` at the gate sweeps Bash/workflow writes the hook never
-   saw (origin=reconcile, real delete/rename kinds). Team: the primary
+9. **implement** — persistence changes first. Capture is the PostToolUse
+   hook and nothing else: Edit/Write/NotebookEdit record exactly, with real
+   line ranges from the tool's own patch. A Bash write records only when the
+   command NAMES its target (redirections, `tee`, `sed -i`, `cp`/`mv`/`rm`/
+   `touch`) and carries `origin=command` to mark it an inference; an
+   interpreter heredoc, `make` or `./script.sh` records NOTHING, by design —
+   there is no tree-diff behind it, so a write nothing named is a write
+   nobody sees. Team: the primary
    hand-authors the implementation workflow, guided by `gm bot next` —
    script code never touches gm; agents inside the workflow hold the pen.
    `gm arch get` audits progress.

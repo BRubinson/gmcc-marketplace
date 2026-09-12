@@ -55,6 +55,18 @@ public enum StoreError: Error, Sendable {
     /// the badRequest wire code (no new ErrorCode), so a pinned-Kit GMVibes
     /// still decodes it.
     case dopeScopeNotRepoWritable(scopeUuid: String, scopeType: String, verb: String)
+    /// A write naming a Claude conversation arrived with no
+    /// claude_session_binding row to resolve it, so NOTHING was written. This
+    /// is the server-side no-op contract: a hook cannot record into a repo
+    /// whose SessionStart never pinned the conversation, which is strictly
+    /// stronger than any env variable surviving a subprocess.
+    ///
+    /// `booted` says whether the daemon knows the repo. It does NOT change
+    /// the refusal — only whether a HOOK_UNBOUND event marks it, which
+    /// `Store.addFileChange` appends in its own transaction. Mapped onto the
+    /// badRequest wire code (no new ErrorCode), so a pinned-Kit GMVibes still
+    /// decodes it.
+    case hookUnbound(claudeSessionId: String, booted: Bool)
 
     public var errorPayload: ErrorPayload {
         switch self {
@@ -138,6 +150,14 @@ public enum StoreError: Error, Sendable {
                 message: "dope \(verb) is session-base only: scope \(scopeUuid) is "
                     + "\(scopeType). Only a SESSION_INSTANCE tree is read from or "
                     + "written to {instance_root}/.gmcc")
+        case .hookUnbound(let claudeSessionId, let booted):
+            let repo = booted
+                ? "the daemon knows this repo, so this is dead capture"
+                : "the daemon knows no such repo"
+            return ErrorPayload(
+                code: .badRequest,
+                message: "claude session \(claudeSessionId) is not bound to a gmcc "
+                    + "session — nothing was recorded (\(repo))")
         }
     }
 }

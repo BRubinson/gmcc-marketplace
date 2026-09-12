@@ -67,12 +67,11 @@ public struct VerbSpec: Hashable, Sendable {
     /// EVERY OTHER `gm` SPELLING THAT SENDS THIS SAME MessageType.
     ///
     /// The registry's promise is that the deny set cannot drift from the verb
-    /// set. One `gmInvocation` per MessageType kept that promise against the
-    /// ROSTER and broke it against the CLI, because `gm` ships several
-    /// wrappers over one verb: `gm bot summary` IS `gm explore open`
-    /// (EXPLORE_OPEN), `gm bot sweep` IS the `gm bot reconcile` delta engine
-    /// (BOT_SET_BASELINE). A spelling absent from this list is a write the
-    /// guard does not see — the drift the registry exists to make impossible.
+    /// set. One `gmInvocation` per MessageType keeps that promise against the
+    /// ROSTER but not against the CLI, because `gm` ships wrappers over single
+    /// verbs: `gm bot summary` IS `gm explore open` (EXPLORE_OPEN). A spelling
+    /// absent from this list is a write the guard does not see — the drift the
+    /// registry exists to make impossible.
     ///
     /// `VerbRegistryTests.testEveryGmLeafCommandIsRegisteredOrExplicitlyLocal`
     /// walks `gm`'s own ArgumentParser tree and fails the build on the next
@@ -395,13 +394,17 @@ public enum VerbRegistry {
         VerbSpec(.botNext, gm: "gm bot next", aliases: ["gm bot status"],
                  pen: "bot_next", role: .read),
         VerbSpec(.botGet, gm: "gm bot get", pen: "bot_get", role: .read),
-        // `gm bot sweep` is the SAME delta engine as `gm bot reconcile` under a
-        // hook-safe skin: it records file_change rows and advances the
-        // baseline. It is a write with no pen replacement — an agent must not
-        // run a bulk sweep, so the guard's no-replacement branch is the right
-        // deny reason, and aliasing it here is what lets the guard see it.
-        VerbSpec(.botSetBaseline, gm: "gm bot reconcile", aliases: ["gm bot sweep"],
-                 role: .record(agentPhases: nil)),
+
+        // ── Agent registry ───────────────────────────────────────────────
+        // DELIBERATELY NO PEN TOOL. The registration is the SPAWNER's claim
+        // about an agent it spawned; an agent registering ITSELF is exactly
+        // the self-reported trust this surface replaces. A workflow script
+        // calls it, which is the one named exception to "workflow scripts
+        // never touch gm".
+        // The alias is the SubagentStart half of the same row: the hook writes
+        // identity, `gm agent register` writes authority, and both land here.
+        VerbSpec(.agentRegister, gm: "gm agent register",
+                 aliases: ["gm hook subagent-start"], role: .record(agentPhases: nil)),
 
         // ── Artifacts / prompt-qualified diagrams ────────────────────────
         // `gm render` writes the rendered artifact row it just produced.
@@ -413,7 +416,14 @@ public enum VerbRegistry {
         VerbSpec(.promptDiagramList, gm: "gm prompt-diagram list", role: .read),
 
         // ── File changes ─────────────────────────────────────────────────
-        VerbSpec(.fileChangeAdd, gm: "gm file-change add", pen: "file_change_add",
+        // `gm hook post-tool-use` is the SAME write under the machine's
+        // spelling: the hook shim runs it with a raw payload on stdin. It is
+        // registered as an alias so the PreToolUse deny set — which is
+        // generated from this registry — can see it, because an agent typing
+        // it by hand would be forging capture rows for a tool call that never
+        // happened.
+        VerbSpec(.fileChangeAdd, gm: "gm file-change add",
+                 aliases: ["gm hook post-tool-use"], pen: "file_change_add",
                  role: .record(agentPhases: nil)),
         VerbSpec(.fileChangeList, gm: "gm file-change list", pen: "file_change_list", role: .read),
 

@@ -76,9 +76,26 @@ public enum GMCCWireProtocol {
     /// (per-agent rows), the merged finding/file pair (EXPLORE_RANK now
     /// prompt-scoped), AgentBriefingRow's typed ref children riding
     /// BRIEFING_COMPLETE (body gone), the slimmed ClarificationSummaryRow,
-    /// and SearchKind's retired clarification/key-file cases. Reconcile is
-    /// CLIENT-side over FILE_CHANGE_ADD — no message of its own.
-    public static let version = 24
+    /// and SearchKind's retired clarification/key-file cases.
+    ///
+    /// v24 → v25: session-bound hook attribution (m0026). TWO structural
+    /// changes force it, and only these two: the NEW message type
+    /// AGENT_REGISTER, and the REMOVAL of BOT_SET_BASELINE. Both are
+    /// unambiguous under CLAUDE.md — a stale daemon answers UNKNOWN_TYPE to a
+    /// verb that is supposed to exist, and a stale client keeps sending one
+    /// that no longer does.
+    ///
+    /// What did NOT bump this, and rides the same fence: every payload field
+    /// of the attribution axis — ContextEnsureRequest.claude_session_id,
+    /// FileChangeAdd's claude_session_id / claude_turn_id / tool_use_id /
+    /// tool_name / agent_type / permission_mode / duration_ms /
+    /// transcript_path, FileChangeAddResponse.deduplicated and the matching
+    /// FileChangeRow fields. Those are additive OPTIONALs that decode safely
+    /// in both directions, which is the convention that keeps GMVibes'
+    /// vendored kit compatible. FileChangeAdd.client_key going away is
+    /// likewise decode-safe (an unknown key is ignored) — it needs no bump of
+    /// its own and simply travels with this one.
+    public static let version = 25
 }
 
 /// Discriminator for every NDJSON message on the socket. One case per spec
@@ -128,7 +145,9 @@ public enum MessageType: String, Codable, Hashable, CaseIterable, Sendable {
     case promptResume = "PROMPT_RESUME"
     case botNext = "BOT_NEXT"
     case botGet = "BOT_GET"
-    case botSetBaseline = "BOT_SET_BASELINE"
+    // Agent registry (v25): the spawner's authority write for one agent_id,
+    // merged with the identity the SubagentStart hook records.
+    case agentRegister = "AGENT_REGISTER"
     // Artifacts
     case artifactAdd = "ARTIFACT_ADD"
     case artifactList = "ARTIFACT_LIST"

@@ -68,7 +68,7 @@ enum WorkflowGates {
         if untouchedPersistence > 0 {
             unmet.append(
                 "\(untouchedPersistence) planned persistence change(s) have no recorded "
-                    + "file change (gm bot sweep / gm bot reconcile, or the plan is stale)")
+                    + "file change (the edit never happened, or the plan is stale)")
         }
 
         // (2) persistence-first ordering, same rule as gm arch get: the LAST

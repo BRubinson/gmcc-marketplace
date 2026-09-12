@@ -23,6 +23,18 @@ struct FileChangeRecord: BaseRecordFields {
     var agentName: String?
     var workflowPhase: String?
     var origin: String
+    /// The captured tool call. claudeTurnId is Claude Code's TURN id (payload
+    /// field `prompt_id`) and is NOT a gmcc prompt uuid.
+    var claudeSessionId: String?
+    var claudeTurnId: String?
+    var toolUseId: String?
+    var toolName: String?
+    var agentType: String?
+    var permissionMode: String?
+    var durationMs: Int64?
+    var transcriptPath: String?
+    /// NULL for a PRIMARY write — the primary carries no agent_id at all.
+    var agentRegistrationUuid: String?
 }
 
 /// Read-side mirror of the `file_change_range` table. Columns map via convertFromSnakeCase.

@@ -22,9 +22,25 @@ struct Context: ParsableCommand {
         @Flag(name: .long, help: "Skip the dope files → db boot reconciliation.")
         var noDopeSync = false
 
+        @Flag(name: .long, help: "Read the SessionStart hook payload on stdin and pin its session_id to the ensured session.")
+        var hookPayload = false
+
         func run() throws {
+            // THE BINDING IS CREATED HERE OR NOWHERE. Every hook write
+            // resolves its gmcc session through claude_session_binding, and
+            // SessionStart is the one moment that knows both halves — the
+            // conversation uuid on stdin and the repo the session belongs to.
+            // Giving it a verb of its own would let a caller run one without
+            // the other; riding this request makes that impossible.
+            //
+            // The payload is decoded in Swift rather than sliced out in the
+            // hook script, so the shell never needs jq and the decode is
+            // covered by the same tolerant reader the other hooks use.
+            let claudeSessionId = hookPayload
+                ? HookPayload.decode(FileHandle.standardInput.readDataToEndOfFile())?.sessionId
+                : nil
             let git = try GitContext.detect()
-            let request = try ContextBuilder.ensureRequest()
+            let request = try ContextBuilder.ensureRequest(claudeSessionId: claudeSessionId)
             let response = try withClient { client in
                 try client.ensureContext(request)
             }

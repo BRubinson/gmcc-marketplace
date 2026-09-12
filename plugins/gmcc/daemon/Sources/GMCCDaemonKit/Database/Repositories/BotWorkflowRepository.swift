@@ -239,36 +239,6 @@ struct BotWorkflowRepository: RepositoryContext {
         return unmet.map { "advisory: \($0)" }
     }
 
-    /// Advance the reconcile baseline tree (client-computed git snapshot).
-    ///
-    /// `expectedGitTree` makes the advance a COMPARE-AND-SWAP: the caller
-    /// names the tree it actually diffed from, and the write is refused when
-    /// the stored cursor has moved since. Read and write happen inside the
-    /// caller's single transaction, so the check cannot be raced. Two
-    /// concurrent SubagentStop sweeps otherwise interleave — the slower one
-    /// advances the cursor past work the faster one has not swept, and those
-    /// changes are invisible to every later sweep. The optimistic
-    /// `expectedVersion` below is NOT this guard: the row's version moves for
-    /// unrelated workflow updates too.
-    func setBaseline(_ req: BotSetBaselineRequest) throws -> BotWorkflowResponse {
-        let workflow = try resolve(
-            promptUuid: req.promptUuid, clientKey: req.clientKey, sessionUuid: req.sessionUuid)
-        if let expected = req.expectedGitTree, workflow.reconcileGitHead != expected {
-            throw StoreError.badRequest(
-                detail: "reconcile baseline moved: expected '\(expected)', found "
-                    + "'\(workflow.reconcileGitHead ?? "<unset>")' — a concurrent sweep "
-                    + "advanced it; this sweep's rows are recorded, the advance is not")
-        }
-        try core.updateBase(
-            db, table: "bot_workflow", uuid: workflow.uuid,
-            expectedVersion: workflow.version,
-            set: ["reconcile_git_head": req.gitTree])
-        guard let updated = try fetchRow(uuid: workflow.uuid) else {
-            throw StoreError.notFound(entity: "bot_workflow", key: workflow.uuid)
-        }
-        return BotWorkflowResponse(workflow: updated)
-    }
-
     /// set-status done closes the workflow (called by PromptRepository).
     func closeForPrompt(promptUuid: String) throws {
         guard let workflow = try fetchActive(promptUuid: promptUuid) else { return }

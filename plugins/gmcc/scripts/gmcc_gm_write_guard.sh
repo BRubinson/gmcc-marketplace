@@ -17,12 +17,14 @@
 # real boundary, and it covers only the pen. Anything an agent can reach
 # through Bash it can still reach.
 #
-# AND IT CANNOT FIRE FOR TEAM-VARIANT TEAMMATES AT ALL. A teammate is a
-# separate Claude Code session, not a Task subagent: its hook input carries no
-# agent_id, so the first gate below lets it through, and `gm` stamps its
-# messages .primary so the daemon door does not refuse it either. Team is the
-# flagship variant. For teammates, the agent definitions and the workflow
-# instructions are the whole of the enforcement.
+# IT DOES REACH TEAM-VARIANT TEAMMATES. A named teammate is an in-process
+# NAMED subagent, not a second Claude Code session: its hook input carries an
+# agent_id built from the teammate's name (`aconservative-d32a81b4b9dfa222`)
+# and it shares the primary's session_id. Gate 2 below is keyed on agent_id
+# alone and never on the id's SHAPE, so a teammate lands on the same side of
+# it as a Task subagent and the guard fires. The fixture table at the bottom
+# pins that with a teammate-shaped id, because the distinction is invisible in
+# the code and one `case` on the id would silently retire team enforcement.
 #
 # FAIL-OPEN IS THE CONTRACT, and it is not negotiable. A deny is emitted ONLY
 # when BOTH hold:
@@ -30,10 +32,11 @@
 #      primary — the primary's hook input has no agent_id), AND
 #   2. a command position in the command line starts with a `gm` write verb
 #      taken from `gm verbs --json`.
-# Everything else — no agent_id, unparseable input, no jq, no gm, a registry
-# that will not parse, a gm READ verb, any non-gm command — falls through to
-# ALLOW by exiting 0 with no output. A bug in the matching below must never be
-# able to wedge the primary's shell.
+# Everything else — no agent_id, unparseable input, no `gm` binary on disk, no
+# jq (the parse gate below fails and takes the same exit), a registry that
+# will not parse, a gm READ verb, any non-gm command — falls through to ALLOW
+# by exiting 0 with no output. A bug in the matching below must never be able
+# to wedge the primary's shell.
 #
 # KILL SWITCH: GMCC_PEN_ENFORCE=0 exits 0 before anything else runs.
 #
@@ -64,16 +67,19 @@ guard_main() {
 # ── Gate 0: kill switch ────────────────────────────────────────────────────
 [ "$GMCC_PEN_ENFORCE" = "0" ] && exit 0
 
-# ── Gate 1: unbooted / no tools → allow ────────────────────────────────────
-[ -z "$GMCC_BOOTED" ] && exit 0
-command -v jq >/dev/null 2>&1 || exit 0
-
+# ── Gate 1: no parseable input → allow ─────────────────────────────────────
+# jq is not probed for before it is used: a missing jq makes the parse below
+# fail and take the identical exit, and a probe against the INHERITED PATH is
+# the failure mode this whole family of hooks was rewritten to remove — a
+# hook's PATH is whatever the harness handed it, not what `gm context env`
+# provisioned the session with.
 input="$(cat 2>/dev/null)" || exit 0
 [ -z "$input" ] && exit 0
 jq -e . >/dev/null 2>&1 <<<"$input" || exit 0
 
 # ── Gate 2: THE PRIMARY IS NEVER TOUCHED ───────────────────────────────────
-# No agent_id means the primary (or a team teammate, see header). Allow.
+# No agent_id means the primary. Every spawned agent — Task subagent and named
+# teammate alike — carries one, so this is the whole of the audience test.
 agent_id="$(jq -r '.agent_id // empty' <<<"$input" 2>/dev/null)"
 [ -z "$agent_id" ] && exit 0
 
@@ -211,7 +217,24 @@ done <<<"$segments"
 [ ${#candidates[@]} -eq 0 ] && exit 0
 
 # ── Ask the registry which invocations are writes ──────────────────────────
-GM_BIN="$(command -v gm)" || exit 0
+# gm is located from THIS SCRIPT'S OWN LOCATION plus an upward `.gmcc_sandbox`
+# walk — never PATH, never an inherited GMCC_*. The marker is PARSED as data,
+# never sourced, and it is what points a snapshot session's guard at the
+# snapshot's own verb registry. Resolution happens HERE rather than at the top
+# because it costs several forks and this hook runs on EVERY Bash tool call in
+# every booted repo; by this line the command is already known to contain a
+# `gm` invocation in command position.
+d="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)" || exit 0
+sandbox_root=""
+while [ "$d" != "/" ]; do
+  if [ -f "$d/.gmcc_sandbox" ]; then
+    sandbox_root="$(sed -n 's/^export GMCC_ROOT="\(.*\)"$/\1/p' "$d/.gmcc_sandbox" | head -1)"
+    break
+  fi
+  d="$(dirname "$d")"
+done
+GM_BIN="${sandbox_root:-$HOME/gmcc}/bin/gm"
+[ -x "$GM_BIN" ] || exit 0
 registry="$("$GM_BIN" verbs --json --writes-only 2>/dev/null)" || exit 0
 [ -z "$registry" ] && exit 0
 jq -e '.verbs' >/dev/null 2>&1 <<<"$registry" || exit 0
@@ -266,6 +289,12 @@ exit 0
 #  PEEL LOOP and nothing else — it will not drift when VerbRegistry grows, and
 #  it does not need a built binary or a live daemon to run.
 #
+#  HERMETIC MEANS THE SCRIPT TOO, not just the registry: this file is COPIED
+#  into the temp tree and the copy is what runs, under a HOME pointed at that
+#  tree. The guard resolves gm from its own location upward, so a copy running
+#  outside any `.gmcc_sandbox` marker lands on `$HOME/gmcc/bin/gm` — the fake
+#  — no matter where the real checkout lives or whether it is a snapshot.
+#
 #  Both halves matter and they pull in opposite directions:
 #    DENY rows  guard against the guard going inert (fail-open).
 #    ALLOW rows guard against the guard blocking real work (fail-closed) —
@@ -274,10 +303,12 @@ exit 0
 #               that was never a gm invocation.
 # ═══════════════════════════════════════════════════════════════════════════
 guard_self_test() {
-  command -v jq >/dev/null 2>&1 || { echo "self-test: jq is required"; return 2; }
+  jq --version >/dev/null 2>&1 || { echo "self-test: jq is required"; return 2; }
   local tmp
   tmp="$(mktemp -d)" || return 2
-  mkdir -p "$tmp/bin"
+  mkdir -p "$tmp/gmcc/bin" "$tmp/scripts"
+  cp "$GUARD_SELF" "$tmp/scripts/guard.sh" || return 2
+  GUARD_UNDER_TEST="$tmp/scripts/guard.sh"
 
   cat >"$tmp/registry.json" <<'REGISTRY'
 {
@@ -297,24 +328,30 @@ guard_self_test() {
   "primary_doors": [ "gm arch decide", "gm review rank" ]
 }
 REGISTRY
-  printf '%s\n' '#!/bin/sh' "cat '$tmp/registry.json'" >"$tmp/bin/gm"
-  chmod +x "$tmp/bin/gm"
+  printf '%s\n' '#!/bin/sh' "cat '$tmp/registry.json'" >"$tmp/gmcc/bin/gm"
+  chmod +x "$tmp/gmcc/bin/gm"
 
   guard_test_run=0
   guard_test_failed=0
 
   # $1 expected decision (deny|allow)   $2 command line   $3 mode
-  # mode: agent (default) | primary (no agent_id) | killswitch
+  # mode: agent (default) | teammate | primary (no agent_id) | killswitch
   _gt() {
     local expect="$1" cmdstr="$2" mode="${3:-agent}" json out got enforce=1
-    if [ "$mode" = "primary" ]; then
-      json="$(jq -n --arg c "$cmdstr" '{tool_input:{command:$c}}')"
-    else
-      json="$(jq -n --arg c "$cmdstr" '{agent_id:"agent-1", agent_type:"gmcc:explorer", tool_input:{command:$c}}')"
-    fi
+    case "$mode" in
+      primary)
+        json="$(jq -n --arg c "$cmdstr" '{session_id:"sess-1", tool_input:{command:$c}}')" ;;
+      teammate)
+        # A NAMED TEAMMATE, verbatim in shape: an agent_id derived from the
+        # teammate's name, and the PRIMARY'S OWN session_id — the two facts
+        # that made the old header believe this hook could not see one.
+        json="$(jq -n --arg c "$cmdstr" '{agent_id:"aconservative-d32a81b4b9dfa222", agent_type:"gmcc:architect", session_id:"sess-1", tool_input:{command:$c}}')" ;;
+      *)
+        json="$(jq -n --arg c "$cmdstr" '{agent_id:"agent-1", agent_type:"gmcc:explorer", session_id:"sess-1", tool_input:{command:$c}}')" ;;
+    esac
     [ "$mode" = "killswitch" ] && enforce=0
-    out="$(printf '%s' "$json" | PATH="$tmp/bin:$PATH" GMCC_BOOTED=1 GMCC_PEN_ENFORCE="$enforce" \
-             bash "$GUARD_SELF" 2>/dev/null)"
+    out="$(printf '%s' "$json" | HOME="$tmp" GMCC_PEN_ENFORCE="$enforce" \
+             bash "$GUARD_UNDER_TEST" 2>/dev/null)"
     got="allow"
     [ -n "$out" ] && got="$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecision // "allow"' 2>/dev/null)"
     guard_test_run=$((guard_test_run + 1))
@@ -336,6 +373,14 @@ REGISTRY
   _gt deny  'FOO=bar BAZ=qux env gm review rank --uuid U'
   _gt deny  'gm   review    finding-add --title T'
   _gt deny  $'cd /tmp\ngm review rank --uuid U'
+
+  echo "── DENY: a NAMED TEAMMATE is a spawned agent like any other ───────────"
+  # Gate 2 is keyed on agent_id and never on its shape. A teammate sharing the
+  # primary's session_id changes nothing here, and these rows are what stops
+  # anyone narrowing the gate back to Task-subagent id shapes.
+  _gt deny  'gm review finding-add --summary-uuid S --title T' teammate
+  _gt deny  'cd /tmp && gm arch decide --uuid U' teammate
+  _gt allow 'gm explore get --prompt-uuid U' teammate
 
   echo "── DENY: an \`=\` in the PAYLOAD must not peel the invocation away ───────"
   # The shape this guard exists to catch is prose about code, and `x = y` is
@@ -367,7 +412,7 @@ REGISTRY
   _gr() {
     local cmdstr="$1" want="$2" got
     got="$(jq -n --arg c "$cmdstr" '{agent_id:"agent-1", tool_input:{command:$c}}' \
-           | PATH="$tmp/bin:$PATH" GMCC_BOOTED=1 bash "$GUARD_SELF" 2>/dev/null \
+           | HOME="$tmp" bash "$GUARD_UNDER_TEST" 2>/dev/null \
            | jq -r '.hookSpecificOutput.permissionDecisionReason // ""' 2>/dev/null)"
     guard_test_run=$((guard_test_run + 1))
     case "$got" in

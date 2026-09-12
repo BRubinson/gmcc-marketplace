@@ -35,15 +35,30 @@ public struct GitContext {
         branch.replacingOccurrences(of: "/", with: "__")
     }
 
+    /// The calling process's own working directory — every interactive gm
+    /// invocation.
     public static func detect() throws -> GitContext {
-        guard let repoRoot = runGit(["rev-parse", "--show-toplevel"]) else {
+        try detect(in: nil)
+    }
+
+    /// Identity for a NAMED directory rather than the process's own cwd.
+    ///
+    /// The hook family is the caller that needs this: a PostToolUse payload
+    /// carries the `cwd` the tool call ran in, and that — never the hook
+    /// process's inherited working directory — is the repo the change belongs
+    /// to. The two differ whenever the hook is launched from somewhere else,
+    /// and resolving against the wrong one files a change under another
+    /// repo's session.
+    public static func detect(in directory: String?) throws -> GitContext {
+        let at = directory.map { ["-C", $0] } ?? []
+        guard let repoRoot = runGit(at + ["rev-parse", "--show-toplevel"]) else {
             throw ClientContextError("not inside a git repository — gm needs git context")
         }
         // Detached HEAD prints nothing here. Fail loudly instead of falling
         // back to "main": the daemon-side SESSION_RESOLVE reports detached as
         // "nothing checked out", and a silent main fallback would have gm
         // writing into the main session while the daemon disagrees.
-        guard let branch = runGit(["branch", "--show-current"]), !branch.isEmpty else {
+        guard let branch = runGit(at + ["branch", "--show-current"]), !branch.isEmpty else {
             throw ClientContextError("HEAD is detached — gm needs a checked-out branch for session context")
         }
         return GitContext(
@@ -130,8 +145,21 @@ public enum ContextBuilder {
     /// Build the full CONTEXT_ENSURE payload from the working directory's git
     /// identity plus whatever the ckfs tree already knows (uuids). Kbite
     /// registries are db-native — no yaml kbite reads on this path.
-    public static func ensureRequest() throws -> ContextEnsureRequest {
-        let git = try GitContext.detect()
+    ///
+    /// `claudeSessionId` is the SessionStart payload's conversation uuid. It
+    /// rides this request rather than a verb of its own, so the binding every
+    /// hook write resolves through is created by the same call that creates
+    /// the session it points at.
+    public static func ensureRequest(claudeSessionId: String? = nil) throws -> ContextEnsureRequest {
+        ensureRequest(for: try GitContext.detect(), claudeSessionId: claudeSessionId)
+    }
+
+    /// The same payload for an ALREADY-RESOLVED identity — the hook path,
+    /// which derives its git context from the payload's cwd and must not
+    /// re-derive it from the hook process's own.
+    public static func ensureRequest(
+        for git: GitContext, claudeSessionId: String? = nil
+    ) -> ContextEnsureRequest {
         let projectRel = "projects/\(git.repoName)"
         let instanceRel = "\(projectRel)/instances/\(git.instanceCode)"
         let sessionRel = "\(instanceRel)/sessions/\(git.sessionCode)"
@@ -155,7 +183,8 @@ public enum ContextBuilder {
                 name: git.sessionCode,
                 ckfsRelativeStoragePath: sessionRel,
                 uuid: CkfsYaml.uuid("\(sessionRel)/session_data.gmcc.yaml")
-            )
+            ),
+            claudeSessionId: claudeSessionId
         )
     }
 

@@ -1,7 +1,7 @@
 {
   "base_composable_ref" : "base.base_entity",
   "code" : "file_change_range",
-  "description" : "A line range within a file change, optionally with content note",
+  "description" : "A line range within a file change, optionally with the changed content. Populated on both write paths: the hook expands tool_response.structuredPatch into real hunks (body capped at 4000 chars, 100 hunks per change, so a generated-file rewrite cannot land a megabyte per row), and the manual path takes them from gm file-change add --ranges, which is where the live population comes from",
   "entity_type" : "MODEL",
   "name" : "File Change Range",
   "properties" : [
@@ -28,7 +28,7 @@
     {
       "code" : "line_start",
       "data_type" : "int",
-      "description" : "Range start line",
+      "description" : "Range start line — a real line number from a structuredPatch hunk or a --ranges argument",
       "is_unique" : false,
       "name" : "Line Start",
       "nullable" : false,
@@ -46,7 +46,7 @@
     {
       "code" : "changed_content",
       "data_type" : "text",
-      "description" : "Optional note or content for the range",
+      "description" : "The hunk body or an authored note for the range",
       "is_unique" : false,
       "name" : "Changed Content",
       "nullable" : true,
@@ -55,5 +55,5 @@
   ],
   "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Migrations.swift",
   "sort_order" : 14,
-  "version" : 763
+  "version" : 764
 }

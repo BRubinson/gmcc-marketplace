@@ -219,10 +219,12 @@ final class CarePackageStalenessTests: XCTestCase {
     /// `care_package_staleness` is an ADDITIVE OPTIONAL on an existing
     /// message, which under CLAUDE.md's rule does NOT bump the version: a
     /// stale peer decodes the unknown key away, and a stale daemon's response
-    /// decodes to nil here. Pinning the number is what keeps GMVibes' local
-    /// package reference compatible across this change.
-    func testWireProtocolVersionStaysTwentyFour() {
-        XCTAssertEqual(GMCCWireProtocol.version, 24)
+    /// decodes to nil here. The PIN is what makes a bump a decision rather
+    /// than a side effect — only a new message type or an incompatible change
+    /// may move this number, and GMVibes' local package reference rides on
+    /// that rule holding.
+    func testWireProtocolVersionIsPinned() {
+        XCTAssertEqual(GMCCWireProtocol.version, 25)
     }
 
     func testStalenessOmittedByAPeerDecodesToNil() throws {

@@ -1,7 +1,7 @@
 {
   "base_composable_ref" : "base.base_entity",
   "code" : "prompt_activation",
-  "description" : "One activation claim per running Claude Code instance: client_key is working prompt X. Claimed by set-status implementing, released at done. A registry, never a single session pointer — several prompts are routinely active on one session concurrently; attribution and briefing lookups resolve the caller's own claim first, then the session's single claim when unambiguous, else nothing.",
+  "description" : "One activation claim per running Claude Code instance: client_key is working prompt X. Claimed by set-status implementing, released at done. SCOPE: non-hook CLI claiming ONLY — it takes no part in file-change attribution, which resolves from claude_session_binding, and FileChangeAdd carries no client_key field at all, so the two ladders have no row to disagree about. A registry, never a single session pointer — several prompts are routinely active on one session concurrently.",
   "entity_type" : "MODEL",
   "name" : "Prompt Activation",
   "properties" : [
@@ -37,5 +37,5 @@
   ],
   "repo_representative_file" : "plugins/gmcc/daemon/Sources/GMCCDaemonKit/Database/Store+Session.swift",
   "sort_order" : 22,
-  "version" : 763
+  "version" : 764
 }

@@ -35,11 +35,11 @@ enum BotGetHandler {
     }
 }
 
-/// BOT_SET_BASELINE — advance the reconcile baseline tree.
-enum BotSetBaselineHandler {
+/// AGENT_REGISTER — the spawner's authority write for one agent_id.
+enum AgentRegisterHandler {
     static func handle(line: Data, head: EnvelopeHead, store: Store) throws -> HandlerResult {
-        let request = try decodePayload(BotSetBaselineRequest.self, from: line)
-        return try okResult(.botSetBaseline, head, try store.botSetBaseline(request))
+        let request = try decodePayload(AgentRegisterRequest.self, from: line)
+        return try okResult(.agentRegister, head, try store.agentRegister(request))
     }
 }
 

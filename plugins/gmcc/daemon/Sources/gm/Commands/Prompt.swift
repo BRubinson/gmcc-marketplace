@@ -247,19 +247,9 @@ struct Prompt: ParsableCommand {
 
         func run() throws {
             let response = try withClient { client -> BotWorkflowResponse in
-                let started = try client.promptStart(PromptStartRequest(
+                try client.promptStart(PromptStartRequest(
                     promptUuid: promptUuid, variant: variant,
                     clientKey: ClientKey.resolve()))
-                // Establish the reconcile baseline NOW so pre-existing
-                // working-tree dirt is never attributed to this prompt
-                // (best effort — outside a repo the sweep just baselines on
-                // its own first run).
-                if let tree = try? GitSnapshot.workingTree() {
-                    _ = try? client.botSetBaseline(BotSetBaselineRequest(
-                        promptUuid: promptUuid, clientKey: ClientKey.resolve(),
-                        gitTree: tree))
-                }
-                return started
             }
             if output.json { printJSON(response) } else {
                 let w = response.workflow
@@ -279,16 +269,9 @@ struct Prompt: ParsableCommand {
 
         func run() throws {
             let response = try withClient { client -> BotWorkflowResponse in
-                let resumed = try client.promptResume(PromptResumeRequest(
+                try client.promptResume(PromptResumeRequest(
                     promptUuid: promptUuid, variant: variant,
                     clientKey: ClientKey.resolve()))
-                if resumed.workflow.reconcileGitHead == nil,
-                   let tree = try? GitSnapshot.workingTree() {
-                    _ = try? client.botSetBaseline(BotSetBaselineRequest(
-                        promptUuid: promptUuid, clientKey: ClientKey.resolve(),
-                        gitTree: tree))
-                }
-                return resumed
             }
             if output.json { printJSON(response) } else {
                 let w = response.workflow

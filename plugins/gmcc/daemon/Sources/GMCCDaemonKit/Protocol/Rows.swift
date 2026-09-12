@@ -530,13 +530,29 @@ public struct FileChangeRow: Codable, Hashable, Sendable {
     public let promptUuid: String?
     public let relativePath: String
     public let changeKind: String
-    /// m0025 attribution axis (all OPTIONAL — additive decode both ways).
+    /// Attribution axis (all OPTIONAL — additive decode both ways).
     public let agentId: String?
     public let agentName: String?
     /// Server-stamped from the attributed prompt's active bot_workflow.
     public let workflowPhase: String?
-    /// hook|manual|reconcile — provenance honesty (defaulted 'hook').
+    /// `FileChangeOrigin` — provenance honesty (defaulted 'hook'). Rows
+    /// written under a wider vocabulary keep their stored value.
     public let origin: String?
+    /// The captured tool call. claudeTurnId is Claude Code's TURN id (payload
+    /// field `prompt_id`) and is NOT a gmcc prompt uuid.
+    public let claudeSessionId: String?
+    public let claudeTurnId: String?
+    public let toolUseId: String?
+    public let toolName: String?
+    public let agentType: String?
+    public let permissionMode: String?
+    public let durationMs: Int?
+    public let transcriptPath: String?
+    /// The authoritative link to the identity that made the change; `agentId`
+    /// above is the denormalized form for queries that do not want the join.
+    /// NULL for a PRIMARY write — the primary carries no agent_id at all, and
+    /// that absence is the primary/subagent discriminator.
+    public let agentRegistrationUuid: String?
     public let createdAt: String
     public let ranges: [ChangeRangeRow]
 
@@ -550,6 +566,15 @@ public struct FileChangeRow: Codable, Hashable, Sendable {
         agentName: String? = nil,
         workflowPhase: String? = nil,
         origin: String? = nil,
+        claudeSessionId: String? = nil,
+        claudeTurnId: String? = nil,
+        toolUseId: String? = nil,
+        toolName: String? = nil,
+        agentType: String? = nil,
+        permissionMode: String? = nil,
+        durationMs: Int? = nil,
+        transcriptPath: String? = nil,
+        agentRegistrationUuid: String? = nil,
         createdAt: String,
         ranges: [ChangeRangeRow]
     ) {
@@ -562,8 +587,81 @@ public struct FileChangeRow: Codable, Hashable, Sendable {
         self.agentName = agentName
         self.workflowPhase = workflowPhase
         self.origin = origin
+        self.claudeSessionId = claudeSessionId
+        self.claudeTurnId = claudeTurnId
+        self.toolUseId = toolUseId
+        self.toolName = toolName
+        self.agentType = agentType
+        self.permissionMode = permissionMode
+        self.durationMs = durationMs
+        self.transcriptPath = transcriptPath
+        self.agentRegistrationUuid = agentRegistrationUuid
         self.createdAt = createdAt
         self.ranges = ranges
+    }
+}
+
+// MARK: - Agent registration
+
+/// One row per agent_id: the merged answer to "who is agent X".
+///
+/// The identity half (agentType, the Claude ids, the resolved session and
+/// prompt) comes from the SubagentStart payload; the authority half (role,
+/// methodology, workflowPhase) comes from the spawner's AGENT_REGISTER. Each
+/// half is written independently and either may arrive first, so any field
+/// can legitimately be nil.
+///
+/// NOT an agent_briefing: a briefing answers "what refs did this agent get"
+/// and is keyed per (prompt, step), which cannot hold four same-typed
+/// explorers — the exact case this row exists for.
+public struct AgentRegistrationRow: Codable, Hashable, Sendable {
+    public let uuid: String
+    public let version: Int64
+    /// Opaque, never parsed.
+    public let agentId: String
+    public let claudeSessionId: String?
+    public let claudeTurnId: String?
+    public let sessionUuid: String?
+    public let promptUuid: String?
+    /// The payload's LABEL for the agent, never authoritative: it is
+    /// overloaded by spawn shape — a plain subagent reports its
+    /// subagent_type, a bare workflow agent the literal workflow-subagent, a
+    /// named teammate its NAME.
+    public let agentType: String?
+    public let role: String?
+    public let methodology: String?
+    public let workflowPhase: String?
+    public let createdAt: String
+    public let updatedAt: String
+
+    public init(
+        uuid: String,
+        version: Int64,
+        agentId: String,
+        claudeSessionId: String? = nil,
+        claudeTurnId: String? = nil,
+        sessionUuid: String? = nil,
+        promptUuid: String? = nil,
+        agentType: String? = nil,
+        role: String? = nil,
+        methodology: String? = nil,
+        workflowPhase: String? = nil,
+        createdAt: String,
+        updatedAt: String
+    ) {
+        self.uuid = uuid
+        self.version = version
+        self.agentId = agentId
+        self.claudeSessionId = claudeSessionId
+        self.claudeTurnId = claudeTurnId
+        self.sessionUuid = sessionUuid
+        self.promptUuid = promptUuid
+        self.agentType = agentType
+        self.role = role
+        self.methodology = methodology
+        self.workflowPhase = workflowPhase
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
     }
 }
 
@@ -1139,7 +1237,6 @@ public struct BotWorkflowRow: Codable, Hashable, Sendable {
     public let status: String
     public let clientKey: String?
     public let lastServedPhase: String?
-    public let reconcileGitHead: String?
     public let createdAt: String
     public let updatedAt: String
 
@@ -1152,7 +1249,6 @@ public struct BotWorkflowRow: Codable, Hashable, Sendable {
         status: String,
         clientKey: String?,
         lastServedPhase: String?,
-        reconcileGitHead: String?,
         createdAt: String,
         updatedAt: String
     ) {
@@ -1164,7 +1260,6 @@ public struct BotWorkflowRow: Codable, Hashable, Sendable {
         self.status = status
         self.clientKey = clientKey
         self.lastServedPhase = lastServedPhase
-        self.reconcileGitHead = reconcileGitHead
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }

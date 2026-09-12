@@ -320,13 +320,10 @@ final class BotMachineTests: XCTestCase {
             summaryUuid: arch.uuid, expectedVersion: arch.version))
     }
 
-    // MARK: - Baseline + workflow_phase stamping
+    // MARK: - workflow_phase stamping
 
-    func testBaselineWriteAndLivePhaseStamping() throws {
+    func testLivePhaseStampingOnAttributedFileChange() throws {
         _ = try store.promptStart(PromptStartRequest(promptUuid: promptUuid, variant: .bot))
-        let updated = try store.botSetBaseline(BotSetBaselineRequest(
-            promptUuid: promptUuid, gitTree: "abc123tree"))
-        XCTAssertEqual(updated.workflow.reconcileGitHead, "abc123tree")
 
         // A file change attributed to the prompt is stamped with the LIVE
         // derived phase (briefing — nothing else exists yet), not

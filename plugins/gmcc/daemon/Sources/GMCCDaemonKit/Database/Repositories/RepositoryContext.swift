@@ -28,11 +28,13 @@ protocol RepositoryContext {
 }
 
 extension RepositoryContext {
+    var agentRegistration: AgentRegistrationRepository { .init(db: db, core: core) }
     var architecture: ArchitectureRepository { .init(db: db, core: core) }
     var artifact: ArtifactRepository { .init(db: db, core: core) }
     var briefing: BriefingRepository { .init(db: db, core: core) }
     var catalogSearch: CatalogSearchRepository { .init(db: db, core: core) }
     var clarification: ClarificationRepository { .init(db: db, core: core) }
+    var claudeSessionBinding: ClaudeSessionBindingRepository { .init(db: db, core: core) }
     var config: ConfigRepository { .init(db: db, core: core) }
     var context: ContextRepository { .init(db: db, core: core) }
     var diagram: DiagramRepository { .init(db: db, core: core) }

@@ -501,18 +501,46 @@ final class DocsContractTests: XCTestCase {
         XCTAssertGreaterThan(commandCount, 2, "hooks.json walk looks broken")
     }
 
-    /// Hook scripts must HARD NO-OP outside a booted GMCC session. A hook that
-    /// does real work in an unbooted repo is doing it in somebody else's
-    /// project on every turn.
+    /// A hook script must locate `gm` FROM THE FILESYSTEM and no-op when it is
+    /// not there. Nothing a hook needs may come out of the inherited
+    /// environment: a hook runs with whatever the harness hands it, which is
+    /// not what `gm context env` provisioned the session with, so a gate or a
+    /// lookup keyed on either one is a hook that stops firing and never says
+    /// so. That failure is why this prompt exists.
     ///
-    /// SessionStart is exempt by definition — it is the event that performs the
-    /// boot, so it cannot require the boot to have happened. The guard is
-    /// asserted as PRESENT rather than as the literal first line: two shipped
-    /// scripts legitimately put an earlier escape hatch above it.
-    func testNonBootHookScriptsNoOpWhenGmccIsNotBooted() throws {
+    /// SessionStart is exempt by definition — it is the event that performs
+    /// the boot, so it cannot require the boot to have happened, and it is the
+    /// one script that legitimately exports the GMCC_* names.
+    ///
+    /// THE BANS ARE THE LOAD-BEARING HALF. The PRESENT assertions describe a
+    /// shape that would survive someone re-adding `[ -z "$GMCC_BOOTED" ] &&
+    /// exit 0` above it; the ABSENT list is what refuses the re-add. Each
+    /// banned spelling failed for the SAME reason — it consults inherited
+    /// state — and they were found one at a time, months apart, which is
+    /// exactly why the list is enforced rather than remembered.
+    ///
+    /// Not asserted here, because it is not a shell property: a hook that
+    /// WRITES is additionally refused daemon-side unless the payload's
+    /// session_id has a row in the claude-session binding. `gmcc_gm_write_guard.sh`
+    /// is exempt from that layer by contract — it writes nothing, ever, and
+    /// emits only an allow/deny decision — so this shell contract is the whole
+    /// of its no-op story and must not be "fixed" by adding a binding check.
+    func testNonBootHookScriptsResolveGmWithoutInheritedEnv() throws {
+        /// A spelling that reads inherited state, and why it is refused. The
+        /// message names the reason so the next author reads an argument
+        /// rather than a rule.
+        let banned: [(needle: String, why: String)] = [
+            ("GMCC_BOOTED",
+             "the session env does not survive into a hook process, so this gate silently disables the hook"),
+            ("command -v gm",
+             "`gm` is on the session PATH, not the hook's — this resolves to nothing and exits 0 forever"),
+            ("command -v jq",
+             "the same inherited-PATH failure one dependency over; a tool a hook needs is found on disk or not needed at all"),
+        ]
         guard let root = jsonObject("hooks/hooks.json"),
               let events = root["hooks"] as? [String: Any]
         else { return }
+        var checked = 0
         for (event, value) in events where event != "SessionStart" {
             guard let groups = value as? [[String: Any]] else { continue }
             for group in groups {
@@ -521,17 +549,46 @@ final class DocsContractTests: XCTestCase {
                     for name in try referencedScripts(in: command) {
                         let url = scriptsDir.appendingPathComponent(name)
                         guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
+                        checked += 1
+
+                        // PRESENT — the two halves of the resolution. The
+                        // script's own location anchors it, the marker walk
+                        // retargets a sandbox snapshot, and `$HOME/gmcc` is
+                        // the default when there is no marker.
+                        for (needle, what) in [
+                            (#"dirname"#, "resolve gm from its own script location"),
+                            (#".gmcc_sandbox"#, "walk up for a sandbox marker, or a snapshot's hooks write the prod db"),
+                            (#"$HOME/gmcc"#, "fall back to the default runtime root"),
+                        ] {
+                            XCTAssertTrue(
+                                text.contains(needle),
+                                """
+                                scripts/\(name) runs on \(event) but contains no `\(needle)` — \
+                                it cannot \(what) without reading the environment.
+                                """)
+                        }
                         XCTAssertTrue(
-                            text.contains(#"[ -z "$GMCC_BOOTED" ] && exit 0"#),
+                            text.contains(#"[ -x "$GM_BIN" ] || exit 0"#),
                             """
                             scripts/\(name) runs on \(event) but carries no \
-                            `[ -z "$GMCC_BOOTED" ] && exit 0` no-op — it would do work \
-                            on every turn of every unbooted repo on this machine.
+                            `[ -x "$GM_BIN" ] || exit 0` — with no binary on disk it must \
+                            exit 0 in silence, never block a tool call or wedge a spawn.
                             """)
+
+                        // ABSENT — the re-add guard.
+                        for (needle, why) in banned {
+                            XCTAssertFalse(
+                                text.contains(needle),
+                                """
+                                scripts/\(name) runs on \(event) and contains `\(needle)`: \(why). \
+                                Resolve what the hook needs from the filesystem instead.
+                                """)
+                        }
                     }
                 }
             }
         }
+        XCTAssertGreaterThan(checked, 1, "hooks.json walk found no non-SessionStart scripts")
     }
 
     /// A plugin `settings.json` may carry ONLY the keys the harness reads. An

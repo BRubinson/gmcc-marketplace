@@ -16,6 +16,15 @@ struct ContextRepository: RepositoryContext {
             req.instance, projectUuid: projectUuid)
         let (sessionUuid, createdSession) = try ensureSession(
             req.session, instanceUuid: instanceUuid)
+        // The binding rides this call because SessionStart already makes it:
+        // pinning here costs no second process and cannot be forgotten
+        // independently of creating the session it points at. Pin-once is the
+        // UNIQUE index, so a re-ensure is a no-op and the FIRST session a
+        // conversation ensured is the one it stays bound to.
+        if let claudeSessionId = req.claudeSessionId {
+            try claudeSessionBinding.pin(
+                claudeSessionId: claudeSessionId, sessionUuid: sessionUuid)
+        }
         return ContextEnsureResponse(
             projectUuid: projectUuid,
             instanceUuid: instanceUuid,

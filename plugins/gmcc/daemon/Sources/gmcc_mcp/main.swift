@@ -532,7 +532,6 @@ let tools: [Tool] = [
                 changeKind: kind,
                 ranges: [],
                 autoAttribute: args.optString("prompt_uuid") == nil ? true : nil,
-                clientKey: ClientKey.resolve(),
                 agentId: args.optString("agent_id"),
                 agentName: args.optString("agent_name"),
                 origin: "manual"))

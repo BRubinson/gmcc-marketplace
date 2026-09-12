@@ -31,8 +31,9 @@ Same as /gm_bot (resume by seq / create by slug — STAY TRUE), with
   implementation, and review-fix run as dynamic workflows you HAND-AUTHOR,
   guided by `gm bot next` output. Script code is pure orchestration: it
   never touches gm or the db — every read/write happens inside agent()
-  subagents, through the MCP pen tools and nothing else. `gm bot reconcile`
-  at each gate is the backstop for writes no turn could attribute.
+  subagents, through the MCP pen tools and nothing else. Capture is the
+  PostToolUse hook alone — there is no gate-time backstop, so a write the
+  hook cannot see is not recorded at all.
 - **Explore** — four `gmcc:code-explorer` personas, each opening its OWN
   summary (`bot_summary`, agent_type = its methodology) and completing it.
   Findings stay unranked; calibration is cross-agent and belongs to one

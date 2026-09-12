@@ -359,8 +359,8 @@ final class Server: @unchecked Sendable {
                 return try BotNextHandler.handle(line: line, head: head, store: store)
             case .botGet:
                 return try BotGetHandler.handle(line: line, head: head, store: store)
-            case .botSetBaseline:
-                return try BotSetBaselineHandler.handle(line: line, head: head, store: store)
+            case .agentRegister:
+                return try AgentRegisterHandler.handle(line: line, head: head, store: store)
 
             case .artifactAdd:
                 return try ArtifactAddHandler.handle(line: line, head: head, store: store)

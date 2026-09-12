@@ -24,7 +24,7 @@ struct Cheatsheet: ParsableCommand {
       gm paths
       gm config set --key ckfs_root|kbite_root|kbite_open_root|kbite_digested_root --value V
     CONTEXT / BROWSE / SEARCH
-      gm context ensure [--no-dope-sync]   (also provisions the ckfs artifact home and runs the dope files -> db boot sync)
+      gm context ensure [--no-dope-sync] [--hook-payload]   (also provisions the ckfs artifact home and runs the dope files -> db boot sync; --hook-payload reads the SessionStart payload on stdin and pins its session_id — the binding every hook write resolves through)
       gm context env --plugin-root P [--no-check]   (SessionStart env contract owner: stdout = export KEY='VALUE' lines for CLAUDE_ENV_FILE, stderr = warnings, ALWAYS exit 0)
       gm context get
       gm project list
@@ -52,8 +52,11 @@ struct Cheatsheet: ParsableCommand {
       gm bot current_prompt [--prompt-uuid U]   (the workflow prompt's row — agents read the prompt with zero uuid plumbing)
       gm bot briefing [--prompt-uuid U] [--step S]   (the workflow prompt's briefing — a thin wrapper over the briefing family's get)
       gm bot summary --agent-type T [--agent-id A] [--prompt-uuid U]   (fetch-or-open the caller's per-agent exploration summary — identity is self-reported)
-      gm bot reconcile [--prompt-uuid U] [--dry-run]   (completeness channel: tree-diff against the workflow's baseline snapshot — records only PROMPT-ERA hook-invisible writes with real delete/rename kinds, then advances the baseline; pre-existing dirt is excluded; the operator-facing form, run at phase gates)
-      gm bot sweep [--prompt-uuid U] [--agent-id I] [--agent-name A]   (the same engine under a hook-safe skin, called from Stop/SubagentStop: --json returns {recorded, phase, blockers[]} so one invocation both records the turn's delta and feeds the status line; ambiguous workflow ownership is REFUSED, never guessed)
+    AGENT (who a spawned agent IS — one row per agent_id, merged from two writers that never coordinate: the SubagentStart hook writes identity, the SPAWNER writes authority. No pen tool: an agent registering itself is the self-report this registry replaces)
+      gm agent register --agent-id A [--role R] [--methodology M] [--phase P]   (the spawner's write; omitted fields keep their current value, and registering LATE still explains rows the agent already wrote — the join is at read time)
+    HOOK (the machine surface: Claude Code's hook shim pipes the RAW payload in on stdin. Never invoked by hand or by an agent — resolution is the payload's session_id + agent_id through the db, and nothing here reads an env var)
+      gm hook post-tool-use [--dry-run]   (one FILE_CHANGE_ADD per path a tool call wrote: Edit/Write/NotebookEdit name their file and carry exact structuredPatch ranges; Bash goes through the named write allowlist — redirections, tee, sed/perl -i, cp/install/ln, mv, rm, touch — which records only paths the command itself named and records NOTHING for interpreter heredocs, make, ./script.sh or git apply)
+      gm hook subagent-start [--dry-run]   (registers the spawned agent's identity half — agent_type + the Claude ids, resolved to a session through the binding — then emits the cheatsheet core + briefing stub as additionalContext)
     CLARIFY (summary: building → answering → complete; reopen: complete → answering. The family carries user questions + option/selection children, internal notes, and the care package. FINALIZE IS A PURE GATE — nothing ever writes prompt content past draft)
       gm clarify open --prompt-uuid U
       gm clarify question-add --summary-uuid S --question Q [--option TEXT]... [--agent-name A] [--agent-id I]   (building only; options are ordered child rows)
@@ -150,7 +153,7 @@ struct Cheatsheet: ParsableCommand {
     ARTIFACT / FILE-CHANGE
       gm artifact add --prompt-uuid U --file-path P [--note N]
       gm artifact list --prompt-uuid U
-      gm file-change add --path P [--kind edit|create|delete|rename] [--range start:end]... [--content TEXT] [--prompt-uuid U] [--auto-attribute] [--agent-id I] [--agent-name A] [--origin hook|manual|reconcile|turn]   (--content requires exactly one --range; --auto-attribute resolves attribution via the activation registry — this Claude instance's claim first, then the session's single claim, else unattributed — the PostToolUse hook's flag; workflow_phase is stamped daemon-side from the active workflow, never passed)
+      gm file-change add --path P [--kind edit|create|delete|rename] [--range start:end]... [--content TEXT] [--prompt-uuid U] [--auto-attribute] [--agent-id I] [--agent-name A] [--origin hook|manual|command]   (--content requires exactly one --range; --auto-attribute resolves the prompt daemon-side and leaves the change unattributed when the session is ambiguous — never a guess between two prompts; workflow_phase is stamped daemon-side from the active workflow, never passed)
       gm file-change list [--session-uuid U] [--prompt-uuid U] [--path P] [--limit N] [--all]
     KBITE
       gm kbite list [--scope project|instance|session|prompt] [--owner-uuid U] [--all]
@@ -227,7 +230,7 @@ struct Cheatsheet: ParsableCommand {
           CORE — setup · doctor · status · ping · daemon · backup · events · paths · config
           CONTEXT/BROWSE/SEARCH — context ensure/env/get · project list/update · instance list/current-session · session list/get/update/resolve · catalog search · search
           PROMPT — create · list [--with-reports] · get · update-content · set-status (the ONLY door that moves a prompt) · start · resume (the workflow machine doors)
-          BOT — next · get · status · current_prompt · briefing · summary · reconcile · sweep (phase derived from db evidence)
+          BOT — next · get · status · current_prompt · briefing · summary (phase derived from db evidence)   AGENT — register (the spawner's identity write)
           CLARIFY — open · question-add · note-add · seal · answer · reopen · finalize · get · package-open/add/complete/get
           ARCH — open · summarize · persist-add · field-add · general-add · option-add · decide · propose · approve · revise · get (persistence rows first, always)
           EXPLORE — open (per agent-type) · key-file-add · finding-add · rank (prompt-scoped) · complete (synthesis row = the seal) · reopen · get

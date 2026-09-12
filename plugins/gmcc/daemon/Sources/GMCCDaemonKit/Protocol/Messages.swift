@@ -86,6 +86,20 @@ public enum DaemonEventKind: String, Codable, Hashable, CaseIterable, Sendable {
     // never events; import/delete are content mutations.
     case kbiteImport = "KBITE_IMPORT"
     case kbiteDelete = "KBITE_DELETE"
+    /// A payload-borne write named a Claude conversation that no
+    /// claude_session_binding row resolves, from a repo the daemon KNOWS.
+    /// Durable and deliberately noisy: refusing such a write silently is the
+    /// failure mode session-bound attribution exists to remove, so dead
+    /// capture leaves a row saying so. An unknown repo never reaches here —
+    /// it is refused without an event, because a hook firing in somebody
+    /// else's repo is normal.
+    case hookUnbound = "HOOK_UNBOUND"
+    /// The daemon had to invent an agent_registration because a write
+    /// arrived for an agent_id nobody had registered. The row is created
+    /// from the payload rather than the write being dropped, and this event
+    /// is what keeps the invention visible: it means the spawner never
+    /// registered.
+    case agentUnregistered = "AGENT_UNREGISTERED"
     /// Ephemeral broadcast only (id 0, never a daemon_event row, never a
     /// replay cursor) — emitted by MemoryWatcher when a prompt's memory/
     /// directory changes on disk.
@@ -603,11 +617,29 @@ public struct ContextEnsureRequest: Codable, Hashable, Sendable {
     public let project: ProjectContext
     public let instance: InstanceContext
     public let session: SessionContext
+    /// Claude Code's conversation uuid, from the SessionStart payload. When
+    /// present the daemon pins it to the ensured session in
+    /// claude_session_binding — the binding every hook write resolves
+    /// through.
+    ///
+    /// IT RIDES THIS MESSAGE ON PURPOSE, rather than getting a verb of its
+    /// own: SessionStart already calls `gm context ensure`, so the binding
+    /// costs no second process and cannot be forgotten independently of the
+    /// call that creates the session it points at. The insert is
+    /// INSERT OR IGNORE against a UNIQUE index, so re-running is a no-op and
+    /// pin-once is a schema fact rather than a branch a caller can skip.
+    public let claudeSessionId: String?
 
-    public init(project: ProjectContext, instance: InstanceContext, session: SessionContext) {
+    public init(
+        project: ProjectContext,
+        instance: InstanceContext,
+        session: SessionContext,
+        claudeSessionId: String? = nil
+    ) {
         self.project = project
         self.instance = instance
         self.session = session
+        self.claudeSessionId = claudeSessionId
     }
 }
 
@@ -1092,28 +1124,31 @@ public struct ChangeRange: Codable, Hashable, Sendable {
 /// stamp it, this message's documentation, and the
 /// `agentics.enums.file_change_origin` dope entity that mirrors it.
 ///
-/// The column is `TEXT NOT NULL DEFAULT 'hook'` with NO CHECK constraint
-/// (m0025), so THIS LIST IS THE CONSTRAINT: extending the dope enum without
-/// extending this list makes every write of the new value throw, and a
-/// caller that swallows errors records nothing at all. Extend both together.
+/// The column is `TEXT NOT NULL DEFAULT 'hook'` with NO CHECK constraint, so
+/// THIS LIST IS THE CONSTRAINT: extending the dope enum without extending
+/// this list makes every write of the new value throw, and a caller that
+/// swallows errors records nothing at all. Extend both together.
+///
+/// The column having no CHECK is also what lets the list SHRINK: rows written
+/// under a wider vocabulary keep their stored value and still read back, while
+/// a value absent here can no longer be written.
 public enum FileChangeOrigin {
-    /// PostToolUse Edit|Write|NotebookEdit bookkeeping — immediate and
-    /// agent-attributed, but blind to Bash-driven writes.
+    /// PostToolUse Edit|Write|NotebookEdit — exact paths and exact
+    /// structuredPatch ranges, straight off the payload.
     public static let hook = "hook"
-    /// Recorded by hand through `gm file-change add`.
+    /// Recorded by hand through `gm file-change add` or the pen tool.
     public static let manual = "manual"
-    /// `gm bot reconcile` — the operator-facing gate-boundary completeness
-    /// sweep against the workflow's baseline tree.
-    public static let reconcile = "reconcile"
-    /// `gm bot sweep` — the same engine on the per-turn Stop/SubagentStop
-    /// hook, so the delta lands every turn instead of only at phase gates.
-    public static let turn = "turn"
+    /// INFERRED from the paths a Bash command NAMED (the write allowlist).
+    /// Its own member rather than a `hook` row with tool_name=Bash: an
+    /// inference must never be indistinguishable from an exact
+    /// structuredPatch row, and every consumer can filter on it.
+    public static let command = "command"
 
     /// The accepted set, in documentation order. The guard's error detail is
     /// generated from this — never hand-written.
-    public static let all: [String] = [hook, manual, reconcile, turn]
+    public static let all: [String] = [hook, manual, command]
 
-    /// `hook|manual|reconcile|turn` — for help text and error details.
+    /// `hook|manual|command` — for help text and error details.
     public static var vocabulary: String { all.joined(separator: "|") }
 }
 
@@ -1125,23 +1160,47 @@ public struct FileChangeAdd: Codable, Hashable, Sendable {
     public let relativePath: String
     public let changeKind: ChangeKind
     public let ranges: [ChangeRange]
-    /// v21-era additive OPTIONAL fields (no bump needed): when autoAttribute
-    /// is true and promptUuid is nil, the daemon attributes via the
-    /// activation registry — the caller's own claim (clientKey) first, then
-    /// the session's single claim when unambiguous, else unattributed.
-    /// OPT-IN so the long-standing "omitted prompt means deliberately
-    /// session-scoped" semantic stays intact for existing callers; the
-    /// PostToolUse bookkeeping hook is the intended caller.
+    /// When autoAttribute is true and promptUuid is nil, the daemon resolves
+    /// the prompt itself. OPT-IN so the long-standing "omitted prompt means
+    /// deliberately session-scoped" semantic stays intact for every other
+    /// caller; the PostToolUse bookkeeping hook is the intended caller.
+    ///
+    /// THERE IS NO clientKey ON THIS MESSAGE, and its absence is the design.
+    /// A hook-origin write must resolve through the claude_session_binding,
+    /// never through the ClientKey activation ladder — process ancestry
+    /// cannot tell one sibling subagent from another, which is what made hook
+    /// attribution wrong. Removing the field rather than agreeing not to send
+    /// it makes that split STRUCTURAL: no field remains through which a hook
+    /// write could reach the ladder.
     public let autoAttribute: Bool?
-    public let clientKey: String?
-    /// m0025 attribution axis — all OPTIONAL/additive. agent identity is
-    /// self-reported (ClientKey cannot distinguish sibling subagents);
-    /// origin is one of `FileChangeOrigin.all` (nil → hook, the db default);
-    /// workflow_phase is NEVER taken from the caller — the daemon stamps it
-    /// from the attributed prompt's active bot_workflow.
+    /// Agent identity is SELF-REPORTED (nothing on the transport can
+    /// distinguish sibling subagents); origin is one of `FileChangeOrigin.all`
+    /// (nil → hook, the db default); workflow_phase is NEVER taken from the
+    /// caller — the daemon stamps it from the attributed prompt's active
+    /// bot_workflow.
     public let agentId: String?
     public let agentName: String?
     public let origin: String?
+    /// The PostToolUse payload, one field per column rather than a blob so
+    /// every axis stays queryable. All OPTIONAL: the manual path carries none
+    /// of them, and a row with no tool call behind it has no tool_use_id.
+    ///
+    /// claudeTurnId is THE naming trap here. The payload field is called
+    /// `prompt_id`, but it is Claude Code's TURN id and has nothing to do
+    /// with a gmcc prompt uuid — hence the name it carries on this message.
+    ///
+    /// toolUseId is the idempotency key, paired server-side with the resolved
+    /// session_file: one `sed -i a b c` is one tool_use_id and three rows, so
+    /// the unit is (tool call, file). A replay returns the EXISTING row with
+    /// `deduplicated` set rather than writing a second one.
+    public let claudeSessionId: String?
+    public let claudeTurnId: String?
+    public let toolUseId: String?
+    public let toolName: String?
+    public let agentType: String?
+    public let permissionMode: String?
+    public let durationMs: Int?
+    public let transcriptPath: String?
 
     public init(
         project: ProjectContext,
@@ -1152,10 +1211,17 @@ public struct FileChangeAdd: Codable, Hashable, Sendable {
         changeKind: ChangeKind,
         ranges: [ChangeRange],
         autoAttribute: Bool? = nil,
-        clientKey: String? = nil,
         agentId: String? = nil,
         agentName: String? = nil,
-        origin: String? = nil
+        origin: String? = nil,
+        claudeSessionId: String? = nil,
+        claudeTurnId: String? = nil,
+        toolUseId: String? = nil,
+        toolName: String? = nil,
+        agentType: String? = nil,
+        permissionMode: String? = nil,
+        durationMs: Int? = nil,
+        transcriptPath: String? = nil
     ) {
         self.project = project
         self.instance = instance
@@ -1165,10 +1231,17 @@ public struct FileChangeAdd: Codable, Hashable, Sendable {
         self.changeKind = changeKind
         self.ranges = ranges
         self.autoAttribute = autoAttribute
-        self.clientKey = clientKey
         self.agentId = agentId
         self.agentName = agentName
         self.origin = origin
+        self.claudeSessionId = claudeSessionId
+        self.claudeTurnId = claudeTurnId
+        self.toolUseId = toolUseId
+        self.toolName = toolName
+        self.agentType = agentType
+        self.permissionMode = permissionMode
+        self.durationMs = durationMs
+        self.transcriptPath = transcriptPath
     }
 }
 
@@ -1176,11 +1249,23 @@ public struct FileChangeAddResponse: Codable, Hashable, Sendable {
     public let sessionFileUuid: String
     public let fileChangeUuid: String
     public let rangeUuids: [String]
+    /// Set when this (tool_use_id, file) pair was ALREADY recorded: the uuids
+    /// above are the existing row's, no event was appended and the session
+    /// was not touched. An explicit already-recorded SUCCESS, so a replayed
+    /// payload is never an error to the hook and never a second edit to a
+    /// subscriber. Absent means a row was written.
+    public let deduplicated: Bool?
 
-    public init(sessionFileUuid: String, fileChangeUuid: String, rangeUuids: [String]) {
+    public init(
+        sessionFileUuid: String,
+        fileChangeUuid: String,
+        rangeUuids: [String],
+        deduplicated: Bool? = nil
+    ) {
         self.sessionFileUuid = sessionFileUuid
         self.fileChangeUuid = fileChangeUuid
         self.rangeUuids = rangeUuids
+        self.deduplicated = deduplicated
     }
 }
 
@@ -2439,39 +2524,6 @@ public struct BotNextResponse: Codable, Hashable, Sendable {
     }
 }
 
-/// Advance the reconcile baseline: the git TREE SHA of the working-tree
-/// snapshot reconcile diffs against. Written by gm prompt start/resume
-/// (excluding pre-existing dirt from the sweep) and by gm bot reconcile
-/// after each sweep. The daemon stores it verbatim — git runs client-side.
-public struct BotSetBaselineRequest: Codable, Hashable, Sendable {
-    public let promptUuid: String?
-    public let clientKey: String?
-    public let sessionUuid: String?
-    public let gitTree: String
-    /// COMPARE-AND-SWAP guard for the per-turn sweep. When non-nil the
-    /// advance applies ONLY if the stored reconcile_git_head still equals
-    /// this value — the tree the caller actually diffed from — so two
-    /// concurrent SubagentStop sweeps cannot advance the cursor past another
-    /// agent's in-flight work. nil = unconditional advance, byte-for-byte
-    /// today's behaviour (gm prompt start/resume, gm bot reconcile).
-    /// Additive OPTIONAL field on an existing message: no wire bump.
-    public let expectedGitTree: String?
-
-    public init(
-        promptUuid: String? = nil,
-        clientKey: String? = nil,
-        sessionUuid: String? = nil,
-        gitTree: String,
-        expectedGitTree: String? = nil
-    ) {
-        self.promptUuid = promptUuid
-        self.clientKey = clientKey
-        self.sessionUuid = sessionUuid
-        self.gitTree = gitTree
-        self.expectedGitTree = expectedGitTree
-    }
-}
-
 /// The raw workflow row (zero-uuid resolved like NEXT).
 public struct BotGetRequest: Codable, Hashable, Sendable {
     public let promptUuid: String?
@@ -2482,6 +2534,84 @@ public struct BotGetRequest: Codable, Hashable, Sendable {
         self.promptUuid = promptUuid
         self.clientKey = clientKey
         self.sessionUuid = sessionUuid
+    }
+}
+
+// MARK: - AGENT_REGISTER
+
+/// Who agent X is — one row per agent_id, written by two parties that never
+/// coordinate.
+///
+/// TWO WRITERS, ONE ROW, keyed on agent_id alone:
+///
+/// - `gm hook subagent-start` writes the IDENTITY half (agent_type and the
+///   Claude ids) because that half is universal — every spawn shape fires
+///   SubagentStart carrying agent_id, and the hook beats the agent to any
+///   write. The gmcc session and prompt are NOT on this message: the daemon
+///   resolves them from `claudeSessionId` through the binding, which is the
+///   same single resolution path a file_change takes.
+/// - `gm agent register` writes the AUTHORITY half (role, methodology,
+///   phase), because no spawn shape delivers a role or a methodology and four
+///   identical personas differ by agent_id alone — for a bare workflow agent
+///   the role exists nowhere but the spawning script.
+///
+/// Fields are MERGED, never overwritten: an omitted field leaves whatever the
+/// row already holds, so neither writer can erase the other's half. ORDERING
+/// IS NOT A CONSTRAINT — the join happens at READ time, so a spawner that
+/// only learns agent ids when a dynamic workflow reports back may register
+/// long after the agent's rows are written and still explain them.
+public struct AgentRegisterRequest: Codable, Hashable, Sendable {
+    /// Opaque and NEVER parsed. Its shape varies by spawn kind, and reading
+    /// structure into it would make the registry wrong for whichever shape
+    /// ships next.
+    public let agentId: String
+    public let role: String?
+    public let methodology: String?
+    /// The phase the spawner spawned this agent FOR — the spawner's claim,
+    /// distinct from the workflow phase the daemon derives and stamps onto a
+    /// file_change.
+    public let workflowPhase: String?
+    /// The identity half, off the SubagentStart payload.
+    ///
+    /// `agentType` is a LABEL and never authoritative: it carries the
+    /// subagent_type for a plain subagent, the literal `workflow-subagent`
+    /// for a bare workflow agent, and the NAME for a named teammate. The role
+    /// that means something arrives on the authority half instead.
+    ///
+    /// `claudeTurnId` is the naming trap — the payload calls it `prompt_id`
+    /// and it is Claude Code's TURN id, not a gmcc prompt uuid.
+    public let agentType: String?
+    public let claudeSessionId: String?
+    public let claudeTurnId: String?
+
+    public init(
+        agentId: String,
+        role: String? = nil,
+        methodology: String? = nil,
+        workflowPhase: String? = nil,
+        agentType: String? = nil,
+        claudeSessionId: String? = nil,
+        claudeTurnId: String? = nil
+    ) {
+        self.agentId = agentId
+        self.role = role
+        self.methodology = methodology
+        self.workflowPhase = workflowPhase
+        self.agentType = agentType
+        self.claudeSessionId = claudeSessionId
+        self.claudeTurnId = claudeTurnId
+    }
+}
+
+public struct AgentRegisterResponse: Codable, Hashable, Sendable {
+    public let registration: AgentRegistrationRow
+    /// True when this call created the row — i.e. the spawner got there
+    /// before the SubagentStart hook, and the identity half is still empty.
+    public let created: Bool
+
+    public init(registration: AgentRegistrationRow, created: Bool) {
+        self.registration = registration
+        self.created = created
     }
 }
 
