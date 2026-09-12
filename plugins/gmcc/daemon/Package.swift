@@ -15,6 +15,16 @@
 
 import PackageDescription
 
+// The FoundationModels floor the agent-tool surface sits on, defined once.
+// Declarations spell it `@available(GmccAgentOS 1.0, *)`; bumping the platform
+// list is this line. Any target that writes that attribute needs this setting.
+// unsafeFlags is fine while every consumer (GMVibes included) takes this
+// package by local path — it would bar consumption as a remote versioned dep.
+let gmccAgentOS = SwiftSetting.unsafeFlags([
+    "-Xfrontend", "-define-availability",
+    "-Xfrontend", "GmccAgentOS 1.0:macOS 27.0, iOS 27.0, visionOS 27.0, watchOS 27.0",
+])
+
 let package = Package(
     name: "GMCCDaemon",
     platforms: [.macOS(.v14)],
@@ -32,7 +42,8 @@ let package = Package(
             name: "GMCCDaemonKit",
             dependencies: [
                 .product(name: "GRDB", package: "GRDB.swift")
-            ]
+            ],
+            swiftSettings: [gmccAgentOS]
         ),
         .executableTarget(
             name: "gmcc_daemon",
