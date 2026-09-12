@@ -209,6 +209,12 @@ struct Tool {
         for (name, type, description, isRequired) in params {
             if type == "array" {
                 properties[name] = ["type": "array", "items": ["type": "string"], "description": description]
+            } else if type == "array<object>" {
+                // An array whose ITEMS are objects. Without this the generator
+                // emitted items:{type:string} for every array, so a tool whose
+                // handler required objects — review_rank — advertised a schema
+                // its own handler rejected, and could not be called as declared.
+                properties[name] = ["type": "array", "items": ["type": "object"], "description": description]
             } else {
                 properties[name] = ["type": type, "description": description]
             }
@@ -776,7 +782,13 @@ let tools: [Tool] = [
         ],
         narrowing: PenNarrowing(
             parameters: ["limit", "path"],
-            retryWith: "file_change_list with limit (e.g. 100), or path to scope to one file"),
+            retryWith: "file_change_list with limit 25 or fewer, or path to scope to one file"),
+        // THE DEGRADE MUST FIT THE BUDGET BY ARITHMETIC, not by hope. A change
+        // row with its line ranges runs ~1,200 bytes, so the old limit of 100
+        // asked for ~120,000 against a 45,000 budget and could NEVER fit: the
+        // call returned zero rows and advised retrying with the same 100.
+        // Measured on a 202-change prompt: 100 -> 109,994 bytes, 60 -> 66,023,
+        // 30 -> fits. 25 keeps headroom for rows carrying many ranges.
         degrade: { args, client in
             let session = args.optString("session_uuid")
             let prompt = session == nil ? try resolvePromptUuid(args, client) : args.optString("prompt_uuid")
@@ -784,7 +796,7 @@ let tools: [Tool] = [
                 sessionUuid: session,
                 promptUuid: prompt,
                 relativePath: args.optString("path"),
-                limit: 100))
+                limit: 25))
         },
         run: { args, client in
             let session = args.optString("session_uuid")
@@ -911,6 +923,7 @@ func renderResult(
         tool: tool.name,
         narrowing: tool.narrowing,
         value: value,
+        isWrite: VerbRegistry.writePenTools.contains(tool.name),
         degrade: tool.degrade.map { degrade in { try degrade(args, client) } })
 }
 

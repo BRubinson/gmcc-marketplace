@@ -120,6 +120,23 @@ public enum VerbRegistry {
     }()
 
     /// Every pen tool that is 1:1 with a verb, plus the composites below.
+    /// Pen tools whose verb RECORDS something, so the guard can tell a write's
+    /// over-budget response from a read's. A write that reached the guard has
+    /// already landed, which makes "call it again, narrower" the one advice a
+    /// caller must not follow: these verbs append, so the retry writes a
+    /// second row. Derived from `role`, never hand-listed, so it cannot drift.
+    public static var writePenTools: Set<String> {
+        var names = Set(all.compactMap { spec -> String? in
+            guard let pen = spec.penTool else { return nil }
+            if case .record = spec.role { return pen }
+            return nil
+        })
+        // The composites carry no VerbSpec of their own. Both of these open
+        // rows (PROMPT_CREATE/PROMPT_RESUME, BRIEFING_OPEN), so both are writes.
+        names.formUnion(["prompt_init", "init_briefing"])
+        return names
+    }
+
     public static var penToolNames: Set<String> {
         Set(all.compactMap(\.penTool)).union(compositePenTools.keys)
     }

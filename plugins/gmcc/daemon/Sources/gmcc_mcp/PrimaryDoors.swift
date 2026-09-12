@@ -51,6 +51,17 @@ func makePrimaryDoorTools() -> [Tool] { [
             ("expected_version", "number", "That option's version", true),
             ("rationale", "string", "Why this option won, and what the rejected siblings contribute", true),
         ],
+        // ArchDecideResponse carries every option BODY — four architect essays
+        // in a team flow, 124,583 characters on the prompt that added this
+        // guard — so the response is over budget while the decision itself is
+        // already committed. There is nothing to narrow on the WRITE and no
+        // degrade is possible, because the only way to re-run it is to decide
+        // again. So it names the read that shows the outcome instead; the
+        // write-aware guard turns this into "completed, read it back".
+        narrowing: PenNarrowing(
+            parameters: [],
+            retryWith: "arch_get (the decision and its rationale are on the summary; "
+                + "pass option_uuid for one option's body)"),
         run: { args, client in
             try client.archDecide(ArchDecideRequest(
                 optionUuid: try args.string("option_uuid"),
@@ -68,7 +79,7 @@ func makePrimaryDoorTools() -> [Tool] { [
             """,
         params: [
             ("summary_uuid", "string", "The review summary being ranked", true),
-            ("ratings", "array", "Entries shaped {finding_uuid, rating} — as JSON objects, one per finding", true),
+            ("ratings", "array<object>", "Entries shaped {finding_uuid, rating} — as JSON objects, one per finding", true),
         ],
         run: { args, client in
             guard case let .array(items)? = args.json["ratings"] else {

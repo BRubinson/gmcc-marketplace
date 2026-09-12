@@ -200,10 +200,18 @@ func makeFastPathTools() -> [Tool] { [
             //    compiled-in spec — no round trip, no reading.
             let phases = WorkflowSpec.phases(for: variant)
             var nextPhase: PromptInitResult.NextPhase?
-            if let current = phases.firstIndex(where: { "\($0)" == next.phase }) {
+            // COMPARE RAW VALUES, NOT CASE NAMES. Phase has String raw values and
+            // no CustomStringConvertible, so "\(Phase.clarifyOpen)" is
+            // "clarifyOpen" while bot_next emits "clarify_open" — the six
+            // multi-word phases (clarify_open, clarify_user, care_package,
+            // arch_options, plan_gate, review_fix) could never match, and
+            // next_phase came back silently null for half the graph. The name
+            // below is emitted for the same reason: "reviewFix" is a spelling
+            // used nowhere else on the wire.
+            if let current = phases.firstIndex(where: { $0.rawValue == next.phase }) {
                 let upcoming = current + 1 < phases.count ? phases[current + 1] : phases[current]
                 nextPhase = .init(
-                    name: "\(upcoming)",
+                    name: upcoming.rawValue,
                     instructions: WorkflowSpec.instructions(variant: variant, phase: upcoming),
                     expectedAgents: WorkflowSpec.expectedExplorationAgents(for: variant).map { "\($0)" })
             }

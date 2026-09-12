@@ -4884,6 +4884,9 @@ public struct PenOversizeNote: Codable, Hashable, Sendable {
     public let tool: String
     /// "degraded" = a narrowed payload rides along under `result`.
     /// "withheld" = even the narrowed form did not fit; there is no payload.
+    /// "completed_degraded" / "completed_withheld" are the same two
+    /// outcomes for a WRITE, and the prefix is load-bearing: the write landed,
+    /// so the caller must read the result back rather than retry the call.
     public let outcome: String
     /// Size of the response the tool actually produced.
     public let bytes: Int
@@ -4948,6 +4951,7 @@ public enum PenResultBudget {
         tool: String,
         narrowing: PenNarrowing?,
         value: any Encodable,
+        isWrite: Bool = false,
         degrade: (() throws -> any Encodable)? = nil
     ) throws -> String {
         let encoder = encoder()
@@ -4956,26 +4960,42 @@ public enum PenResultBudget {
             return String(data: data, encoding: .utf8) ?? "{}"
         }
         let parameters = narrowing?.parameters ?? []
-        let retryWith = narrowing?.retryWith
-            ?? "this tool has no narrowing parameter — its result is one indivisible record; read it through a different tool or a narrower subject"
+        // A WRITE THAT REACHED HERE HAS ALREADY LANDED. `run` completed before
+        // the result was rendered, so the row is in the db — which makes the
+        // read-shaped advice ("call it again, narrower") the single thing the
+        // caller must NOT do: these verbs append, so a retry writes a second
+        // row. That is not hypothetical; this architecture's own record carries
+        // a duplicate persistence row created exactly that way. So a write says
+        // COMPLETED in its outcome and points at the read that shows the result.
+        let retryWith: String
+        if isWrite {
+            let readBack = narrowing?.retryWith ?? "the matching get tool"
+            retryWith = "the write COMPLETED and is recorded — do NOT retry it, "
+                + "these verbs append and a second call writes a second row. "
+                + "Read the result back with \(readBack)."
+        } else {
+            retryWith = narrowing?.retryWith
+                ?? "this tool has no narrowing parameter — its result is one indivisible record; read it through a different tool or a narrower subject"
+        }
+        func stamp(_ base: String) -> String { isWrite ? "completed_\(base)" : base }
 
         if let degrade {
             let narrowed = try encoder.encode(AnyEncodable(try degrade()))
             if narrowed.count <= maxBytes {
                 let note = PenOversizeNote(
-                    tool: tool, outcome: "degraded", bytes: data.count,
+                    tool: tool, outcome: stamp("degraded"), bytes: data.count,
                     degradedBytes: narrowed.count, budgetBytes: maxBytes,
                     parameters: parameters, retryWith: retryWith)
                 return try envelope(note: note, payload: narrowed, encoder: encoder)
             }
             let note = PenOversizeNote(
-                tool: tool, outcome: "withheld", bytes: data.count,
+                tool: tool, outcome: stamp("withheld"), bytes: data.count,
                 degradedBytes: narrowed.count, budgetBytes: maxBytes,
                 parameters: parameters, retryWith: retryWith)
             return try envelope(note: note, payload: nil, encoder: encoder)
         }
         let note = PenOversizeNote(
-            tool: tool, outcome: "withheld", bytes: data.count,
+            tool: tool, outcome: stamp("withheld"), bytes: data.count,
             degradedBytes: nil, budgetBytes: maxBytes,
             parameters: parameters, retryWith: retryWith)
         return try envelope(note: note, payload: nil, encoder: encoder)
